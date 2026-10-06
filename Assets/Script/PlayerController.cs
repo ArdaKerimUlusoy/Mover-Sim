@@ -1,36 +1,36 @@
-using UnityEngine;
+ï»¿using UnityEngine;
 using UnityEngine.InputSystem;
 
 [RequireComponent(typeof(CharacterController))]
 public class PlayerController : MonoBehaviour
 {
-    [Header("Hareket Hýzlarý")]
+    [Header("Hareket HÄ±zlarÄ±")]
     [SerializeField] private float walkSpeed = 4.5f;
     [SerializeField] private float sprintSpeed = 7f;
     [SerializeField] private float crouchSpeed = 2.2f;
 
-    [Header("Ýnsan Zýplamasý & Yerçekimi")]
-    [Tooltip("Gerçekçi insan zýplama yüksekliði (metre cinsinden)")]
+    [Header("Ä°nsan ZÄ±plamasÄ± & YerÃ§ekimi")]
+    [Tooltip("GerÃ§ekÃ§i insan zÄ±plama yÃ¼ksekliÄŸi (metre cinsinden)")]
     [SerializeField] private float jumpHeight = 0.55f;
     [SerializeField] private float gravity = -20f;
-    [Tooltip("Ýnerken uygulanan ekstra yerçekimi (havada süzülmeyi önler)")]
+    [Tooltip("Ä°nerken uygulanan ekstra yerÃ§ekimi (havada sÃ¼zÃ¼lmeyi Ã¶nler)")]
     [SerializeField] private float fallMultiplier = 1.8f;
-    [Tooltip("Yere indiðinde kameranýn hafifçe aþaðý esneme miktarý")]
+    [Tooltip("Yere indiÄŸinde kameranÄ±n hafifÃ§e aÅŸaÄŸÄ± esneme miktarÄ±")]
     [SerializeField] private float landBobAmount = 0.08f;
 
-    [Header("Eðilme (Crouch) Ayarlarý")]
+    [Header("EÄŸilme (Crouch) AyarlarÄ±")]
     [SerializeField] private float standingHeight = 2f;
     [SerializeField] private float crouchHeight = 1f;
     [SerializeField] private float standingCameraY = 0.6f;
     [SerializeField] private float crouchCameraY = 0.1f;
     [SerializeField] private float crouchTransitionSpeed = 10f;
 
-    [Header("Kamera & Bakýþ")]
+    [Header("Kamera & BakÄ±ÅŸ")]
     [SerializeField] private Transform playerCamera;
     [SerializeField] private float lookSensitivity = 0.05f;
     [SerializeField] private float lookXLimit = 85f;
 
-    [Header("Merdiven Adým Hissi")]
+    [Header("Merdiven AdÄ±m Hissi")]
     [SerializeField] private string stairsTag = "Stairs";
     [SerializeField] private float stepFrequency = 11f;
     [SerializeField] private float stepDropAmount = 0.08f;
@@ -38,6 +38,7 @@ public class PlayerController : MonoBehaviour
     [SerializeField] private float recoverySpeed = 12f;
 
     private CharacterController characterController;
+    private ObjectCarrier carrier;
     private Vector3 velocity;
     private float rotationX = 0f;
     private bool isCrouching = false;
@@ -50,6 +51,7 @@ public class PlayerController : MonoBehaviour
     private void Awake()
     {
         characterController = GetComponent<CharacterController>();
+        carrier = GetComponent<ObjectCarrier>();
         currentBaseCamY = standingCameraY;
     }
 
@@ -94,13 +96,19 @@ public class PlayerController : MonoBehaviour
 
         Vector3 moveDirection = (transform.right * horizontal + transform.forward * vertical).normalized;
 
+        // AÄŸÄ±r obje taÅŸÄ±rken koÅŸma ve zÄ±plama yok
+        bool carryingHeavy = carrier != null && carrier.IsCarryingHeavy;
+
         float currentSpeed = walkSpeed;
         if (isCrouching) currentSpeed = crouchSpeed;
-        else if (Keyboard.current.leftShiftKey.isPressed) currentSpeed = sprintSpeed;
+        else if (Keyboard.current.leftShiftKey.isPressed && !carryingHeavy) currentSpeed = sprintSpeed;
+
+        // TaÅŸÄ±nan objenin aÄŸÄ±rlÄ±ÄŸÄ±na gÃ¶re yavaÅŸla
+        if (carrier != null) currentSpeed *= carrier.SpeedMultiplier;
 
         characterController.Move(moveDirection * currentSpeed * Time.deltaTime);
 
-        if (Keyboard.current.spaceKey.wasPressedThisFrame && isGrounded && !isCrouching)
+        if (Keyboard.current.spaceKey.wasPressedThisFrame && isGrounded && !isCrouching && !carryingHeavy)
         {
             velocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
         }

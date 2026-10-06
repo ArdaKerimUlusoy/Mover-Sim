@@ -311,6 +311,8 @@ GameObject:
   - component: {fileID: 264549012}
   - component: {fileID: 264549011}
   - component: {fileID: 264549010}
+  - component: {fileID: 264549015}
+  - component: {fileID: 264549014}
   m_Layer: 0
   m_Name: Cube (14)
   m_TagString: Untagged
@@ -411,6 +413,47 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &264549014
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 264549009}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5d26db54dc2b52542bb8686035d87184, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Pickupable
+  displayName: "Arda'n\u0131n Poposu"
+  canBePickedUp: 1
+--- !u!54 &264549015
+Rigidbody:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 264549009}
+  serializedVersion: 5
+  m_Mass: 1
+  m_LinearDamping: 0
+  m_AngularDamping: 0.05
+  m_CenterOfMass: {x: 0, y: 0, z: 0}
+  m_InertiaTensor: {x: 1, y: 1, z: 1}
+  m_InertiaRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ImplicitCom: 1
+  m_ImplicitTensor: 1
+  m_UseGravity: 1
+  m_IsKinematic: 0
+  m_Interpolate: 0
+  m_Constraints: 0
+  m_CollisionDetection: 0
 --- !u!1 &269942639
 GameObject:
   m_ObjectHideFlags: 0
@@ -868,6 +911,7 @@ GameObject:
   - component: {fileID: 526480296}
   - component: {fileID: 526480295}
   - component: {fileID: 526480294}
+  - component: {fileID: 526480299}
   m_Layer: 0
   m_Name: Player
   m_TagString: Untagged
@@ -998,13 +1042,43 @@ Transform:
   m_GameObject: {fileID: 526480293}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 1, z: -19.8}
+  m_LocalPosition: {x: 5.15, y: 1, z: 5.06}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 330585546}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &526480299
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 526480293}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e68533ede4ac1b247878aad241a7b538, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::ObjectCarrier
+  playerCamera: {fileID: 0}
+  pickupRange: 3
+  maxPickupMass: 40
+  pickupMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  holdDistance: 1.8
+  minHoldDistance: 1
+  maxHoldDistance: 2.8
+  scrollSensitivity: 1.01
+  followStrength: 15
+  maxFollowSpeed: 12
+  rotateStrength: 12
+  breakDistance: 2
+  throwForce: 8
+  heaviestSpeedMultiplier: 0.55
+  heavyMassThreshold: 20
+  showCrosshair: 1
 --- !u!1 &586979327
 GameObject:
   m_ObjectHideFlags: 0
@@ -1359,6 +1433,8 @@ GameObject:
   - component: {fileID: 1112275124}
   - component: {fileID: 1112275123}
   - component: {fileID: 1112275122}
+  - component: {fileID: 1112275127}
+  - component: {fileID: 1112275126}
   m_Layer: 0
   m_Name: Cube (13)
   m_TagString: Untagged
@@ -1459,6 +1535,47 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1112275126
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1112275121}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5d26db54dc2b52542bb8686035d87184, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Pickupable
+  displayName: Emre'nin Poposu
+  canBePickedUp: 1
+--- !u!54 &1112275127
+Rigidbody:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1112275121}
+  serializedVersion: 5
+  m_Mass: 1
+  m_LinearDamping: 0
+  m_AngularDamping: 0.05
+  m_CenterOfMass: {x: 0, y: 0, z: 0}
+  m_InertiaTensor: {x: 1, y: 1, z: 1}
+  m_InertiaRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ImplicitCom: 1
+  m_ImplicitTensor: 1
+  m_UseGravity: 1
+  m_IsKinematic: 0
+  m_Interpolate: 0
+  m_Constraints: 0
+  m_CollisionDetection: 0
 --- !u!1 &1135720932
 GameObject:
   m_ObjectHideFlags: 0
@@ -1673,6 +1790,8 @@ GameObject:
   - component: {fileID: 1608052042}
   - component: {fileID: 1608052041}
   - component: {fileID: 1608052040}
+  - component: {fileID: 1608052045}
+  - component: {fileID: 1608052044}
   m_Layer: 0
   m_Name: Cube (15)
   m_TagString: Untagged
@@ -1773,6 +1892,47 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1608052044
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1608052039}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5d26db54dc2b52542bb8686035d87184, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Pickupable
+  displayName: Musti'nin Poposu
+  canBePickedUp: 1
+--- !u!54 &1608052045
+Rigidbody:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1608052039}
+  serializedVersion: 5
+  m_Mass: 1
+  m_LinearDamping: 0
+  m_AngularDamping: 0.05
+  m_CenterOfMass: {x: 0, y: 0, z: 0}
+  m_InertiaTensor: {x: 1, y: 1, z: 1}
+  m_InertiaRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ImplicitCom: 1
+  m_ImplicitTensor: 1
+  m_UseGravity: 1
+  m_IsKinematic: 0
+  m_Interpolate: 0
+  m_Constraints: 0
+  m_CollisionDetection: 0
 --- !u!1 &1674764272
 GameObject:
   m_ObjectHideFlags: 0
