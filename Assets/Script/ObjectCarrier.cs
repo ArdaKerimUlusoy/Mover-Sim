@@ -1,25 +1,13 @@
 ﻿using UnityEngine;
 using UnityEngine.InputSystem;
 
-/// <summary>
-/// E ile Rigidbody'li objeleri kaldırıp taşıma mekaniği.
-/// Player objesine eklenir. Obje fizik ile tutulur (duvarlardan geçmez).
-///
-/// Kontroller:
-///   E          : Kaldır / Bırak
-///   Sol Tık    : Fırlat
-///   R          : Objeyi 90° döndür
-///   Tekerlek   : Tutma mesafesini ayarla
-/// </summary>
 public class ObjectCarrier : MonoBehaviour
 {
     [Header("Referanslar")]
-    [Tooltip("Boş bırakılırsa PlayerController'daki kamera / Camera.main kullanılır")]
     [SerializeField] private Transform playerCamera;
 
     [Header("Kaldırma")]
     [SerializeField] private float pickupRange = 3f;
-    [Tooltip("Bu kütleden (kg) ağır objeler kaldırılamaz")]
     [SerializeField] private float maxPickupMass = 40f;
     [SerializeField] private LayerMask pickupMask = ~0;
 
@@ -28,44 +16,49 @@ public class ObjectCarrier : MonoBehaviour
     [SerializeField] private float minHoldDistance = 1.0f;
     [SerializeField] private float maxHoldDistance = 2.8f;
     [SerializeField] private float scrollSensitivity = 0.002f;
-    [Tooltip("Objenin hedef noktaya ne kadar hızlı geldiği")]
-    [SerializeField] private float followStrength = 15f;
-    [SerializeField] private float maxFollowSpeed = 12f;
-    [SerializeField] private float rotateStrength = 12f;
-    [Tooltip("Obje hedef noktadan bu kadar uzaklaşırsa (bir yere sıkışırsa) düşer")]
-    [SerializeField] private float breakDistance = 2.0f;
+    [SerializeField] private float followStrength = 22f; // Hedefe çekiş gücü artırıldı
+    [SerializeField] private float maxFollowSpeed = 35f;  // Ani dönüşlerde yetişmesi için hız limiti yükseltildi
+    [SerializeField] private float rotateStrength = 16f;
 
-    [Header("Fırlatma")]
-    [SerializeField] private float throwForce = 8f;
+    [Header("Güçlü Fırlatma (Charge Throw)")]
+    [SerializeField] private float maxThrowForce = 14f;
+    [SerializeField] private float minThrowForce = 2.5f;
+    [SerializeField] private float baseChargeDuration = 0.8f;
+    [SerializeField] private float heavyChargeDuration = 1.8f;
 
-    [Header("Ağırlık Etkisi")]
-    [Tooltip("En ağır objeyi taşırken oyuncu hızı bu oranla çarpılır")]
+    [Header("Ağırlık & Hissiyat")]
+    [Range(0.2f, 0.8f)]
+    [SerializeField] private float minSpeedMultiplier = 0.35f;
     [Range(0.2f, 1f)]
-    [SerializeField] private float heaviestSpeedMultiplier = 0.55f;
-    [Tooltip("Bu kütlenin üstündeki objelerle koşulamaz ve zıplanamaz")]
+    [SerializeField] private float minTurnMultiplier = 0.45f;
     [SerializeField] private float heavyMassThreshold = 20f;
 
-    [Header("Arayüz")]
+    [Header("Arayüz & Halka")]
     [SerializeField] private bool showCrosshair = true;
+    [SerializeField] private float ringRadius = 22f;
 
-    // Dışarıdan okunan durumlar (PlayerController kullanır)
     public bool IsHolding => heldBody != null;
     public float SpeedMultiplier { get; private set; } = 1f;
+    public float TurnSensitivityMultiplier { get; private set; } = 1f;
+    public float WeightRatio { get; private set; } = 0f;
     public bool IsCarryingHeavy => heldBody != null && heldBody.mass >= heavyMassThreshold;
 
     private Rigidbody heldBody;
     private Collider[] heldColliders;
     private Collider[] playerColliders;
-    private Quaternion heldRotationOffset; // oyuncunun yönüne göre objenin dönüşü
+    private Quaternion heldRotationOffset;
 
-    // Bırakınca geri yüklenecek orijinal ayarlar
     private bool originalUseGravity;
     private float originalLinearDamping;
     private float originalAngularDamping;
     private RigidbodyInterpolation originalInterpolation;
     private CollisionDetectionMode originalCollisionMode;
 
-    private Rigidbody lookTarget; // nişan alınan obje (arayüz için)
+    private Rigidbody lookTarget;
+
+    private bool isChargingThrow = false;
+    private float throwChargeTimer = 0f;
+    private Texture2D whitePixel;
 
     private void Awake()
     {
@@ -76,6 +69,10 @@ public class ObjectCarrier : MonoBehaviour
             else if (Camera.main != null) playerCamera = Camera.main.transform;
         }
         playerColliders = GetComponentsInChildren<Collider>();
+
+        whitePixel = new Texture2D(1, 1);
+        whitePixel.SetPixel(0, 0, Color.white);
+        whitePixel.Apply();
     }
 
     private void Update()
@@ -84,22 +81,33 @@ public class ObjectCarrier : MonoBehaviour
 
         lookTarget = heldBody == null ? FindPickupTarget() : null;
 
+        // E ile Kaldır / Bırak
         if (Keyboard.current.eKey.wasPressedThisFrame)
         {
-            if (heldBody != null) Drop();
-            else if (lookTarget != null) PickUp(lookTarget);
+            if (heldBody != null)
+            {
+                CancelThrowCharge();
+                Drop();
+            }
+            else if (lookTarget != null)
+            {
+                if (lookTarget.mass <= maxPickupMass)
+                {
+                    Pickupable p = lookTarget.GetComponent<Pickupable>();
+                    if (p == null || p.CanBePickedUp)
+                    {
+                        PickUp(lookTarget);
+                    }
+                }
+            }
         }
 
         if (heldBody == null) return;
 
+        HandleThrowInput();
+
         if (Mouse.current != null)
         {
-            if (Mouse.current.leftButton.wasPressedThisFrame)
-            {
-                Throw();
-                return;
-            }
-
             float scroll = Mouse.current.scroll.ReadValue().y;
             if (Mathf.Abs(scroll) > 0.01f)
             {
@@ -113,6 +121,51 @@ public class ObjectCarrier : MonoBehaviour
         }
     }
 
+    private void HandleThrowInput()
+    {
+        if (Mouse.current == null) return;
+
+        if (Mouse.current.leftButton.wasPressedThisFrame)
+        {
+            isChargingThrow = true;
+            throwChargeTimer = 0f;
+        }
+
+        if (isChargingThrow && Mouse.current.leftButton.isPressed)
+        {
+            float chargeDuration = Mathf.Lerp(baseChargeDuration, heavyChargeDuration, WeightRatio);
+            throwChargeTimer += Time.deltaTime / chargeDuration;
+            throwChargeTimer = Mathf.Clamp01(throwChargeTimer);
+        }
+
+        if (isChargingThrow && Mouse.current.leftButton.wasReleasedThisFrame)
+        {
+            ExecuteThrow(throwChargeTimer);
+            CancelThrowCharge();
+        }
+    }
+
+    private void CancelThrowCharge()
+    {
+        isChargingThrow = false;
+        throwChargeTimer = 0f;
+    }
+
+    private void ExecuteThrow(float chargePercent)
+    {
+        Rigidbody body = heldBody;
+        Drop();
+
+        float massEfficiency = Mathf.Clamp01(1f - (body.mass / (maxPickupMass * 1.1f)));
+        massEfficiency = Mathf.Pow(massEfficiency, 1.3f);
+
+        float chosenForce = Mathf.Lerp(minThrowForce, maxThrowForce, chargePercent) * massEfficiency;
+        Vector3 throwDir = (playerCamera.forward + Vector3.up * 0.12f).normalized;
+
+        body.linearVelocity = throwDir * chosenForce;
+        body.AddTorque(playerCamera.right * (chosenForce * 0.5f), ForceMode.Impulse);
+    }
+
     private void FixedUpdate()
     {
         if (heldBody == null) return;
@@ -120,18 +173,11 @@ public class ObjectCarrier : MonoBehaviour
         Vector3 targetPos = GetHoldPoint();
         Vector3 toTarget = targetPos - heldBody.worldCenterOfMass;
 
-        // Bir yere sıkıştıysa bırak
-        if (toTarget.magnitude > breakDistance)
-        {
-            Drop();
-            return;
-        }
-
-        // Konum: hedefe doğru hız ver (fizik çarpışmaları korunur)
+        // Ani fare hareketinde breakDistance kontrolü objeyi elden düşürmez;
+        // Obje ne kadar geride kalırsa kalsın hedefine doğru hızlanır.
         Vector3 desiredVelocity = Vector3.ClampMagnitude(toTarget * followStrength, maxFollowSpeed);
         heldBody.linearVelocity = desiredVelocity;
 
-        // Dönüş: oyuncunun baktığı yöne göre sabit kalsın
         Quaternion targetRot = Quaternion.Euler(0f, transform.eulerAngles.y, 0f) * heldRotationOffset;
         Quaternion delta = targetRot * Quaternion.Inverse(heldBody.rotation);
         delta.ToAngleAxis(out float angle, out Vector3 axis);
@@ -160,7 +206,7 @@ public class ObjectCarrier : MonoBehaviour
 
         foreach (RaycastHit hit in hits)
         {
-            if (hit.collider.transform.IsChildOf(transform)) continue; // oyuncunun kendisi
+            if (hit.collider.transform.IsChildOf(transform)) continue;
             if (hit.distance >= closest) continue;
 
             closest = hit.distance;
@@ -168,10 +214,6 @@ public class ObjectCarrier : MonoBehaviour
         }
 
         if (result == null || result.isKinematic) return null;
-        if (result.mass > maxPickupMass) return null;
-
-        Pickupable p = result.GetComponent<Pickupable>();
-        if (p != null && !p.CanBePickedUp) return null;
 
         return result;
     }
@@ -193,19 +235,20 @@ public class ObjectCarrier : MonoBehaviour
         body.interpolation = RigidbodyInterpolation.Interpolate;
         body.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
 
-        // Objenin oyuncuya göre mevcut yatay dönüşünü koru, 90°'ye yuvarla
         float relativeYaw = body.rotation.eulerAngles.y - transform.eulerAngles.y;
         relativeYaw = Mathf.Round(relativeYaw / 90f) * 90f;
         heldRotationOffset = Quaternion.Euler(0f, relativeYaw, 0f);
 
-        // Başlangıç mesafesi: objenin şu anki uzaklığı (makul aralıkta)
         float currentDist = Vector3.Distance(playerCamera.position, body.worldCenterOfMass);
         holdDistance = Mathf.Clamp(currentDist, minHoldDistance, maxHoldDistance);
 
         SetPlayerCollisionIgnored(true);
 
-        float massRatio = Mathf.Clamp01(body.mass / maxPickupMass);
-        SpeedMultiplier = Mathf.Lerp(1f, heaviestSpeedMultiplier, massRatio);
+        float linearRatio = Mathf.Clamp01(body.mass / maxPickupMass);
+        WeightRatio = Mathf.Pow(linearRatio, 1.4f);
+
+        SpeedMultiplier = Mathf.Lerp(1f, minSpeedMultiplier, WeightRatio);
+        TurnSensitivityMultiplier = Mathf.Lerp(1f, minTurnMultiplier, WeightRatio);
     }
 
     public void Drop()
@@ -218,7 +261,6 @@ public class ObjectCarrier : MonoBehaviour
         heldBody.interpolation = originalInterpolation;
         heldBody.collisionDetectionMode = originalCollisionMode;
 
-        // Bırakırken çok hızlı uçmasın
         heldBody.linearVelocity = Vector3.ClampMagnitude(heldBody.linearVelocity, 3f);
         heldBody.angularVelocity = Vector3.zero;
 
@@ -227,15 +269,9 @@ public class ObjectCarrier : MonoBehaviour
         heldBody = null;
         heldColliders = null;
         SpeedMultiplier = 1f;
-    }
-
-    private void Throw()
-    {
-        Rigidbody body = heldBody;
-        Drop();
-        // Ağır objeler daha az uzağa gider
-        float massFactor = Mathf.Clamp(1f / Mathf.Max(body.mass, 0.1f), 0.1f, 1f);
-        body.AddForce(playerCamera.forward * throwForce * massFactor * body.mass, ForceMode.Impulse);
+        TurnSensitivityMultiplier = 1f;
+        WeightRatio = 0f;
+        CancelThrowCharge();
     }
 
     private void SetPlayerCollisionIgnored(bool ignore)
@@ -265,21 +301,42 @@ public class ObjectCarrier : MonoBehaviour
 
         if (showCrosshair)
         {
-            GUI.color = (lookTarget != null || heldBody != null) ? Color.white : new Color(1f, 1f, 1f, 0.5f);
-            GUI.DrawTexture(new Rect(cx - 2f, cy - 2f, 4f, 4f), Texture2D.whiteTexture);
+            GUI.color = (lookTarget != null || heldBody != null) ? Color.white : new Color(1f, 1f, 1f, 0.45f);
+            GUI.DrawTexture(new Rect(cx - 2f, cy - 2f, 4f, 4f), whitePixel);
             GUI.color = Color.white;
         }
 
+        if (isChargingThrow)
+        {
+            DrawCircularProgressBar(cx, cy, ringRadius, throwChargeTimer);
+        }
+
         string text = null;
+        Color textColor = Color.white;
+
         if (heldBody != null)
         {
-            text = "[E] Bırak    [Sol Tık] Fırlat    [R] Döndür    [Tekerlek] Mesafe";
+            text = $"[E] Bırak    [Sol Tık Basılı Tut] Güçlü Fırlat    [R] Döndür    [Ağırlık: {Mathf.RoundToInt(heldBody.mass)} kg]";
         }
         else if (lookTarget != null)
         {
             Pickupable p = lookTarget.GetComponent<Pickupable>();
-            string name = (p != null && !string.IsNullOrEmpty(p.DisplayName)) ? p.DisplayName : lookTarget.name;
-            text = $"[E] Kaldır: {name}";
+            string objName = (p != null && !string.IsNullOrEmpty(p.DisplayName)) ? p.DisplayName : lookTarget.name;
+
+            if (lookTarget.mass > maxPickupMass)
+            {
+                text = $"Bu çok ağır, tek kaldıramazsın! ({objName} - {Mathf.RoundToInt(lookTarget.mass)} kg)";
+                textColor = new Color(1f, 0.35f, 0.35f);
+            }
+            else if (p != null && !p.CanBePickedUp)
+            {
+                text = $"{objName} (Taşınamaz)";
+                textColor = new Color(0.8f, 0.8f, 0.8f);
+            }
+            else
+            {
+                text = $"[E] Kaldır: {objName} ({Mathf.RoundToInt(lookTarget.mass)} kg)";
+            }
         }
 
         if (text == null) return;
@@ -290,12 +347,41 @@ public class ObjectCarrier : MonoBehaviour
             fontSize = 18,
             fontStyle = FontStyle.Bold
         };
-        Rect rect = new Rect(0f, cy + 30f, Screen.width, 30f);
+        Rect rect = new Rect(0f, cy + 34f, Screen.width, 30f);
 
-        // Okunabilirlik için gölge
-        style.normal.textColor = new Color(0f, 0f, 0f, 0.8f);
+        style.normal.textColor = new Color(0f, 0f, 0f, 0.85f);
         GUI.Label(new Rect(rect.x + 1f, rect.y + 1f, rect.width, rect.height), text, style);
-        style.normal.textColor = Color.white;
+
+        style.normal.textColor = textColor;
         GUI.Label(rect, text, style);
+    }
+
+    private void DrawCircularProgressBar(float centerX, float centerY, float radius, float fillProgress)
+    {
+        int totalSegments = 40;
+        int activeSegments = Mathf.RoundToInt(totalSegments * fillProgress);
+
+        Color chargeColor = Color.Lerp(new Color(1f, 1f, 1f, 0.9f), new Color(1f, 0.4f, 0.1f, 1f), fillProgress);
+
+        for (int i = 0; i < totalSegments; i++)
+        {
+            float angle = (i / (float)totalSegments) * 360f - 90f;
+            float rad = angle * Mathf.Deg2Rad;
+
+            float x = centerX + Mathf.Cos(rad) * radius;
+            float y = centerY + Mathf.Sin(rad) * radius;
+
+            if (i < activeSegments)
+            {
+                GUI.color = chargeColor;
+                GUI.DrawTexture(new Rect(x - 2f, y - 2f, 4f, 4f), whitePixel);
+            }
+            else
+            {
+                GUI.color = new Color(0.3f, 0.3f, 0.3f, 0.35f);
+                GUI.DrawTexture(new Rect(x - 1.5f, y - 1.5f, 3f, 3f), whitePixel);
+            }
+        }
+        GUI.color = Color.white;
     }
 }

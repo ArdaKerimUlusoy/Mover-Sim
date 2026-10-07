@@ -9,13 +9,21 @@ public class PlayerController : MonoBehaviour
     [SerializeField] private float sprintSpeed = 7f;
     [SerializeField] private float crouchSpeed = 2.2f;
 
+    [Header("Atalet & İvmelenme (Momentum)")]
+    [Tooltip("Tuşa basarken hızlanma çevikliği")]
+    [SerializeField] private float baseAcceleration = 18f;
+    [Tooltip("Ağır yük taşırken hızlanma çevikliği")]
+    [SerializeField] private float heavyAcceleration = 4f;
+
+    [Tooltip("Tuşu bıraktığında durma (fren) çevikliği - Yüksek olması drift/kaymayı önler")]
+    [SerializeField] private float baseDeceleration = 30f;
+    [Tooltip("Ağır yük taşırken durma çevikliği")]
+    [SerializeField] private float heavyDeceleration = 12f;
+
     [Header("İnsan Zıplaması & Yerçekimi")]
-    [Tooltip("Gerçekçi insan zıplama yüksekliği (metre cinsinden)")]
     [SerializeField] private float jumpHeight = 0.55f;
     [SerializeField] private float gravity = -20f;
-    [Tooltip("İnerken uygulanan ekstra yerçekimi (havada süzülmeyi önler)")]
     [SerializeField] private float fallMultiplier = 1.8f;
-    [Tooltip("Yere indiğinde kameranın hafifçe aşağı esneme miktarı")]
     [SerializeField] private float landBobAmount = 0.08f;
 
     [Header("Eğilme (Crouch) Ayarları")]
@@ -39,7 +47,8 @@ public class PlayerController : MonoBehaviour
 
     private CharacterController characterController;
     private ObjectCarrier carrier;
-    private Vector3 velocity;
+    private Vector3 verticalVelocity;
+    private Vector3 currentHorizontalVelocity;
     private float rotationX = 0f;
     private bool isCrouching = false;
     private bool wasGrounded = true;
@@ -77,13 +86,13 @@ public class PlayerController : MonoBehaviour
 
         if (isGrounded && !wasGrounded)
         {
-            landOffset = -landBobAmount; 
+            landOffset = -landBobAmount;
         }
         wasGrounded = isGrounded;
 
-        if (isGrounded && velocity.y < 0)
+        if (isGrounded && verticalVelocity.y < 0)
         {
-            velocity.y = -2f;
+            verticalVelocity.y = -2f;
         }
 
         float horizontal = 0f;
@@ -94,33 +103,56 @@ public class PlayerController : MonoBehaviour
         if (Keyboard.current.aKey.isPressed || Keyboard.current.leftArrowKey.isPressed) horizontal -= 1f;
         if (Keyboard.current.dKey.isPressed || Keyboard.current.rightArrowKey.isPressed) horizontal += 1f;
 
-        Vector3 moveDirection = (transform.right * horizontal + transform.forward * vertical).normalized;
+        Vector3 inputDir = (transform.right * horizontal + transform.forward * vertical).normalized;
 
-        // Ağır obje taşırken koşma ve zıplama yok
         bool carryingHeavy = carrier != null && carrier.IsCarryingHeavy;
 
-        float currentSpeed = walkSpeed;
-        if (isCrouching) currentSpeed = crouchSpeed;
-        else if (Keyboard.current.leftShiftKey.isPressed && !carryingHeavy) currentSpeed = sprintSpeed;
+        // Hedef hız
+        float targetSpeed = walkSpeed;
+        if (isCrouching) targetSpeed = crouchSpeed;
+        else if (Keyboard.current.leftShiftKey.isPressed && !carryingHeavy) targetSpeed = sprintSpeed;
 
-        // Taşınan objenin ağırlığına göre yavaşla
-        if (carrier != null) currentSpeed *= carrier.SpeedMultiplier;
+        if (carrier != null) targetSpeed *= carrier.SpeedMultiplier;
 
-        characterController.Move(moveDirection * currentSpeed * Time.deltaTime);
+        Vector3 targetVelocity = inputDir * targetSpeed;
 
+        // Ağırlık oranını al
+        float weightRatio = carrier != null ? carrier.WeightRatio : 0f;
+
+        // Tuşa basılıyor mu (hızlanma) yoksa bırakıldı mı (frenleme)?
+        bool isMovingInput = inputDir.sqrMagnitude > 0.01f;
+        float targetRate;
+
+        if (isMovingInput)
+        {
+            // İleri/yana koşarken hızlanma ivmesi
+            targetRate = Mathf.Lerp(baseAcceleration, heavyAcceleration, weightRatio);
+        }
+        else
+        {
+            // Elini tuştan çektiğinde sert durma/frenleme ivmesi (kaymayı önler)
+            targetRate = Mathf.Lerp(baseDeceleration, heavyDeceleration, weightRatio);
+        }
+
+        // Hızı uygula
+        currentHorizontalVelocity = Vector3.MoveTowards(currentHorizontalVelocity, targetVelocity, targetRate * Time.deltaTime);
+
+        characterController.Move(currentHorizontalVelocity * Time.deltaTime);
+
+        // Zıplama
         if (Keyboard.current.spaceKey.wasPressedThisFrame && isGrounded && !isCrouching && !carryingHeavy)
         {
-            velocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
+            verticalVelocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
         }
 
         float appliedGravity = gravity;
-        if (velocity.y < 0)
+        if (verticalVelocity.y < 0)
         {
             appliedGravity *= fallMultiplier;
         }
 
-        velocity.y += appliedGravity * Time.deltaTime;
-        characterController.Move(velocity * Time.deltaTime);
+        verticalVelocity.y += appliedGravity * Time.deltaTime;
+        characterController.Move(verticalVelocity * Time.deltaTime);
     }
 
     private void HandleCrouch()
@@ -184,7 +216,8 @@ public class PlayerController : MonoBehaviour
     {
         if (playerCamera == null || Mouse.current == null) return;
 
-        Vector2 mouseDelta = Mouse.current.delta.ReadValue() * lookSensitivity;
+        float turnFactor = carrier != null ? carrier.TurnSensitivityMultiplier : 1f;
+        Vector2 mouseDelta = Mouse.current.delta.ReadValue() * (lookSensitivity * turnFactor);
 
         rotationX -= mouseDelta.y;
         rotationX = Mathf.Clamp(rotationX, -lookXLimit, lookXLimit);
