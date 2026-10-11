@@ -241,6 +241,9 @@ public class ObjectCarrier : MonoBehaviour
 
         // Eserler/aletler çantaya girer (PlayerInventory), elde taşınmaz.
         if (result.GetComponentInParent<WorldItem>() != null) return null;
+        // Kapı, dolap gibi etkileşim noktaları ve oyuncular elde taşınmaz.
+        if (result.GetComponentInParent<Interactable>() != null) return null;
+        if (result.GetComponentInParent<PlayerInventory>() != null) return null;
 
         // Online'da başkasına ait objeler bizde kinematic görünür; NetworkPickupable varsa yine hedeflenebilir.
         if (result.isKinematic && result.GetComponent<NetworkPickupable>() == null) return null;

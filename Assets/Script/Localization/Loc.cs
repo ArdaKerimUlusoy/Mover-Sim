@@ -161,6 +161,51 @@ public static class Loc
         { "inv.cantdrop",     new[] { "This item can't be dropped.", "Bu eşya bırakılamaz." } },
         { "inv.similarity",   new[] { "Similarity {0}%", "Benzerlik %{0}" } },
 
+        { "inv.hold",         new[] { "Hold", "Ele Al" } },
+        { "inv.putaway",      new[] { "Put Away", "Kaldır" } },
+        { "inv.inhand",       new[] { "(in hand)", "(elinde)" } },
+
+        // Bilgi kartı
+        { "card.weight",      new[] { "Weight: {0} kg", "Ağırlık: {0} kg" } },
+        { "card.count",       new[] { "Amount: {0}", "Adet: {0}" } },
+        { "card.value",       new[] { "Value: ${0}", "Değer: ${0}" } },
+        { "card.similarity",  new[] { "Similarity: {0}% ({1})", "Benzerlik: %{0} ({1})" } },
+        { "card.throwhint",   new[] { "Press [Q] to throw and distract guards.", "[Q] ile fırlatıp güvenliklerin dikkatini dağıt." } },
+        { "grade.flawless",   new[] { "Flawless", "Kusursuz" } },
+        { "grade.good",       new[] { "Good", "İyi" } },
+        { "grade.suspicious", new[] { "Suspicious", "Şüpheli" } },
+        { "grade.crude",      new[] { "Crude", "Kaba" } },
+
+        // Fırlatma
+        { "throw.hint",       new[] { "[Q] Throw coin", "[Q] Para at" } },
+        { "throw.none",       new[] { "You have nothing to throw.", "Fırlatacak bir şeyin yok." } },
+
+        // Çalma
+        { "steal.prompt",     new[] { "[Hold E] Steal from {0}", "[E Basılı Tut] {0} kişisinden çal" } },
+        { "steal.getbehind",  new[] { "Sneak behind {0} to steal", "Çalmak için {0} kişisinin arkasına geç" } },
+        { "steal.emptyprompt",new[] { "{0}'s bag is empty", "{0} kişisinin çantası boş" } },
+        { "steal.title",      new[] { "{0}'S BAG", "{0} - ÇANTA" } },
+        { "steal.help",       new[] { "Pick one item to steal. Be quick!", "Çalmak için bir eşya seç. Çabuk ol!" } },
+        { "steal.take",       new[] { "Steal", "Çal" } },
+        { "steal.nofit",      new[] { "Won't fit", "Sığmıyor" } },
+        { "steal.emptybag",   new[] { "Their bag is empty.", "Çantası boş." } },
+        { "steal.close",      new[] { "[Tab] / [Esc] Back off", "[Tab] / [Esc] Vazgeç" } },
+        { "steal.rummage",    new[] { "{0} is going through your bag!", "{0} çantanı karıştırıyor!" } },
+        { "steal.stolen",     new[] { "{0} stole {1} from you!", "{0} çantandan {1} çaldı!" } },
+        { "steal.success",    new[] { "You stole {1} from {0}!", "{0} kişisinden {1} çaldın!" } },
+
+        // Para
+        { "money.team",       new[] { "Team: ${0}", "Ekip: ${0}" } },
+        { "money.personal",   new[] { "You: ${0}", "Sen: ${0}" } },
+
+        // Etkileşim noktaları
+        { "interact.open",    new[] { "[E] Open", "[E] Aç" } },
+        { "interact.close",   new[] { "[E] Close", "[E] Kapat" } },
+        { "interact.search",  new[] { "[E] Search", "[E] Ara" } },
+        { "interact.search.hold", new[] { "[Hold E] Search", "[E Basılı Tut] Ara" } },
+        { "interact.empty",   new[] { "Empty", "Boş" } },
+        { "interact.found",   new[] { "Found: {1}", "Bulundu: {1}" } },
+
         // Eşya türleri
         { "item.type.original",    new[] { "Original", "Orijinal" } },
         { "item.type.forgery",     new[] { "Forgery", "Sahte" } },

@@ -74,6 +74,13 @@ public class PlayerNetworkSetup : NetworkBehaviour
     private string serverRegisteredName;
     private GUIStyle nameStyle, nameShadowStyle;
 
+    private void Awake()
+    {
+        // Ekstra kurulum gerektirmesin diye etkileşim ve ayak sesi bileşenleri otomatik eklenir.
+        if (GetComponent<PlayerInteractor>() == null) gameObject.AddComponent<PlayerInteractor>();
+        if (GetComponent<PlayerFootsteps>() == null) gameObject.AddComponent<PlayerFootsteps>();
+    }
+
     // ---------------- Kayıtlı isim (menüdeki kutu) ----------------
 
     public static string SavedName

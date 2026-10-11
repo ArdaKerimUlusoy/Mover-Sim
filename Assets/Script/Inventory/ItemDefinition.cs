@@ -45,4 +45,21 @@ public class ItemDefinition : ScriptableObject
     public int MaxStack => stackable ? Mathf.Max(1, maxStack) : 1;
 
     public static string TypeName(ItemType t) => Loc.T("item.type." + t.ToString().ToLowerInvariant());
+
+    /// <summary>Benzerlik derecesi (GDD Bölüm 4): 90+ Kusursuz, 75+ İyi, 50+ Şüpheli, altı Kaba.</summary>
+    public static string GradeName(byte similarity)
+    {
+        if (similarity >= 90) return Loc.T("grade.flawless");
+        if (similarity >= 75) return Loc.T("grade.good");
+        if (similarity >= 50) return Loc.T("grade.suspicious");
+        return Loc.T("grade.crude");
+    }
+
+    public static Color GradeColor(byte similarity)
+    {
+        if (similarity >= 90) return new Color(0.45f, 0.9f, 0.5f);
+        if (similarity >= 75) return new Color(0.65f, 0.85f, 0.4f);
+        if (similarity >= 50) return new Color(1f, 0.8f, 0.3f);
+        return new Color(1f, 0.45f, 0.4f);
+    }
 }

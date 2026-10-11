@@ -20,5 +20,5 @@ MonoBehaviour:
   stackable: 0
   maxStack: 1
   uiColor: {r: 0.3, g: 0.55, b: 0.75, a: 1}
-  icon: {fileID: 0}
+  icon: {fileID: 2800000, guid: 1fab2512380070542a51433565bad338, type: 3}
   worldPrefab: {fileID: 3143499543331755884, guid: 7157f3746e337a746901d96e1fac29b7, type: 3}

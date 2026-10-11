@@ -4,7 +4,11 @@ using System.Linq;
 using Unity.Netcode;
 using Unity.Netcode.Components;
 using UnityEditor;
+using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.Rendering;
+using UnityEngine.Rendering.Universal;
+using UnityEngine.SceneManagement;
 using Object = UnityEngine.Object;
 
 /// <summary>
@@ -19,6 +23,8 @@ public static class ItemTools
     private const string PrefabFolder = "Assets/Items/Prefabs";
     private const string MaterialFolder = "Assets/Items/Materials";
     private const string ResourcesFolder = "Assets/Resources";
+    private const string IconFolder = "Assets/Items/Icons";
+    private const int IconSize = 256;
 
     [MenuItem("Tools/Sahte Şaheser/Rebuild Item Database")]
     public static void RebuildDatabase()
@@ -67,10 +73,136 @@ public static class ItemTools
 
         AssetDatabase.SaveAssets();
         RebuildDatabase();
+        GenerateIcons();
 
         Debug.Log("[Inventory] Örnek eşyalar hazır: Assets/Items/Prefabs içindeki prefab'ları sahneye sürükleyin.");
         EditorUtility.FocusProjectWindow();
         Selection.activeObject = AssetDatabase.LoadAssetAtPath<Object>(PrefabFolder);
+    }
+
+    /// <summary>
+    /// Her eşyanın prefab'ını görünmez bir sahnede fotoğraflayıp ikon (PNG) üretir ve tanıma bağlar.
+    /// Kendi çizdiğiniz ikonu kullanmak isterseniz eşyanın "Icon" alanına sürükleyin; bu araç
+    /// sadece Assets/Items/Icons içindeki (kendi ürettiği) ikonların üzerine yazar.
+    /// </summary>
+    [MenuItem("Tools/Sahte Şaheser/Generate Item Icons")]
+    public static void GenerateIcons()
+    {
+        EnsureFolder(IconFolder);
+
+        List<ItemDefinition> defs = AssetDatabase.FindAssets("t:ItemDefinition")
+            .Select(g => AssetDatabase.LoadAssetAtPath<ItemDefinition>(AssetDatabase.GUIDToAssetPath(g)))
+            .Where(d => d != null && d.worldPrefab != null)
+            .ToList();
+
+        Scene scene = EditorSceneManager.NewPreviewScene();
+        int made = 0;
+
+        try
+        {
+            GameObject camGo = new GameObject("IconCamera");
+            SceneManager.MoveGameObjectToScene(camGo, scene);
+            Camera cam = camGo.AddComponent<Camera>();
+            cam.scene = scene;
+            cam.enabled = false;
+            cam.clearFlags = CameraClearFlags.SolidColor;
+            cam.backgroundColor = new Color(0.16f, 0.17f, 0.2f, 1f);
+            cam.fieldOfView = 25f;
+            cam.nearClipPlane = 0.01f;
+            cam.farClipPlane = 100f;
+            UniversalAdditionalCameraData camData = camGo.AddComponent<UniversalAdditionalCameraData>();
+            camData.renderPostProcessing = false;
+
+            AddLight(scene, new Vector3(50f, -30f, 0f), 1.2f, Color.white);
+            AddLight(scene, new Vector3(-20f, 150f, 0f), 0.5f, new Color(0.85f, 0.9f, 1f));
+
+            RenderTexture rt = new RenderTexture(IconSize, IconSize, 24, RenderTextureFormat.ARGB32) { antiAliasing = 4 };
+            cam.targetTexture = rt;
+
+            foreach (ItemDefinition def in defs)
+            {
+                string existing = def.icon != null ? AssetDatabase.GetAssetPath(def.icon) : null;
+                if (!string.IsNullOrEmpty(existing) && !existing.StartsWith(IconFolder)) continue; // elle verilmiş ikon
+
+                GameObject inst = (GameObject)PrefabUtility.InstantiatePrefab(def.worldPrefab, scene);
+                inst.transform.position = Vector3.zero;
+                inst.transform.rotation = Quaternion.Euler(0f, 30f, 0f);
+
+                Renderer[] renderers = inst.GetComponentsInChildren<Renderer>();
+                if (renderers.Length == 0) { Object.DestroyImmediate(inst); continue; }
+
+                Bounds b = renderers[0].bounds;
+                foreach (Renderer r in renderers) b.Encapsulate(r.bounds);
+
+                float radius = Mathf.Max(b.extents.magnitude, 0.01f);
+                float dist = radius / Mathf.Sin(cam.fieldOfView * 0.5f * Mathf.Deg2Rad) * 1.05f;
+                Vector3 dir = new Vector3(0.6f, 0.55f, -1f).normalized;
+                camGo.transform.position = b.center + dir * dist;
+                camGo.transform.LookAt(b.center);
+
+                RenderCamera(cam, rt);
+
+                RenderTexture prev = RenderTexture.active;
+                RenderTexture.active = rt;
+                Texture2D tex = new Texture2D(IconSize, IconSize, TextureFormat.RGBA32, false);
+                tex.ReadPixels(new Rect(0, 0, IconSize, IconSize), 0, 0);
+                tex.Apply();
+                RenderTexture.active = prev;
+
+                string path = $"{IconFolder}/{def.id}.png";
+                System.IO.File.WriteAllBytes(path, tex.EncodeToPNG());
+                Object.DestroyImmediate(tex);
+                Object.DestroyImmediate(inst);
+
+                AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceUpdate);
+                TextureImporter importer = AssetImporter.GetAtPath(path) as TextureImporter;
+                if (importer != null)
+                {
+                    importer.textureType = TextureImporterType.Default;
+                    importer.mipmapEnabled = false;
+                    importer.wrapMode = TextureWrapMode.Clamp;
+                    importer.SaveAndReimport();
+                }
+
+                def.icon = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+                EditorUtility.SetDirty(def);
+                made++;
+            }
+
+            cam.targetTexture = null;
+            Object.DestroyImmediate(rt);
+        }
+        finally
+        {
+            EditorSceneManager.ClosePreviewScene(scene);
+        }
+
+        AssetDatabase.SaveAssets();
+        Debug.Log($"[Inventory] {made} eşya ikonu üretildi ({IconFolder}).");
+    }
+
+    private static void RenderCamera(Camera cam, RenderTexture rt)
+    {
+        UniversalRenderPipeline.SingleCameraRequest request = new UniversalRenderPipeline.SingleCameraRequest { destination = rt };
+        if (RenderPipeline.SupportsRenderRequest(cam, request))
+        {
+            RenderPipeline.SubmitRenderRequest(cam, request);
+        }
+        else
+        {
+            cam.Render();
+        }
+    }
+
+    private static void AddLight(Scene scene, Vector3 euler, float intensity, Color color)
+    {
+        GameObject go = new GameObject("IconLight");
+        SceneManager.MoveGameObjectToScene(go, scene);
+        go.transform.rotation = Quaternion.Euler(euler);
+        Light l = go.AddComponent<Light>();
+        l.type = LightType.Directional;
+        l.intensity = intensity;
+        l.color = color;
     }
 
     private static void Create(string id, string displayName, ItemType type, float kg, int value,

@@ -237,3 +237,53 @@ elde taşımaz), `SessionMenuUI` (Esc önce çantayı kapatır), `ChatUI`, `Loc`
 
 > ⚠️ Eşya listesi ağda **sıra numarasıyla** gönderilir. İki oyuncunun `ItemDatabase`'i aynı olmalı:
 > yeni eşya ekleyen commit'lesin, diğeri çeksin. Farklı olursa çantada yanlış eşyalar görünür.
+
+---
+
+## Ek 5: Etkileşim, çalma, para atma, ele alma, para ve sesler
+
+### Unity'de yapılacaklar (bir kişi yapsın, commit'lesin)
+1. **Tools → Sahte Şaheser → Generate Item Icons** → `Assets/Items/Icons` içine eşya fotoğrafları üretilir
+   ve eşyalara bağlanır. Çanta ve bilgi kartında artık düz renk yerine bu resimler görünür.
+   (Kendi çizdiğiniz ikonu kullanmak için eşyanın *Icon* alanına sürükleyin; araç onu ezmez.)
+2. Sahnedeki **ChatManager** objesine `TeamBank` bileşenini ekle (ekip kasası).
+3. (İsteğe bağlı test) Etkileşim noktaları:
+   - **Kapı:** boş obje `DoorHinge` (kapının menteşe kenarına koy) → içine çocuk olarak bir küp (kapı).
+     `DoorHinge`'e `NetworkObject` + `DoorInteractable` ekle.
+   - **Aranabilir dolap:** bir küp → `NetworkObject` + `ItemContainerInteractable`, *Item* alanına bir eşya
+     sürükle, *Hold Duration* = 2. E'ye 2 sn basılı tutunca eşya çantana girer.
+4. Ctrl+S, commit.
+
+`PlayerInteractor` (E tuşu) ve `PlayerFootsteps` (ayak sesi) oyuncuya **otomatik** eklenir.
+
+### Kontroller
+| Tuş | Ne yapar |
+|---|---|
+| **E** | Yerdeki eşyayı al / kapıyı aç-kapa |
+| **E basılı tut** | Dolabı ara (halka dolar) / arkadaşının **arkasından** çantasını aç |
+| **Tab** | Çanta. Satırda **Hold** = ele al, **Drop** = bırak. Satırın üstüne gelince bilgi kartı |
+| **Q** | Çantadaki bozuk parayı fırlat (yere düşünce ses + gürültü) |
+| **F7 / F8** | (Sadece editör/test) Ekip kasasına / kendine +$100 |
+
+### Çalma (GDD Bölüm 6)
+- Arkadaşının **arkasına** geç (önünden olmaz), E'ye 1.5 sn basılı tut → onun çantası açılır.
+- Bir eşya seç → **Steal**. Tek seferde bir eşya; sığmıyorsa alamazsın.
+- Kurbanın ekranına "X çantanı karıştırıyor!" ve "X çantandan Y çaldı!" yazar, çalma sesi çıkar.
+- Uzaklaşırsan panel kapanır.
+
+### Gürültü sistemi (güvenlikler için hazırlık)
+Para düşmesi, eşya çarpması ve çalma, `NoiseSystem.Emit(pozisyon, yarıçap)` ile **gürültü** yayar.
+Play modunda Scene penceresinde turuncu çember olarak görünür. Güvenlik yapay zekası yazıldığında
+`NoiseSystem.NoiseMade` olayını dinleyecek.
+
+### Sesler
+Şu an kodla üretilmiş **geçici** sesler çalar (ayak sesi, alma, bırakma, çanta fermuarı, para, kapı,
+çalma, halka tamamlanma). Gerçek ses koymak için:
+1. Project → sağ tık → **Create → Sahte Şaheser → Sound Bank**, adı `SoundBank`, `Assets/Resources` içine koy.
+2. Listeye satır ekle: ses türünü seç (ör. *Footstep*), ses dosyalarını sürükle (birden fazla = rastgele).
+Listede olmayan sesler geçici sesle çalmaya devam eder.
+
+### Para
+- Sağ üstte **Team** (ekip kasası) ve **You** (kişisel cüzdan) görünür.
+- Kod tarafı hazır: `TeamBank.Instance.ServerAdd/ServerTrySpend`, `PlayerInventory.ServerAddMoney/ServerTrySpendMoney`.
+  Karaborsa ve garaj mağazası bunları kullanacak.
