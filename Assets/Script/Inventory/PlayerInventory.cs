@@ -57,6 +57,7 @@ public class PlayerInventory : NetworkBehaviour
     // Panel durumu (sahibi)
     private PlayerInventory stealTarget; // null = kendi çantam
     private int hoveredSlot = -1;
+    private int pendingHoveredSlot = -1; // IMGUI: fare değişikliği bir sonraki Layout'ta uygulanır
     private Vector2 scroll;
     private int heldItemIndexLocal = -1;
 
@@ -235,7 +236,7 @@ public class PlayerInventory : NetworkBehaviour
 
         bool wasStealing = stealTarget != null;
         IsPanelOpen = open;
-        hoveredSlot = -1;
+        pendingHoveredSlot = -1;
 
         if (open)
         {
@@ -793,6 +794,11 @@ public class PlayerInventory : NetworkBehaviour
     {
         ItemDatabase db = ItemDatabase.Instance;
 
+        // Unity'nin GUILayout'u her karede önce "Layout", sonra "Repaint" çizer ve ikisinde de
+        // AYNI elemanların çizilmesini ister. Bilgi kartının hangi eşya için çizileceği bu yüzden
+        // sadece Layout anında değişir; aksi halde "Invalid GUILayout state" hatası olur.
+        if (Event.current.type == EventType.Layout) hoveredSlot = pendingHoveredSlot;
+
         float w = 500f, h = 470f;
         Rect panel = new Rect((Screen.width - w) / 2f - 110f, (Screen.height - h) / 2f, w, h);
         GUI.Box(panel, GUIContent.none, boxStyle);
@@ -894,7 +900,7 @@ public class PlayerInventory : NetworkBehaviour
         GUILayout.Label(stealing ? Loc.T("steal.close") : Loc.T("inv.close"), hintStyle);
         GUILayout.EndArea();
 
-        if (repaint) hoveredSlot = hoverNow;
+        if (repaint) pendingHoveredSlot = hoverNow;
 
         // Bilgi kartı (panelin sağında)
         if (hoveredSlot >= 0 && hoveredSlot < bag.SlotCount)
