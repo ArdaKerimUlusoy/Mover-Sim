@@ -26,24 +26,42 @@ public class ArtworkDisplay : Interactable
     private readonly NetworkVariable<int> shownItem = new NetworkVariable<int>(-1);
     private readonly NetworkVariable<bool> swapped = new NetworkVariable<bool>(false);
     private readonly NetworkVariable<byte> leftSimilarity = new NetworkVariable<byte>(InventorySlot.NoSimilarity);
+    private readonly NetworkVariable<ushort> leftForgeryId = new NetworkVariable<ushort>(0);
 
     private GameObject visual;
     private int visualItem = -2;
     private int visualLookVersion = -1;
     private bool visualActive = true;
     private byte visualSimilarity = InventorySlot.NoSimilarity;
+    private ushort visualForgeryId;
+    private bool visualPending;
 
     public int RequiredLevel => requiredLevel;
     /// <summary>Bu görevde aktif mi? (Seviyesi gelmemiş kaideler boş durur, etkileşime kapalıdır.)</summary>
     public bool IsActiveForMission => MuseumSession.IsDisplayActive(this);
 
     public ItemDefinition Artwork => artwork;
+    /// <summary>Bu kaidenin kimliği: sahteler ve çalınan orijinaller hangi kaideye ait olduklarını bununla taşır.</summary>
+    public int LookKey => ArtworkLook.Hash(name);
+    public ArtKind Kind => ArtworkLook.KindOf(artwork);
+
+    public static ArtworkDisplay FindByKey(int key)
+    {
+        if (key == 0) return null;
+        foreach (ArtworkDisplay d in All) if (d != null && d.LookKey == key) return d;
+        return null;
+    }
     public bool IsSwapped => swapped.Value;
     /// <summary>Kaideye bırakılan sahtenin benzerliği (güvenlik yapay zekası kullanacak).</summary>
     public byte LeftSimilarity => leftSimilarity.Value;
 
-    private void OnEnable() { if (!All.Contains(this)) All.Add(this); }
-    private void OnDisable() => All.Remove(this);
+    private void OnEnable() { if (!All.Contains(this)) All.Add(this); ForgeryRegistry.Arrived += OnForgeryArrived; }
+    private void OnDisable() { All.Remove(this); ForgeryRegistry.Arrived -= OnForgeryArrived; }
+
+    private void OnForgeryArrived(ushort id)
+    {
+        if (visualPending && IsSpawned && id == leftForgeryId.Value) ForceRefreshVisual();
+    }
 
     public override void OnNetworkSpawn()
     {
@@ -53,6 +71,7 @@ public class ArtworkDisplay : Interactable
         }
         shownItem.OnValueChanged += OnShownChanged;
         leftSimilarity.OnValueChanged += OnSimilarityChanged;
+        leftForgeryId.OnValueChanged += OnForgeryIdChanged;
         RefreshVisual();
     }
 
@@ -60,11 +79,19 @@ public class ArtworkDisplay : Interactable
     {
         shownItem.OnValueChanged -= OnShownChanged;
         leftSimilarity.OnValueChanged -= OnSimilarityChanged;
+        leftForgeryId.OnValueChanged -= OnForgeryIdChanged;
         DestroyVisual();
     }
 
     private void OnShownChanged(int oldValue, int newValue) => RefreshVisual();
     private void OnSimilarityChanged(byte oldValue, byte newValue) => RefreshVisual();
+    private void OnForgeryIdChanged(ushort oldValue, ushort newValue) => RefreshVisual();
+
+    private void Update()
+    {
+        // Verisi henüz gelmemiş sahte: ara ara yeniden dene
+        if (visualPending && IsSpawned && Time.frameCount % 30 == 0 && ForgeryRegistry.TryGet(leftForgeryId.Value, out _)) ForceRefreshVisual();
+    }
 
     /// <summary>Müze teması / görev seviyesi değişince (MuseumSession) görseli yeniden kur.</summary>
     public void ForceRefreshVisual()
@@ -79,6 +106,7 @@ public class ArtworkDisplay : Interactable
         if (!IsServer) return;
         swapped.Value = false;
         leftSimilarity.Value = InventorySlot.NoSimilarity;
+        leftForgeryId.Value = 0;
         if (ItemDatabase.Instance != null) shownItem.Value = ItemDatabase.Instance.IndexOf(artwork);
         ForceRefreshVisual();
     }
@@ -94,7 +122,7 @@ public class ArtworkDisplay : Interactable
     {
         if (!base.CanInteract(player) || swapped.Value || artwork == null || !IsActiveForMission) return false;
         PlayerInventory inv = InvOf(player);
-        return inv != null && inv.FindForgeryFor(artwork) >= 0;
+        return inv != null && inv.FindForgeryFor(this) >= 0;
         // Not: izlenirken de değiştirmeye izin var; görülürsen şüphe hızla dolar ve alarm çalar.
     }
 
@@ -113,7 +141,7 @@ public class ArtworkDisplay : Interactable
         if (swapped.Value) return Loc.T("display.swapped", name);
 
         PlayerInventory inv = InvOf(player != null ? player.gameObject : null);
-        int slot = inv != null ? inv.FindForgeryFor(artwork) : -1;
+        int slot = inv != null ? inv.FindForgeryFor(this) : -1;
         if (slot < 0) return Loc.T("display.needforgery", name);
 
         InventorySlot s = inv.GetSlot(slot);
@@ -128,12 +156,12 @@ public class ArtworkDisplay : Interactable
         PlayerInventory inv = player.GetComponent<PlayerInventory>();
         if (inv == null) return;
 
-        int slot = inv.FindForgeryFor(artwork);
+        int slot = inv.FindForgeryFor(this);
         if (slot < 0) return;
 
         ItemDefinition forgery = ItemDatabase.Instance != null ? ItemDatabase.Instance.Get(inv.GetSlot(slot).ItemIndex) : null;
 
-        if (!inv.ServerSwapForgery(slot, artwork, out byte sim))
+        if (!inv.ServerSwapForgery(slot, artwork, LookKey, out byte sim, out ushort forgeryId))
         {
             inv.ServerNotify("inv.full");
             return;
@@ -141,6 +169,7 @@ public class ArtworkDisplay : Interactable
 
         swapped.Value = true;
         leftSimilarity.Value = sim;
+        leftForgeryId.Value = forgeryId;
         if (forgery != null && ItemDatabase.Instance != null) shownItem.Value = ItemDatabase.Instance.IndexOf(forgery);
 
         inv.ServerPlaySound(SoundId.Swap, transform.position);
@@ -162,33 +191,41 @@ public class ArtworkDisplay : Interactable
         int index = shownItem.Value;
         bool active = IsActiveForMission;
         byte sim = leftSimilarity.Value;
-        if (index == visualItem && visualLookVersion == MuseumSession.LookVersion && visualActive == active && visualSimilarity == sim) return;
+        ushort fid = leftForgeryId.Value;
+        if (index == visualItem && visualLookVersion == MuseumSession.LookVersion && visualActive == active && visualSimilarity == sim && visualForgeryId == fid) return;
 
         DestroyVisual();
         visualItem = index;
         visualLookVersion = MuseumSession.LookVersion;
         visualActive = active;
         visualSimilarity = sim;
+        visualForgeryId = fid;
+        visualPending = false;
         if (!active) return; // bu görevde kaide boş
 
         ItemDefinition def = ItemDatabase.Instance != null ? ItemDatabase.Instance.Get(index) : null;
         if (def == null) return;
 
-        // Temalı müze: vazo ve tablolar tohumdan üretilir (sahte ise benzerliğine göre bozuk görünür)
+        // Temalı müze: eserler tohumdan üretilir. Kaidede sahte varsa OYUNCUNUN YAPTIĞI eser görünür.
         MuseumSession ms = MuseumSession.Instance;
         ArtKind kind = ArtworkLook.KindOf(def);
         if (ms != null && ms.Ready && kind != ArtKind.None)
         {
-            byte shownSim = def.type == ItemType.Forgery ? (sim == InventorySlot.NoSimilarity ? (byte)50 : sim) : InventorySlot.NoSimilarity;
-            visual = kind == ArtKind.Vase
-                ? ArtworkLook.BuildVaseVisual(ms.VaseFor(this), shownSim)
-                : ArtworkLook.BuildPaintingVisual(ms.PaintingFor(this), shownSim);
+            if (def.type == ItemType.Forgery)
+            {
+                if (fid != 0 && ForgeryRegistry.TryGet(fid, out ForgeryData data)) visual = ArtworkLook.BuildForgeryVisual(data);
+                else visualPending = fid != 0; // veri sunucudan gelince yeniden kurulur
+                if (visual == null)
+                    visual = ArtworkLook.BuildOriginalVisual(kind, ms.Seed, ms.ThemeIndex, name, sim == InventorySlot.NoSimilarity ? (byte)50 : sim);
+            }
+            else visual = ArtworkLook.BuildOriginalVisual(kind, ms.Seed, ms.ThemeIndex, name);
         }
         else
         {
             if (def.worldPrefab == null) return;
             visual = ItemVisuals.Build(def.worldPrefab, visualMaxSize, true);
         }
+        if (visual == null) return;
 
         // Kaidenin üst yüzeyine oturt (kaidenin ölçeği bozmasın diye çocuk yapmıyoruz)
         Collider c = GetComponentInChildren<Collider>();

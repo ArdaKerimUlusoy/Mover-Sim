@@ -69,6 +69,8 @@ public static class ItemTools
         Create("original_bust",     "Marble Bust",     ItemType.Original,    12f,  2500, false, 1,  new Color(0.92f, 0.92f, 0.90f), PrimitiveType.Cube,     new Vector3(0.35f, 0.55f, 0.35f),  -1);
         Create("forgery_painting",  "Forged Painting", ItemType.Forgery,     2f,   0,    false, 1,  new Color(0.75f, 0.60f, 0.40f), PrimitiveType.Cube,     new Vector3(0.6f, 0.45f, 0.05f),   72);
         Create("forgery_vase",      "Forged Vase",     ItemType.Forgery,     4f,   0,    false, 1,  new Color(0.35f, 0.60f, 0.70f), PrimitiveType.Cylinder, new Vector3(0.3f, 0.2f, 0.3f),      85);
+        Create("forgery_bust",      "Forged Bust",     ItemType.Forgery,     12f,  0,    false, 1,  new Color(0.80f, 0.80f, 0.76f), PrimitiveType.Cube,     new Vector3(0.35f, 0.55f, 0.35f),  -1);
+        Create("forgery_ring",      "Forged Ring",     ItemType.Forgery,     0.3f, 0,    false, 1,  new Color(0.90f, 0.75f, 0.30f), PrimitiveType.Sphere,   new Vector3(0.12f, 0.12f, 0.12f),  -1);
         Create("tool_lockpick",     "Lockpick Set",    ItemType.Tool,        0.5f, 150,  false, 1,  new Color(0.50f, 0.50f, 0.55f), PrimitiveType.Cube,     new Vector3(0.15f, 0.03f, 0.08f),  -1);
         Create("distraction_coin",  "Coin",            ItemType.Distraction, 0.1f, 1,    true,  10, new Color(0.95f, 0.75f, 0.30f), PrimitiveType.Cylinder, new Vector3(0.12f, 0.015f, 0.12f), -1);
         // Küçük ganimetler: galeri masalarında durur, sahtesi gerekmez, karaborsada "sıcak mal" olarak satılır (kotayı tamamlamak için)
@@ -79,6 +81,8 @@ public static class ItemTools
         // Hangi sahte hangi orijinalin kopyası
         LinkForgery("forgery_painting", "original_painting");
         LinkForgery("forgery_vase", "original_vase");
+        LinkForgery("forgery_bust", "original_bust");
+        LinkForgery("forgery_ring", "original_ring");
 
         AssetDatabase.SaveAssets();
         RebuildDatabase();

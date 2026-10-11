@@ -1,14 +1,17 @@
-﻿using Unity.Netcode;
+using Unity.Netcode;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
 /// <summary>
 /// Görev / müze oturumu (sunucu belirler, herkese senkronlanır):
 ///  - Her oda kurulduğunda ve her yeni görevde rastgele bir MÜZE TEMASI seçilir (bir öncekiyle asla aynı olmaz).
-///    Tema: duvar/zemin renkleri, vazo ve tablo görünümleri, eser adları.
-///  - Tohum (seed): kaidelerdeki vazolar/tablolar her bilgisayarda bu tohumdan AYNI üretilir (ArtworkLook).
-///  - Seviye: 1. görev 1 vazo, 2. görev 2 vazo, 3+ 3 vazo (ArtworkDisplay.requiredLevel).
-///  - Kota: bu görevde ekip kasasına girmesi gereken para. Dolunca host N ile sonraki göreve geçer.
+///    Tema: duvar/zemin renkleri, eser görünümleri ve adları.
+///  - Tohum (seed): kaidelerdeki eserler her bilgisayarda bu tohumdan AYNI üretilir (ArtworkLook).
+///  - Seviye (GDD Bölüm 8): eserler, güvenlikler ve kameralar seviyeyle açılır (requiredLevel).
+///      1: basit tablolar, 2 güvenlik   2: + vazo, 3. güvenlik, kameralar   3: + yüzük   4+: + büst (başyapıt)
+///  - Kota: bu görevde ekip kasasına girmesi gereken para.
+///  - Görev, kota dolduktan sonra TÜM oyuncular kamyona dönünce tamamlanır (TruckZone); host N ile sonraki göreve geçer.
+///  - Yeni görevde eski sahteler silinir: eski müzenin eserlerine göre yapılmışlardı.
 /// Kurulum: ChatManager objesine (NetworkObject zaten var) bu bileşen. Create Test Museum otomatik ekler.
 /// </summary>
 public class MuseumSession : NetworkBehaviour
@@ -33,6 +36,7 @@ public class MuseumSession : NetworkBehaviour
     private static int lastTheme = -1; // aynı uygulama açıkken bir sonraki oda/görev farklı müze olsun
 
     private GUIStyle hudStyle, hudBig;
+    private MaterialPropertyBlock themeBlock;
 
     public bool Ready => IsSpawned && themeIndex.Value >= 0;
     public int Level => level.Value;
@@ -41,7 +45,20 @@ public class MuseumSession : NetworkBehaviour
     public MuseumTheme Theme => ArtworkLook.Theme(ThemeIndex);
     public int Quota => quota.Value;
     public int Earned => TeamBank.Instance != null && baseline.Value != int.MinValue ? TeamBank.Instance.Money - baseline.Value : 0;
-    public bool Complete => quota.Value > 0 && Earned >= quota.Value;
+
+    /// <summary>Para kotası doldu mu? (Görevin bitmesi için ekibin kamyona da dönmesi gerekir.)</summary>
+    public bool QuotaMet => quota.Value > 0 && Earned >= quota.Value;
+
+    /// <summary>Görev tamam: kota doldu VE bütün oyuncular kamyonda.</summary>
+    public bool Complete
+    {
+        get
+        {
+            if (!QuotaMet) return false;
+            TruckZone.Count(out int inside, out int total);
+            return total > 0 && inside >= total;
+        }
+    }
 
     private void Awake() { Instance = this; }
 
@@ -53,8 +70,10 @@ public class MuseumSession : NetworkBehaviour
 
     public override void OnNetworkSpawn()
     {
+        ForgeryRegistry.Clear(); // yeni oda: önceki oturumun sahteleri kalmasın
+
         themeIndex.OnValueChanged += OnLookChanged;
-        seed.OnValueChanged += OnLookChanged;
+        seed.OnValueChanged += OnSeedChanged;
         level.OnValueChanged += OnLookChanged;
 
         if (IsServer)
@@ -68,11 +87,17 @@ public class MuseumSession : NetworkBehaviour
     public override void OnNetworkDespawn()
     {
         themeIndex.OnValueChanged -= OnLookChanged;
-        seed.OnValueChanged -= OnLookChanged;
+        seed.OnValueChanged -= OnSeedChanged;
         level.OnValueChanged -= OnLookChanged;
     }
 
     private void OnLookChanged(int a, int b) => ApplyTheme();
+
+    private void OnSeedChanged(int a, int b)
+    {
+        ForgeryRegistry.Clear(); // yeni görev: eski sahtelerin verisi artık gereksiz
+        ApplyTheme();
+    }
 
     // ---------------- Sunucu ----------------
 
@@ -99,9 +124,9 @@ public class MuseumSession : NetworkBehaviour
             if (quota.Value == 0 && ArtworkDisplay.All.Count > 0)
                 quota.Value = ComputeQuota();
 
-            // Host: görev tamamsa N / Enter ile sonraki görev
+            // Host: görev tamamsa (kota + herkes kamyonda) N ile sonraki görev
             Keyboard kb = Keyboard.current;
-            if (IsHost && Complete && kb != null && !ChatUI.IsTyping && kb.nKey.wasPressedThisFrame)
+            if (IsHost && kb != null && !ChatUI.IsTyping && kb.nKey.wasPressedThisFrame && Complete)
                 ServerNextMission();
         }
     }
@@ -112,7 +137,7 @@ public class MuseumSession : NetworkBehaviour
         foreach (ArtworkDisplay d in ArtworkDisplay.All)
         {
             if (d == null || d.Artwork == null || !IsDisplayActive(d)) continue;
-            if (ArtworkLook.KindOf(d.Artwork) == ArtKind.None) continue; // ana hedefler: vazolar ve tablolar
+            if (d.Kind == ArtKind.None) continue; // ana hedefler: sahtesi yapılabilen eserler
             sum += d.Artwork.baseValue;
         }
         int q = Mathf.RoundToInt(sum * quotaFactor) + quotaExtra;
@@ -122,6 +147,20 @@ public class MuseumSession : NetworkBehaviour
     public void ServerNextMission()
     {
         if (!IsServer) return;
+
+        // Eski müze için yapılan sahteler yeni müzede işe yaramaz: çantalardan ve yerden kaldır
+        foreach (NetworkClient c in NetworkManager.ConnectedClientsList)
+        {
+            if (c.PlayerObject == null) continue;
+            PlayerInventory inv = c.PlayerObject.GetComponent<PlayerInventory>();
+            if (inv != null) inv.ServerRemoveForgeries();
+        }
+        foreach (WorldItem wi in FindObjectsByType<WorldItem>(FindObjectsSortMode.None))
+        {
+            if (wi != null && wi.IsSpawned && wi.Item != null && wi.Item.type == ItemType.Forgery) wi.ServerConsume();
+        }
+        ForgeryRegistry.Clear();
+
         level.Value = level.Value + 1;
         PickNewMuseum();
         baseline.Value = TeamBank.Instance != null ? TeamBank.Instance.Money : 0;
@@ -131,23 +170,29 @@ public class MuseumSession : NetworkBehaviour
 
     // ---------------- Herkes ----------------
 
-    public static bool IsDisplayActive(ArtworkDisplay d)
+    public static bool IsDisplayActive(ArtworkDisplay d) => IsLevelActive(d.RequiredLevel);
+
+    /// <summary>Bu seviyede açılan şey (eser, güvenlik, kamera) şu anki görevde aktif mi?</summary>
+    public static bool IsLevelActive(int requiredLevel)
     {
-        return Instance == null || !Instance.Ready || Instance.Level >= d.RequiredLevel;
+        return Instance == null || !Instance.Ready || Instance.Level >= requiredLevel;
     }
 
-    /// <summary>Bir kaidedeki eserin vazo görünümü (tohum + kaide adı).</summary>
     public VaseLook VaseFor(ArtworkDisplay d) => ArtworkLook.Vase(Seed, ThemeIndex, d.name);
     public PaintingLook PaintingFor(ArtworkDisplay d) => ArtworkLook.Painting(Seed, ThemeIndex, d.name);
+    public BustLook BustFor(ArtworkDisplay d) => ArtworkLook.Bust(Seed, ThemeIndex, d.name);
+    public JewelLook JewelFor(ArtworkDisplay d) => ArtworkLook.Jewel(Seed, ThemeIndex, d.name);
 
     /// <summary>Kaide için görünür eser adı (temaya göre).</summary>
     public string ArtworkName(ArtworkDisplay d)
     {
         if (!Ready || d == null) return d != null && d.Artwork != null ? d.Artwork.DisplayName : "";
-        switch (ArtworkLook.KindOf(d.Artwork))
+        switch (d.Kind)
         {
             case ArtKind.Vase: return VaseFor(d).Name;
             case ArtKind.Painting: return PaintingFor(d).Name;
+            case ArtKind.Bust: return BustFor(d).Name;
+            case ArtKind.Jewelry: return JewelFor(d).Name;
             default: return d.Artwork != null ? d.Artwork.DisplayName : "";
         }
     }
@@ -158,23 +203,31 @@ public class MuseumSession : NetworkBehaviour
         LookVersion++;
         MuseumTheme th = Theme;
 
-        // Müze yapısını boya (malzeme örneği: paylaşılan asset'ler değişmez)
+        // Müze yapısını boya. MaterialPropertyBlock: malzeme kopyası üretmez, paylaşılan asset'ler değişmez.
+        // Kamyon, sokak ve garaj farklı adlar kullandığı için (TruckWall_, Ground_, GarageWall_) temadan etkilenmez.
         GameObject root = GameObject.Find(museumRootName);
         if (root != null)
         {
+            if (themeBlock == null) themeBlock = new MaterialPropertyBlock();
             foreach (Renderer r in root.GetComponentsInChildren<Renderer>(true))
             {
                 string n = r.gameObject.name;
                 Color? c = null;
                 if (n.StartsWith("Wall_") || n.StartsWith("Divider") || n.StartsWith("Gallery_Partition")) c = th.wall;
-                else if (n == "Floor") c = th.floor;
+                else if (n == "Floor" || n.StartsWith("Floor_")) c = th.floor;
                 else if (n.StartsWith("Display_")) c = th.trim;
                 else if (n.StartsWith("LootTable")) c = th.trim * 0.6f;
+                else if (n.StartsWith("Trim_")) c = th.accent;
                 if (c == null) continue;
-                Material m = r.material; // örnek
                 Color col = c.Value; col.a = 1f;
-                if (m.HasProperty("_BaseColor")) m.SetColor("_BaseColor", col);
-                else m.color = col;
+                r.GetPropertyBlock(themeBlock);
+                themeBlock.SetColor("_BaseColor", col);
+                themeBlock.SetColor("_Color", col);
+                r.SetPropertyBlock(themeBlock);
+            }
+            foreach (Light l in root.GetComponentsInChildren<Light>(true))
+            {
+                if (l.gameObject.name.StartsWith("MuseumLight")) l.color = th.light;
             }
         }
 
@@ -196,7 +249,8 @@ public class MuseumSession : NetworkBehaviour
         }
 
         MuseumTheme th = Theme;
-        Rect r = new Rect(12f, 84f, 330f, 70f);
+        bool quotaMet = QuotaMet;
+        Rect r = new Rect(12f, 84f, 330f, quotaMet ? 92f : 70f);
         UIUtil.DrawRect(r, new Color(0.05f, 0.06f, 0.08f, 0.75f));
         GUI.Label(new Rect(r.x + 10f, r.y + 4f, r.width - 20f, 22f), Loc.T("mission.title", Level, th.name, th.City), hudStyle);
         int earned = Mathf.Max(0, Earned);
@@ -204,12 +258,22 @@ public class MuseumSession : NetworkBehaviour
         Rect bar = new Rect(r.x + 10f, r.y + 50f, r.width - 20f, 8f);
         UIUtil.DrawRect(bar, new Color(1f, 1f, 1f, 0.15f));
         float ratio = Quota > 0 ? Mathf.Clamp01(earned / (float)Quota) : 0f;
-        UIUtil.DrawRect(new Rect(bar.x, bar.y, bar.width * ratio, bar.height), Complete ? new Color(0.45f, 0.9f, 0.5f) : new Color(1f, 0.8f, 0.3f));
+        UIUtil.DrawRect(new Rect(bar.x, bar.y, bar.width * ratio, bar.height), quotaMet ? new Color(0.45f, 0.9f, 0.5f) : new Color(1f, 0.8f, 0.3f));
 
-        if (Complete)
+        if (!quotaMet) return;
+
+        TruckZone.Count(out int inside, out int total);
+        bool complete = total > 0 && inside >= total;
+        GUI.Label(new Rect(r.x + 10f, r.y + 64f, r.width - 20f, 22f), Loc.T("mission.truck", inside, total), hudStyle);
+
+        if (complete)
         {
             UIUtil.DrawPrompt(Loc.T("mission.complete"), Screen.height * 0.2f, new Color(0.55f, 1f, 0.6f), 26);
             UIUtil.DrawPrompt(IsHost ? Loc.T("mission.nexthost") : Loc.T("mission.nextwait"), Screen.height * 0.2f + 34f, Color.white, 16);
+        }
+        else
+        {
+            UIUtil.DrawPrompt(Loc.T("mission.return"), Screen.height * 0.2f, new Color(1f, 0.85f, 0.4f), 22);
         }
     }
 }

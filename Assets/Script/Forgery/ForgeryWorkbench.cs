@@ -1,10 +1,12 @@
-﻿using Unity.Netcode;
+﻿using System.Collections.Generic;
+using Unity.Netcode;
 using UnityEngine;
 
 /// <summary>
 /// Kamyon/garajdaki SAHTE ATÖLYESİ (GDD Bölüm 3).
 /// E → hangi eserin sahtesini yapacağını seç → vazo: çömlek çarkı + boya, tablo: tuval.
-/// Yeşil saydam rehber eşliğinde çalışılır; ESC ile bitince sahte, gerçek benzerlik yüzdesiyle ÇANTANA girer.
+/// Yeşil saydam rehber eşliğinde çalışılır; bitince YAPTIĞIN eser (şekli, boyası, çizimi) sunucuya gönderilir,
+/// benzerliği sunucu hesaplar ve sahte çantana girer. Elde, yerde ve kaidede senin yaptığın haliyle görünür.
 /// Orijinali almaya gerek yok: hedefler müzedeki kaidelerden (ArtworkDisplay) okunur → önce sahteyi yap,
 /// sonra müzede E basılı tutup değiştir.
 /// Çalışma yerel yapılır (kil, kamera, arayüz sadece senin ekranında); sonuç sunucuya tek RPC ile gider.
@@ -62,32 +64,96 @@ public class ForgeryWorkbench : Interactable
 
     // ---------------- Sahteyi çantaya koy ----------------
 
-    /// <summary>İstemci: yapılan sahteyi sunucuya bildir.</summary>
-    public void RequestCraft(int originalItemIndex, byte similarity)
+    private const int ChunkSize = 1000;
+
+    private sealed class Upload
     {
-        if (IsSpawned) CraftRpc(originalItemIndex, similarity);
+        public NetworkObjectReference display;
+        public byte[] buffer;
+        public int received;
+    }
+
+    // Sunucu: oyuncu başına süren yükleme ve son üretim zamanı
+    private readonly Dictionary<ulong, Upload> uploads = new Dictionary<ulong, Upload>();
+    private readonly Dictionary<ulong, float> lastCraft = new Dictionary<ulong, float>();
+
+    /// <summary>İstemci: yapılan sahtenin VERİSİNİ sunucuya gönder (parça parça). Benzerliği sunucu hesaplar.</summary>
+    public void RequestCraft(ArtworkDisplay display, ForgeryData data)
+    {
+        if (!IsSpawned || display == null || data == null) return;
+        byte[] blob = data.Encode();
+        if (blob.Length > ForgeryData.MaxBlobBytes) return;
+
+        CraftBeginRpc(display.NetworkObject, blob.Length);
+        for (int offset = 0; offset < blob.Length; offset += ChunkSize)
+        {
+            byte[] chunk = new byte[Mathf.Min(ChunkSize, blob.Length - offset)];
+            System.Array.Copy(blob, offset, chunk, 0, chunk.Length);
+            CraftChunkRpc(chunk);
+        }
     }
 
     [Rpc(SendTo.Server)]
-    private void CraftRpc(int originalItemIndex, byte similarity, RpcParams rpcParams = default)
+    private void CraftBeginRpc(NetworkObjectReference displayRef, int totalBytes, RpcParams rpcParams = default)
     {
-        if (!TryGetNearbyPlayer(rpcParams.Receive.SenderClientId, out NetworkObject playerObj, 3f)) return;
+        ulong id = rpcParams.Receive.SenderClientId;
+        uploads.Remove(id);
+        if (totalBytes <= 0 || totalBytes > ForgeryData.MaxBlobBytes) return;
+        if (lastCraft.TryGetValue(id, out float t) && Time.time - t < 1f) return; // art arda üretim yok
+        if (!TryGetNearbyPlayer(id, out _, 3f)) return;
+        uploads[id] = new Upload { display = displayRef, buffer = new byte[totalBytes] };
+    }
+
+    [Rpc(SendTo.Server)]
+    private void CraftChunkRpc(byte[] chunk, RpcParams rpcParams = default)
+    {
+        ulong id = rpcParams.Receive.SenderClientId;
+        if (!uploads.TryGetValue(id, out Upload up) || chunk == null) return;
+        if (chunk.Length == 0 || up.received + chunk.Length > up.buffer.Length)
+        {
+            uploads.Remove(id);
+            return;
+        }
+        System.Array.Copy(chunk, 0, up.buffer, up.received, chunk.Length);
+        up.received += chunk.Length;
+        if (up.received < up.buffer.Length) return;
+
+        uploads.Remove(id);
+        lastCraft[id] = Time.time;
+        ServerFinishCraft(id, up);
+    }
+
+    private void ServerFinishCraft(ulong clientId, Upload up)
+    {
+        if (!TryGetNearbyPlayer(clientId, out NetworkObject playerObj, 3f)) return;
         PlayerInventory inv = playerObj.GetComponent<PlayerInventory>();
-        ItemDatabase db = ItemDatabase.Instance;
-        if (inv == null || db == null) return;
+        MuseumSession ms = MuseumSession.Instance;
+        if (inv == null || ms == null || !ms.Ready) return;
 
-        ItemDefinition original = db.Get(originalItemIndex);
-        if (original == null || original.type != ItemType.Original) return;
+        if (!up.display.TryGet(out NetworkObject displayObj)) return;
+        ArtworkDisplay display = displayObj.GetComponent<ArtworkDisplay>();
+        if (display == null || display.Artwork == null || !MuseumSession.IsDisplayActive(display)) return;
 
-        ItemDefinition forgery = FindForgeryOf(original);
+        // Veri gerçekten bu görevin bu eseri için mi yapılmış?
+        if (!ForgeryData.TryDecode(up.buffer, out ForgeryData data)) return;
+        if (data.kind != display.Kind || data.targetKey != display.LookKey || data.seed != ms.Seed) return;
+
+        ItemDefinition forgery = FindForgeryOf(display.Artwork);
         if (forgery == null)
         {
-            inv.ServerNotify("bench.nodef", original);
+            inv.ServerNotify("bench.nodef", display.Artwork);
             return;
         }
 
-        byte sim = (byte)Mathf.Clamp(similarity, 0, 100);
-        if (!inv.ServerAddItem(forgery, sim))
+        byte sim = ForgeryScorer.Score(data, ms.Seed, ms.ThemeIndex, display.name);
+        if (!inv.CanFit(forgery))
+        {
+            inv.ServerNotify("inv.full");
+            return;
+        }
+
+        ushort forgeryId = ForgeryRegistry.ServerAdd(up.buffer, data);
+        if (!inv.ServerAddItem(forgery, sim, forgeryId, display.LookKey))
         {
             inv.ServerNotify("inv.full");
             return;
@@ -102,14 +168,11 @@ public class ForgeryWorkbench : Interactable
     {
         ItemDatabase db = ItemDatabase.Instance;
         if (db == null || original == null) return null;
-        ItemDefinition fallback = null;
         for (int i = 0; i < db.Count; i++)
         {
             ItemDefinition d = db.Get(i);
-            if (d == null || d.type != ItemType.Forgery) continue;
-            if (d.forgeryOf == original) return d;
-            if (d.forgeryOf == null && fallback == null) fallback = d; // her esere uyan test sahtesi
+            if (d != null && d.type == ItemType.Forgery && d.forgeryOf == original) return d;
         }
-        return fallback;
+        return null;
     }
 }

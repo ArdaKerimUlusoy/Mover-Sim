@@ -51,6 +51,13 @@ public class PlayerNetworkSetup : NetworkBehaviour
     private readonly NetworkVariable<byte> colorIndex = new NetworkVariable<byte>(
         0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
 
+    // Bakış eğimi (derece): kamera sadece sahibinde döndüğü için ağdan paylaşılır (kafa ve eldeki eşya buna göre durur).
+    private readonly NetworkVariable<sbyte> lookPitch = new NetworkVariable<sbyte>(
+        0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
+
+    /// <summary>Aşağı bakarken artı, yukarı bakarken eksi (derece).</summary>
+    public float LookPitch => lookPitch.Value;
+
     public Color PlayerColor => Colors[colorIndex.Value % Colors.Length];
     public bool IsHostPlayer => OwnerClientId == NetworkManager.ServerClientId;
 
@@ -73,12 +80,18 @@ public class PlayerNetworkSetup : NetworkBehaviour
 
     private string serverRegisteredName;
     private GUIStyle nameStyle, nameShadowStyle;
+    private PlayerAvatar avatar;
+    private Transform ownCamera;
 
     private void Awake()
     {
         // Ekstra kurulum gerektirmesin diye etkileşim ve ayak sesi bileşenleri otomatik eklenir.
         if (GetComponent<PlayerInteractor>() == null) gameObject.AddComponent<PlayerInteractor>();
         if (GetComponent<PlayerFootsteps>() == null) gameObject.AddComponent<PlayerFootsteps>();
+        avatar = GetComponent<PlayerAvatar>();
+        if (avatar == null) avatar = gameObject.AddComponent<PlayerAvatar>();
+        Camera cam = GetComponentInChildren<Camera>(true);
+        if (cam != null) ownCamera = cam.transform;
     }
 
     // ---------------- Kayıtlı isim (menüdeki kutu) ----------------
@@ -196,6 +209,7 @@ public class PlayerNetworkSetup : NetworkBehaviour
 
     private void ApplyColor()
     {
+        if (avatar != null) { avatar.SetColor(PlayerColor); return; }
         foreach (Renderer r in GetComponentsInChildren<Renderer>())
         {
             r.material.color = PlayerColor;
@@ -215,6 +229,13 @@ public class PlayerNetworkSetup : NetworkBehaviour
 
     private void Update()
     {
+        // Sahibi: bakış eğimini paylaş (birkaç derece değişince)
+        if (IsOwner && IsSpawned && ownCamera != null)
+        {
+            float pitch = Mathf.DeltaAngle(0f, ownCamera.localEulerAngles.x);
+            if (Mathf.Abs(pitch - lookPitch.Value) >= 2f) lookPitch.Value = (sbyte)Mathf.Clamp(Mathf.RoundToInt(pitch), -89, 89);
+        }
+
         // Sunucu: ismi gelen oyuncuyu sohbete kaydet ("X katıldı" mesajı).
         if (!IsServer || !IsSpawned) return;
 

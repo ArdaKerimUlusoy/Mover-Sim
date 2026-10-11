@@ -41,9 +41,8 @@ public class PlayerInventory : NetworkBehaviour
     [SerializeField] private float stealNoiseRadius = 6f;
 
     [Header("Elde Tutma")]
-    [SerializeField] private Vector3 ownerHandOffset = new Vector3(0.35f, -0.28f, 0.55f);
-    [SerializeField] private Vector3 remoteHandOffset = new Vector3(0.35f, 0.25f, 0.55f);
-    [SerializeField] private float heldMaxSize = 0.35f;
+    [Tooltip("Elde süzülen eşyanın en büyük kenarı (metre). Daha büyük eserler buna sığacak kadar küçültülür.")]
+    [SerializeField] private float heldArtSize = 0.55f;
 
     // Upgrade seviyeleri (garaj mağazası, sunucu yazar)
     private readonly NetworkVariable<byte> bagLevel = new NetworkVariable<byte>(0);
@@ -58,6 +57,11 @@ public class PlayerInventory : NetworkBehaviour
     private readonly NetworkVariable<int> personalMoney = new NetworkVariable<int>(0);
     private readonly NetworkVariable<int> heldSlot = new NetworkVariable<int>(
         NoHeld, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
+    // Elde tutulan eşyanın uzaklığı (cm) ve çevrilme adımı (45°): sahibi yazar, herkes aynı yerde görür
+    private readonly NetworkVariable<byte> holdDistance = new NetworkVariable<byte>(
+        110, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
+    private readonly NetworkVariable<byte> holdYawStep = new NetworkVariable<byte>(
+        0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
 
     private ObjectCarrier carrier;
     private Transform playerCamera;
@@ -67,7 +71,9 @@ public class PlayerInventory : NetworkBehaviour
     private int hoveredSlot = -1;
     private int pendingHoveredSlot = -1; // IMGUI: fare değişikliği bir sonraki Layout'ta uygulanır
     private Vector2 scroll;
-    private int heldItemIndexLocal = -1;
+    private InventorySlot heldLocal;      // elimde tuttuğum eşya (satır kaysa da bununla bulunur)
+    private InventorySlot lastHeld;       // G ile geri almak için
+    private bool hasLastHeld;
 
     // Bildirim
     private string toastText;
@@ -79,9 +85,13 @@ public class PlayerInventory : NetworkBehaviour
     private float serverStealUntil = -1f;
 
     // Elde tutulan eşyanın görüntüsü
-    private Transform handAnchor;
-    private GameObject heldVisual;
-    private int heldVisualItemIndex = -2;
+    private HeldItemView heldView;
+    private InventorySlot heldVisualSlot;
+    private bool heldVisualShown, heldVisualPending;
+
+    // İstemci: sunucudan parça parça gelen sahte verileri
+    private readonly Dictionary<ushort, byte[]> incomingForgeries = new Dictionary<ushort, byte[]>();
+    private readonly Dictionary<ushort, int> incomingReceived = new Dictionary<ushort, int>();
 
     private GUIStyle titleStyle, rowStyle, smallStyle, hintStyle, buttonStyle, boxStyle, hudStyle, cardTitleStyle, moneyStyle;
 
@@ -92,6 +102,10 @@ public class PlayerInventory : NetworkBehaviour
     public InventorySlot GetSlot(int i) => slots[i];
     public int PersonalMoney => personalMoney.Value;
     public int HeldSlot => heldSlot.Value;
+    public float HoldDistance => holdDistance.Value / 100f;
+    public float HoldYaw => holdYawStep.Value * 45f;
+    public float HeldMaxSize => heldArtSize;
+    public bool HasHeldItem => heldSlot.Value >= 0 && slots != null && heldSlot.Value < slots.Count;
 
     public int GetUpgradeLevel(UpgradeType t)
     {
@@ -158,6 +172,8 @@ public class PlayerInventory : NetworkBehaviour
     {
         slots = new NetworkList<InventorySlot>();
         carrier = GetComponent<ObjectCarrier>();
+        heldView = GetComponent<HeldItemView>();
+        if (heldView == null) heldView = gameObject.AddComponent<HeldItemView>();
         Camera cam = GetComponentInChildren<Camera>(true);
         if (cam != null) playerCamera = cam.transform;
     }
@@ -169,6 +185,7 @@ public class PlayerInventory : NetworkBehaviour
 
         slots.OnListChanged += OnSlotsChanged;
         heldSlot.OnValueChanged += OnHeldChanged;
+        ForgeryRegistry.Arrived += OnForgeryArrived;
         RefreshHeldVisual();
     }
 
@@ -176,6 +193,7 @@ public class PlayerInventory : NetworkBehaviour
     {
         slots.OnListChanged -= OnSlotsChanged;
         heldSlot.OnValueChanged -= OnHeldChanged;
+        ForgeryRegistry.Arrived -= OnForgeryArrived;
 
         if (Local == this)
         {
@@ -187,21 +205,33 @@ public class PlayerInventory : NetworkBehaviour
 
     private void OnSlotsChanged(NetworkListEvent<InventorySlot> e)
     {
-        // Sahibi: elimdeki eşya çantadan çıktıysa / yeri kaydıysa elimi boşalt
-        if (IsOwner && heldSlot.Value != NoHeld)
+        if (IsOwner)
         {
+            // Elimdeki eşya çantadan çıktıysa / yeri kaydıysa: aynı eşyayı bul, yoksa elimi boşalt
             int h = heldSlot.Value;
-            if (h >= slots.Count || slots[h].ItemIndex != heldItemIndexLocal)
+            if (h != NoHeld && (h >= slots.Count || !slots[h].SameItem(heldLocal)))
             {
-                int found = -1;
+                int found = NoHeld;
                 for (int i = 0; i < slots.Count; i++)
                 {
-                    if (slots[i].ItemIndex == heldItemIndexLocal) { found = i; break; }
+                    if (slots[i].SameItem(heldLocal)) { found = i; break; }
                 }
                 SetHeld(found);
             }
+
+            // R.E.P.O gibi: yeni alınan / yapılan eser doğrudan ele gelir
+            if (e.Type == NetworkListEvent<InventorySlot>.EventType.Add && e.Index >= 0 && e.Index < slots.Count)
+            {
+                ItemDefinition d = Def(slots[e.Index]);
+                if (d != null && (d.type == ItemType.Original || d.type == ItemType.Forgery)) SetHeld(e.Index);
+            }
         }
         RefreshHeldVisual();
+    }
+
+    private void OnForgeryArrived(ushort id)
+    {
+        if (heldVisualPending && heldVisualSlot.ForgeryId == id) RefreshHeldVisual(true);
     }
 
     private void OnHeldChanged(int oldValue, int newValue) => RefreshHeldVisual();
@@ -210,6 +240,9 @@ public class PlayerInventory : NetworkBehaviour
 
     private void Update()
     {
+        // Verisi henüz gelmemiş sahte: ara ara yeniden dene (herkeste)
+        if (heldVisualPending && IsSpawned && Time.frameCount % 30 == 0 && ForgeryRegistry.TryGet(heldVisualSlot.ForgeryId, out _)) RefreshHeldVisual(true);
+
         if (!IsOwner || !IsSpawned) return;
         Keyboard kb = Keyboard.current;
         if (kb == null) return;
@@ -240,6 +273,19 @@ public class PlayerInventory : NetworkBehaviour
         if (canAct && kb.qKey.wasPressedThisFrame)
         {
             TryThrowDistraction();
+        }
+
+        // G: elindekini çantaya kaldır / son tuttuğunu yeniden ele al
+        if (canAct && kb.gKey.wasPressedThisFrame) ToggleLastHeld();
+
+        // Elde tutulan eşya: tekerlek = yaklaştır / uzaklaştır, R = çevir
+        if (canAct && HasHeldItem)
+        {
+            Mouse mouse = Mouse.current;
+            float wheel = mouse != null ? mouse.scroll.ReadValue().y : 0f;
+            if (Mathf.Abs(wheel) > 0.01f)
+                holdDistance.Value = (byte)Mathf.Clamp(holdDistance.Value + (wheel > 0f ? 10 : -10), 70, 220);
+            if (kb.rKey.wasPressedThisFrame) holdYawStep.Value = (byte)((holdYawStep.Value + 1) % 8);
         }
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
@@ -303,8 +349,38 @@ public class PlayerInventory : NetworkBehaviour
     private void SetHeld(int slotIndex)
     {
         if (!IsOwner) return;
-        heldSlot.Value = slotIndex;
-        heldItemIndexLocal = slotIndex >= 0 && slotIndex < slots.Count ? slots[slotIndex].ItemIndex : -1;
+        bool valid = slotIndex >= 0 && slotIndex < slots.Count;
+        heldSlot.Value = valid ? slotIndex : NoHeld;
+        heldLocal = valid ? slots[slotIndex] : default;
+        if (valid) { lastHeld = heldLocal; hasLastHeld = true; }
+    }
+
+    private void ToggleLastHeld()
+    {
+        if (heldSlot.Value != NoHeld)
+        {
+            SetHeld(NoHeld);
+            GameAudio.Play2D(SoundId.BagClose, 0.5f);
+            return;
+        }
+
+        int found = NoHeld;
+        for (int i = 0; i < slots.Count && hasLastHeld; i++)
+        {
+            if (slots[i].SameItem(lastHeld)) { found = i; break; }
+        }
+        if (found == NoHeld)
+        {
+            // Son tutulan artık yoksa çantadaki ilk eseri al
+            for (int i = 0; i < slots.Count; i++)
+            {
+                ItemDefinition d = Def(slots[i]);
+                if (d != null && (d.type == ItemType.Original || d.type == ItemType.Forgery)) { found = i; break; }
+            }
+        }
+        if (found == NoHeld) return;
+        SetHeld(found);
+        GameAudio.Play2D(SoundId.BagOpen, 0.5f);
     }
 
     private void ToggleHeld(int slotIndex)
@@ -386,7 +462,7 @@ public class PlayerInventory : NetworkBehaviour
 
         if (Vector3.Distance(transform.position, no.transform.position) > serverMaxPickupDistance) return;
 
-        if (!ServerAddItem(wi.Item, wi.Similarity))
+        if (!ServerAddItem(wi.Item, wi.Similarity, wi.ForgeryId, wi.LookKey))
         {
             ServerNotify("inv.full");
             return;
@@ -457,6 +533,7 @@ public class PlayerInventory : NetworkBehaviour
         if (wi != null)
         {
             wi.SetPendingSimilarity(slot.Similarity);
+            wi.SetPendingIdentity(slot.ForgeryId, slot.LookKey);
             wi.MarkThrown();
         }
 
@@ -512,7 +589,7 @@ public class PlayerInventory : NetworkBehaviour
     }
 
     [Rpc(SendTo.Server)]
-    private void TakeFromRpc(NetworkObjectReference targetRef, int slotIndex, ushort expectedItemIndex, RpcParams rpcParams = default)
+    private void TakeFromRpc(NetworkObjectReference targetRef, int slotIndex, InventorySlot expected, RpcParams rpcParams = default)
     {
         if (rpcParams.Receive.SenderClientId != OwnerClientId) return;
         if (Time.time > serverStealUntil) return;
@@ -523,12 +600,12 @@ public class PlayerInventory : NetworkBehaviour
         if (Vector3.Distance(transform.position, target.transform.position) > stealRange + 2f) return;
 
         InventorySlot s = target.slots[slotIndex];
-        if (s.ItemIndex != expectedItemIndex) return; // bu arada çanta değişmiş
+        if (!s.SameItem(expected)) return; // bu arada çanta değişmiş
 
         ItemDefinition def = Def(s);
         if (def == null) return;
 
-        if (!ServerAddItem(def, s.Similarity))
+        if (!ServerAddItem(def, s.Similarity, s.ForgeryId, s.LookKey))
         {
             ServerNotify("inv.full");
             return;
@@ -594,7 +671,7 @@ public class PlayerInventory : NetworkBehaviour
     // ---------------- Sunucu API (garaj, atölye, müze sistemleri kullanacak) ----------------
 
     /// <summary>Sunucu: çantaya eşya ekler. Sığmazsa false.</summary>
-    public bool ServerAddItem(ItemDefinition def, byte similarity = InventorySlot.NoSimilarity)
+    public bool ServerAddItem(ItemDefinition def, byte similarity = InventorySlot.NoSimilarity, ushort forgeryId = 0, int lookKey = 0)
     {
         if (!IsServer || def == null) return false;
 
@@ -613,7 +690,7 @@ public class PlayerInventory : NetworkBehaviour
             for (int i = 0; i < slots.Count; i++)
             {
                 InventorySlot s = slots[i];
-                if (s.ItemIndex == index && s.Similarity == similarity && s.Count < def.MaxStack)
+                if (s.ItemIndex == index && s.Similarity == similarity && s.ForgeryId == forgeryId && s.LookKey == lookKey && s.Count < def.MaxStack)
                 {
                     s.Count++;
                     slots[i] = s;
@@ -622,7 +699,7 @@ public class PlayerInventory : NetworkBehaviour
             }
         }
 
-        slots.Add(new InventorySlot { ItemIndex = (ushort)index, Count = 1, Similarity = similarity });
+        slots.Add(new InventorySlot { ItemIndex = (ushort)index, Count = 1, Similarity = similarity, ForgeryId = forgeryId, LookKey = lookKey });
         return true;
     }
 
@@ -682,10 +759,12 @@ public class PlayerInventory : NetworkBehaviour
         }
     }
 
-    /// <summary>Bu orijinal eserin sahtesi çantada var mı? En yüksek benzerlikli sahtenin satırını döner, yoksa -1.
-    /// Sahte tanımında "Forgery Of" boşsa her esere uyar (test için).</summary>
-    public int FindForgeryFor(ItemDefinition original)
+    /// <summary>Bu KAİDEDEKİ eser için yapılmış sahte çantada var mı? En yüksek benzerlikli satırı döner, yoksa -1.
+    /// Atölyede yapılan sahteler yalnızca yapıldıkları kaideye uyar (benzerlikleri o esere göre hesaplandı).</summary>
+    public int FindForgeryFor(ArtworkDisplay target)
     {
+        if (target == null || target.Artwork == null) return -1;
+        int key = target.LookKey;
         int best = -1;
         int bestSim = -1;
         for (int i = 0; i < SlotCount; i++)
@@ -693,7 +772,8 @@ public class PlayerInventory : NetworkBehaviour
             InventorySlot s = slots[i];
             ItemDefinition d = Def(s);
             if (d == null || d.type != ItemType.Forgery) continue;
-            if (d.forgeryOf != null && d.forgeryOf != original) continue;
+            if (d.forgeryOf != null && d.forgeryOf != target.Artwork) continue;
+            if (s.LookKey != 0 && s.LookKey != key) continue; // başka bir eserin sahtesi
 
             int sim = s.HasSimilarity ? s.Similarity : 0;
             if (sim > bestSim) { bestSim = sim; best = i; }
@@ -702,9 +782,10 @@ public class PlayerInventory : NetworkBehaviour
     }
 
     /// <summary>Sunucu: çantadaki sahteyi verir, orijinali alır. Orijinal, bırakılan sahtenin benzerliğini taşır.</summary>
-    public bool ServerSwapForgery(int forgerySlot, ItemDefinition original, out byte similarity)
+    public bool ServerSwapForgery(int forgerySlot, ItemDefinition original, int lookKey, out byte similarity, out ushort forgeryId)
     {
         similarity = InventorySlot.NoSimilarity;
+        forgeryId = 0;
         if (!IsServer || forgerySlot < 0 || forgerySlot >= slots.Count || original == null) return false;
 
         InventorySlot s = slots[forgerySlot];
@@ -714,13 +795,75 @@ public class PlayerInventory : NetworkBehaviour
         if (CurrentWeightKg - forgery.weightKg + original.weightKg > CapacityKg + 0.0001f) return false;
 
         similarity = s.Similarity;
+        forgeryId = s.ForgeryId;
         ServerRemoveAt(forgerySlot, 1);
-        if (!ServerAddItem(original, similarity))
+        if (!ServerAddItem(original, similarity, 0, lookKey))
         {
-            ServerAddItem(forgery, similarity); // geri koy
+            ServerAddItem(forgery, similarity, s.ForgeryId, s.LookKey); // geri koy
             return false;
         }
         return true;
+    }
+
+    /// <summary>Sunucu: yeni görev başlarken çantadaki sahteleri siler (eski müzenin eserlerine göre yapılmışlardı).</summary>
+    public void ServerRemoveForgeries()
+    {
+        if (!IsServer) return;
+        for (int i = slots.Count - 1; i >= 0; i--)
+        {
+            ItemDefinition d = Def(slots[i]);
+            if (d != null && d.type == ItemType.Forgery) slots.RemoveAt(i);
+        }
+    }
+
+    // ---------------- Sahte verisi (ForgeryRegistry): istemci ister, sunucu parça parça yollar ----------------
+
+    private const int ForgeryChunkSize = 1000;
+
+    /// <summary>Sahibi: bu bilgisayarda olmayan bir sahtenin verisini sunucudan iste.</summary>
+    public void RequestForgeryData(ushort id)
+    {
+        if (IsOwner && IsSpawned && id != 0) RequestForgeryRpc(id);
+    }
+
+    [Rpc(SendTo.Server)]
+    private void RequestForgeryRpc(ushort id, RpcParams rpcParams = default)
+    {
+        if (rpcParams.Receive.SenderClientId != OwnerClientId) return;
+        byte[] blob = ForgeryRegistry.GetBlob(id);
+        if (blob == null) return;
+
+        ForgeryBeginRpc(id, blob.Length);
+        for (int offset = 0; offset < blob.Length; offset += ForgeryChunkSize)
+        {
+            byte[] chunk = new byte[Mathf.Min(ForgeryChunkSize, blob.Length - offset)];
+            System.Array.Copy(blob, offset, chunk, 0, chunk.Length);
+            ForgeryChunkRpc(id, chunk);
+        }
+    }
+
+    [Rpc(SendTo.Owner)]
+    private void ForgeryBeginRpc(ushort id, int totalBytes)
+    {
+        if (totalBytes <= 0 || totalBytes > ForgeryData.MaxBlobBytes) return;
+        incomingForgeries[id] = new byte[totalBytes];
+        incomingReceived[id] = 0;
+    }
+
+    [Rpc(SendTo.Owner)]
+    private void ForgeryChunkRpc(ushort id, byte[] chunk)
+    {
+        if (chunk == null || !incomingForgeries.TryGetValue(id, out byte[] buffer)) return;
+        int got = incomingReceived[id];
+        if (got + chunk.Length > buffer.Length) { incomingForgeries.Remove(id); incomingReceived.Remove(id); return; }
+        System.Array.Copy(chunk, 0, buffer, got, chunk.Length);
+        got += chunk.Length;
+        incomingReceived[id] = got;
+        if (got < buffer.Length) return;
+
+        incomingForgeries.Remove(id);
+        incomingReceived.Remove(id);
+        ForgeryRegistry.Store(id, buffer);
     }
 
     /// <summary>Sunucu: yakalanınca çantadaki orijinal eserlere el konur. Kaç adet gittiğini döner.</summary>
@@ -781,37 +924,31 @@ public class PlayerInventory : NetworkBehaviour
 
     // ---------------- Elde tutulan eşyanın görüntüsü ----------------
 
-    private void RefreshHeldVisual()
+    /// <summary>Elde tutulan eşya ele yapışık durmaz; oyuncunun önünde süzülür (HeldItemView). Herkes görür.</summary>
+    private void RefreshHeldVisual(bool force = false)
     {
+        if (heldView == null) return;
         int h = heldSlot.Value;
-        int itemIndex = h >= 0 && slots != null && h < slots.Count ? slots[h].ItemIndex : -1;
-        if (itemIndex == heldVisualItemIndex) return;
+        bool has = h >= 0 && slots != null && h < slots.Count;
+        InventorySlot slot = has ? slots[h] : default;
+        if (!force && has == heldVisualShown && (!has || slot.SameItem(heldVisualSlot))) return;
 
-        DestroyHeldVisual();
-        heldVisualItemIndex = itemIndex;
-        if (itemIndex < 0) return;
+        heldVisualShown = has;
+        heldVisualSlot = slot;
+        heldVisualPending = false;
+        if (!has) { heldView.Hide(); return; }
 
-        ItemDefinition def = ItemDatabase.Instance != null ? ItemDatabase.Instance.Get(itemIndex) : null;
-        if (def == null || def.worldPrefab == null) return;
-
-        if (handAnchor == null)
-        {
-            handAnchor = new GameObject("HandAnchor").transform;
-            bool owner = IsOwner && playerCamera != null;
-            handAnchor.SetParent(owner ? playerCamera : transform, false);
-            handAnchor.localPosition = owner ? ownerHandOffset : remoteHandOffset;
-            handAnchor.localRotation = Quaternion.Euler(10f, -20f, 0f);
-        }
-
-        heldVisual = ItemVisuals.Build(def.worldPrefab, heldMaxSize);
-        heldVisual.transform.SetParent(handAnchor, false);
+        ItemDefinition def = Def(slot);
+        GameObject visual = ItemVisuals.BuildFor(def, slot, out heldVisualPending);
+        if (visual == null) { heldView.Hide(); return; }
+        ItemVisuals.Fit(visual, heldArtSize);
+        heldView.Show(visual, def);
     }
 
     private void DestroyHeldVisual()
     {
-        if (heldVisual != null) Destroy(heldVisual);
-        heldVisual = null;
-        heldVisualItemIndex = -2;
+        if (heldView != null) heldView.Hide();
+        heldVisualShown = false;
     }
 
     // ---------------- Arayüz ----------------
@@ -863,6 +1000,7 @@ public class PlayerInventory : NetworkBehaviour
 
         string hint = Loc.T("inv.open") + "   " + Loc.T("throw.hint");
         GUI.Label(new Rect(r.x - 100f, r.y - 20f, r.width + 90f, 18f), hint, hintStyle);
+        if (HasHeldItem) GUI.Label(new Rect(r.x - 260f, r.y - 40f, r.width + 250f, 18f), Loc.T("held.hint"), hintStyle);
     }
 
     private void DrawMoneyHud()
@@ -944,7 +1082,7 @@ public class PlayerInventory : NetworkBehaviour
 
             Rect iconRect = GUILayoutUtility.GetRect(36f, 36f, GUILayout.Width(36f), GUILayout.Height(36f));
             iconRect.y += 4f;
-            DrawIcon(iconRect, def);
+            DrawIcon(iconRect, def, s);
             if (held) UIUtil.DrawRect(new Rect(iconRect.x, iconRect.yMax + 1f, iconRect.width, 3f), new Color(1f, 0.8f, 0.3f));
 
             GUILayout.Space(8f);
@@ -1009,7 +1147,7 @@ public class PlayerInventory : NetworkBehaviour
 
         if (takeIndex >= 0 && takeIndex < bag.SlotCount)
         {
-            TakeFromRpc(bag.NetworkObject, takeIndex, bag.GetSlot(takeIndex).ItemIndex);
+            TakeFromRpc(bag.NetworkObject, takeIndex, bag.GetSlot(takeIndex));
         }
     }
 
@@ -1024,7 +1162,7 @@ public class PlayerInventory : NetworkBehaviour
         Rect icon = GUILayoutUtility.GetRect(96f, 96f, GUILayout.Width(r.width - 28f), GUILayout.Height(96f));
         icon.x += (icon.width - 96f) / 2f;
         icon.width = 96f;
-        DrawIcon(icon, def);
+        DrawIcon(icon, def, s);
 
         GUILayout.Space(6f);
         GUILayout.Label(def.DisplayName, cardTitleStyle);
@@ -1063,10 +1201,13 @@ public class PlayerInventory : NetworkBehaviour
         GUILayout.EndArea();
     }
 
-    private static void DrawIcon(Rect r, ItemDefinition def)
+    /// <summary>Atölyede yapılan sahtelerde ikon, oyuncunun yaptığı eserin kendisidir.</summary>
+    private static void DrawIcon(Rect r, ItemDefinition def, InventorySlot s)
     {
         UIUtil.DrawRect(r, new Color(1f, 1f, 1f, 0.06f));
-        if (def.icon != null) GUI.DrawTexture(r, def.icon, ScaleMode.ScaleToFit);
+        Texture2D own = s.ForgeryId != 0 ? ForgeryRegistry.Icon(s.ForgeryId) : null;
+        if (own != null) GUI.DrawTexture(r, own, ScaleMode.ScaleToFit);
+        else if (def.icon != null) GUI.DrawTexture(r, def.icon, ScaleMode.ScaleToFit);
         else UIUtil.DrawRect(new Rect(r.x + 4f, r.y + 4f, r.width - 8f, r.height - 8f), def.uiColor);
     }
 

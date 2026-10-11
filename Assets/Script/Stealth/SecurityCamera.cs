@@ -17,6 +17,10 @@ public class SecurityCamera : NetworkBehaviour
     [SerializeField] private float suspicionRate = 0.7f;
     [SerializeField] private float reportCooldown = 4f;
     [SerializeField] private VisionConeVisual cone;
+    [Tooltip("Bu kamera hangi görev seviyesinden itibaren açık? (GDD: kameralar 2. seviyede gelir)")]
+    [SerializeField, Min(1)] private int requiredLevel = 1;
+
+    private bool shownOnline = true;
 
     private float baseYaw;
     private float nextReport;
@@ -41,6 +45,14 @@ public class SecurityCamera : NetworkBehaviour
 
     private void Update()
     {
+        bool online = MuseumSession.IsLevelActive(requiredLevel);
+        if (online != shownOnline)
+        {
+            shownOnline = online;
+            foreach (Renderer r in GetComponentsInChildren<Renderer>(true)) r.enabled = online;
+        }
+        if (!online) return; // bu görevde kamera yok
+
         Vector3 fwd = Forward;
         if (head != null) head.rotation = Quaternion.LookRotation(fwd + Vector3.down * 0.5f);
 

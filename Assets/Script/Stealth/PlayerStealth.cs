@@ -190,6 +190,7 @@ public class PlayerStealth : NetworkBehaviour
     [Rpc(SendTo.Owner)]
     private void TeleportRpc(Vector3 pos, float yaw)
     {
+        WorkbenchUI.ForceClose(); // yakalandıysa atölye / kamera açık kalmasın
         LocalTeleport(pos, yaw);
     }
 

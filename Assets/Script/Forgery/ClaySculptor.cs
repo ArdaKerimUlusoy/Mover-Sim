@@ -265,4 +265,36 @@ public class ClaySculptor : MonoBehaviour
         }
         return Mathf.Clamp01(1f - total / (N * N) / 0.3f);
     }
+
+    // ---------------- Sahte verisi ----------------
+
+    /// <summary>Kilin şu anki halini (şekil + boya) taşınabilir veriye çevirir.</summary>
+    public ForgeryData Bake(Color[] paletteColors)
+    {
+        int stride = radialSegments + 1;
+        var shape = new byte[stride * (heightSegments + 1)];
+        for (int i = 0; i < shape.Length; i++)
+        {
+            Vector3 v = vertices[i];
+            float r = Mathf.Sqrt(v.x * v.x + v.z * v.z);
+            shape[i] = (byte)Mathf.Clamp(Mathf.RoundToInt(r / maxRadius * 255f), 0, 255);
+        }
+
+        Color32[] pal = ForgeryData.ToPalette(paletteColors, ArtworkLook.ClayColor);
+        byte[] px = ForgeryData.Quantize(pixels, TexRes, TexRes, 2, pal, out int w, out int h);
+        return new ForgeryData
+        {
+            kind = ArtKind.Vase,
+            pars = ForgeryData.VasePars(height, maxRadius, radialSegments, heightSegments),
+            palette = pal, width = w, height = h, pixels = px, shape = shape,
+        };
+    }
+
+    private void OnDestroy()
+    {
+        if (mesh != null) Destroy(mesh);
+        if (tex != null) Destroy(tex);
+        MeshRenderer mr = GetComponent<MeshRenderer>();
+        if (mr != null && mr.sharedMaterial != null) Destroy(mr.sharedMaterial);
+    }
 }

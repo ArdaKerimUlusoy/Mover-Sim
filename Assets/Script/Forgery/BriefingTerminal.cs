@@ -5,7 +5,7 @@ using UnityEngine.InputSystem;
 
 /// <summary>
 /// Garajdaki BRİFİNG TERMİNALİ (GDD: "Brifing — hedef eserleri gör").
-/// Üstünde bu görevin vazoları sırayla dönen hologram olarak görünür.
+/// Üstünde bu görevin hedef eserleri sırayla dönen hologram olarak görünür.
 /// E → panel: müze, görev seviyesi, kota ve hedef eserlerin resimleri / değerleri / durumu.
 /// Kurulum: obje + NetworkObject + bu bileşen.
 /// </summary>
@@ -17,7 +17,7 @@ public class BriefingTerminal : Interactable
     private int builtVersion = -1;
     private int holoIndex;
     private float holoTimer;
-    private readonly List<VaseLook> holoVases = new List<VaseLook>();
+    private readonly List<ArtworkDisplay> holoTargets = new List<ArtworkDisplay>();
 
     public override bool HandleLocally => true;
 
@@ -35,10 +35,10 @@ public class BriefingTerminal : Interactable
         if (builtVersion != MuseumSession.LookVersion)
         {
             builtVersion = MuseumSession.LookVersion;
-            holoVases.Clear();
+            holoTargets.Clear();
             foreach (ArtworkDisplay d in ArtworkDisplay.All)
-                if (d != null && MuseumSession.IsDisplayActive(d) && ArtworkLook.KindOf(d.Artwork) == ArtKind.Vase)
-                    holoVases.Add(ms.VaseFor(d));
+                if (d != null && d.Artwork != null && MuseumSession.IsDisplayActive(d) && d.Kind != ArtKind.None)
+                    holoTargets.Add(d);
             holoIndex = 0;
             BuildHologram();
         }
@@ -47,10 +47,10 @@ public class BriefingTerminal : Interactable
         {
             hologram.transform.Rotate(0f, 40f * Time.deltaTime, 0f, Space.World);
             holoTimer += Time.deltaTime;
-            if (holoVases.Count > 1 && holoTimer > 3f)
+            if (holoTargets.Count > 1 && holoTimer > 3f)
             {
                 holoTimer = 0f;
-                holoIndex = (holoIndex + 1) % holoVases.Count;
+                holoIndex = (holoIndex + 1) % holoTargets.Count;
                 BuildHologram();
             }
         }
@@ -59,8 +59,13 @@ public class BriefingTerminal : Interactable
     private void BuildHologram()
     {
         if (hologram != null) Destroy(hologram);
-        if (holoVases.Count == 0) return;
-        hologram = ArtworkLook.BuildVaseVisual(holoVases[holoIndex]);
+        if (holoTargets.Count == 0) return;
+        MuseumSession ms = MuseumSession.Instance;
+        ArtworkDisplay d = holoTargets[holoIndex];
+        if (ms == null || d == null) return;
+        hologram = ArtworkLook.BuildOriginalVisual(d.Kind, ms.Seed, ms.ThemeIndex, d.name);
+        if (hologram == null) return;
+        ItemVisuals.Fit(hologram, 0.5f);
         Collider c = GetComponentInChildren<Collider>();
         float top = c != null ? c.bounds.max.y : transform.position.y + 0.5f;
         hologram.transform.position = new Vector3(transform.position.x, top + hologramHeight * 0.2f, transform.position.z);
@@ -118,7 +123,7 @@ public class BriefingUI : MonoBehaviour
     {
         string key = ms.Seed + "|" + ms.ThemeIndex + "|" + d.name;
         if (icons.TryGetValue(key, out Texture2D t)) return t;
-        t = kind == ArtKind.Vase ? ArtworkLook.VaseIcon(ms.VaseFor(d)) : ms.PaintingFor(d).image;
+        t = kind == ArtKind.Vase ? ArtworkLook.VaseIcon(ms.VaseFor(d)) : kind == ArtKind.Painting ? ms.PaintingFor(d).image : d.Artwork.icon;
         icons[key] = t;
         return t;
     }
@@ -150,12 +155,12 @@ public class BriefingUI : MonoBehaviour
 
             GUILayout.BeginHorizontal(UIUtil.BoxStyle);
             Rect img = GUILayoutUtility.GetRect(72f, 72f, GUILayout.Width(kind == ArtKind.Painting ? 96f : 72f), GUILayout.Height(72f));
-            if (kind != ArtKind.None) GUI.DrawTexture(img, IconFor(ms, d, kind), ScaleMode.ScaleToFit);
-            else if (d.Artwork.icon != null) GUI.DrawTexture(img, d.Artwork.icon, ScaleMode.ScaleToFit);
+            Texture2D iconTex = kind != ArtKind.None ? IconFor(ms, d, kind) : d.Artwork.icon;
+            if (iconTex != null) GUI.DrawTexture(img, iconTex, ScaleMode.ScaleToFit);
 
             GUILayout.BeginVertical();
             GUILayout.Label(ms.ArtworkName(d), UIUtil.RowStyle);
-            string how = kind == ArtKind.Vase ? Loc.T("bench.wheel") : kind == ArtKind.Painting ? Loc.T("bench.canvas") : Loc.T("brief.noforge");
+            string how = Loc.T(WorkbenchUI.MethodKey(kind));
             GUILayout.Label(Loc.T("brief.value", d.Artwork.baseValue, d.Artwork.weightKg.ToString("0.#"), how), UIUtil.SmallStyle);
             if (d.IsSwapped) GUILayout.Label(Loc.T("brief.swapped", d.LeftSimilarity), UIUtil.SmallStyle);
             GUILayout.EndVertical();

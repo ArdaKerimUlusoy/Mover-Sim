@@ -281,4 +281,18 @@ public class CanvasPainter
         Color fill = Score >= 0.75f ? new Color(0.35f, 0.95f, 0.45f) : (Score >= 0.5f ? new Color(1f, 0.75f, 0.25f) : new Color(1f, 0.4f, 0.3f));
         GUI.DrawTexture(new Rect(bar.x, bar.y, bar.width * Score, bar.height), Texture2D.whiteTexture, ScaleMode.StretchToFill, false, 0, fill, 0, 4);
     }
+
+    /// <summary>Tuvalin şu anki halini taşınabilir veriye çevirir.</summary>
+    public ForgeryData ToData()
+    {
+        Color32[] pal = ForgeryData.ToPalette(palette, CanvasBase);
+        byte[] data = ForgeryData.Quantize(px, W, H, 1, pal, out int w, out int h);
+        return new ForgeryData { kind = ArtKind.Painting, palette = pal, width = w, height = h, pixels = data };
+    }
+
+    public void Dispose()
+    {
+        if (canvas != null) Object.Destroy(canvas);
+        if (guide != null) Object.Destroy(guide);
+    }
 }

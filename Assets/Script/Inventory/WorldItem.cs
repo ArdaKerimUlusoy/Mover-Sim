@@ -21,15 +21,25 @@ public class WorldItem : NetworkBehaviour
     [SerializeField] private float distractionNoiseRadius = 10f;
 
     private readonly NetworkVariable<byte> similarity = new NetworkVariable<byte>(InventorySlot.NoSimilarity);
+    private readonly NetworkVariable<ushort> forgeryId = new NetworkVariable<ushort>(0);
+    private readonly NetworkVariable<int> lookKey = new NetworkVariable<int>(0);
 
     private bool hasPendingSimilarity;
     private byte pendingSimilarity;
+    private ushort pendingForgeryId;
+    private int pendingLookKey;
+    private GameObject artVisual;
+    private bool artPending;
     private bool thrown;
     private float ignoreImpactsUntil;
     private float nextImpactTime;
 
     public ItemDefinition Item => item;
     public byte Similarity => IsSpawned ? similarity.Value : ToByte(similarityPercent);
+    public ushort ForgeryId => IsSpawned ? forgeryId.Value : pendingForgeryId;
+    public int LookKey => IsSpawned ? lookKey.Value : pendingLookKey;
+    /// <summary>Çantaya girerken taşınacak satır bilgisi.</summary>
+    public InventorySlot AsSlot() => new InventorySlot { Count = 1, Similarity = Similarity, ForgeryId = ForgeryId, LookKey = LookKey };
     public bool IsConsumed { get; private set; }
 
     /// <summary>Sunucu: çantadan bırakılan eşyayı spawn etmeden önce benzerliğini ayarlar.</summary>
@@ -37,6 +47,13 @@ public class WorldItem : NetworkBehaviour
     {
         hasPendingSimilarity = true;
         pendingSimilarity = value;
+    }
+
+    /// <summary>Sunucu: bırakılan eserin kimliğini (yapılan sahte / ait olduğu kaide) spawn etmeden önce ayarlar.</summary>
+    public void SetPendingIdentity(ushort forgery, int look)
+    {
+        pendingForgeryId = forgery;
+        pendingLookKey = look;
     }
 
     /// <summary>Sunucu: atıldı/bırakıldı olarak işaretle (ilk çarpmada hemen ses çıkarsın).</summary>
@@ -50,9 +67,52 @@ public class WorldItem : NetworkBehaviour
         if (IsServer)
         {
             similarity.Value = hasPendingSimilarity ? pendingSimilarity : ToByte(similarityPercent);
+            forgeryId.Value = pendingForgeryId;
+            lookKey.Value = pendingLookKey;
             // Sahneye konmuş eşyalar oyun başında yere otururken ses çıkarmasın.
             ignoreImpactsUntil = Time.time + (thrown ? 0.05f : 1.5f);
         }
+        forgeryId.OnValueChanged += (a, b) => RefreshArtVisual();
+        lookKey.OnValueChanged += (a, b) => RefreshArtVisual();
+        RefreshArtVisual();
+    }
+
+    // ---------------- Görünüm: yerdeki eser de gerçek haliyle görünür ----------------
+
+    private void OnEnable() => ForgeryRegistry.Arrived += OnForgeryArrived;
+    private void OnDisable() => ForgeryRegistry.Arrived -= OnForgeryArrived;
+
+    private void OnForgeryArrived(ushort id)
+    {
+        if (artPending && IsSpawned && id == forgeryId.Value) RefreshArtVisual();
+    }
+
+    private void Update()
+    {
+        // Veri istenemediyse (oyuncumuz henüz doğmadıysa) ara ara tekrar dene
+        if (artPending && IsSpawned && Time.frameCount % 30 == 0 && ForgeryRegistry.TryGet(forgeryId.Value, out _)) RefreshArtVisual();
+    }
+
+    private void RefreshArtVisual()
+    {
+        if (item == null || (forgeryId.Value == 0 && lookKey.Value == 0)) return;
+        if (artVisual != null) return;
+
+        // Prefab'ın kendi (kaba) şeklinin kapladığı hacim: gerçek görsel buna sığdırılır
+        Renderer[] own = GetComponentsInChildren<Renderer>();
+        Bounds ob = new Bounds(transform.position, Vector3.one * 0.3f);
+        for (int i = 0; i < own.Length; i++) { if (i == 0) ob = own[i].bounds; else ob.Encapsulate(own[i].bounds); }
+
+        GameObject v = ItemVisuals.BuildFor(item, AsSlot(), out artPending);
+        if (artPending || v == null || ItemVisuals.IsPrefabFallback(v)) { if (v != null) Destroy(v); return; }
+
+        foreach (Renderer r in own) r.enabled = false;
+        ItemVisuals.Fit(v, Mathf.Max(ob.size.x, ob.size.y, ob.size.z));
+        ItemVisuals.SetShadows(v, true);
+        v.transform.SetPositionAndRotation(ob.center, transform.rotation);
+        // Ölçekli prefab'ın çocuğu olunca şekil bozulmasın: dünya ölçeğini koru
+        v.transform.SetParent(transform, true);
+        artVisual = v;
     }
 
     /// <summary>Sunucu: eşya çantaya alındı, sahneden kaldır.</summary>

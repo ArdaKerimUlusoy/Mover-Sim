@@ -76,7 +76,7 @@ public class SecurityManager : NetworkBehaviour
         float bestDist = float.MaxValue;
         foreach (GuardAI g in Guards)
         {
-            if (g == null) continue;
+            if (g == null || !g.Online) continue;
             float d = Vector3.Distance(g.transform.position, position);
             if (d < bestDist) { bestDist = d; best = g; }
         }

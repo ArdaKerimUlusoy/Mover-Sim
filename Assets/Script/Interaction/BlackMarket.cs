@@ -89,19 +89,19 @@ public class BlackMarket : Interactable, IInventoryPanel
         GUILayout.Label(Loc.T("panel.close"), UIUtil.HintStyle);
         UIUtil.EndCenteredPanel();
 
-        if (sellIndex >= 0) SellRpc(sellIndex, inv.GetSlot(sellIndex).ItemIndex);
+        if (sellIndex >= 0) SellRpc(sellIndex, inv.GetSlot(sellIndex));
         else if (sellAll) SellAllRpc();
     }
 
     // ---------------- Sunucu ----------------
 
     [Rpc(SendTo.Server)]
-    private void SellRpc(int slotIndex, ushort expectedItemIndex, RpcParams rpcParams = default)
+    private void SellRpc(int slotIndex, InventorySlot expected, RpcParams rpcParams = default)
     {
         if (!TryGetNearbyPlayer(rpcParams.Receive.SenderClientId, out NetworkObject player)) return;
         PlayerInventory inv = player.GetComponent<PlayerInventory>();
         if (inv == null || slotIndex < 0 || slotIndex >= inv.SlotCount) return;
-        if (inv.GetSlot(slotIndex).ItemIndex != expectedItemIndex) return;
+        if (!inv.GetSlot(slotIndex).SameItem(expected)) return; // bu arada çanta değişmiş
 
         int price = ServerSellSlot(inv, slotIndex, out ItemDefinition def);
         if (price <= 0) return;

@@ -2,7 +2,7 @@
 using UnityEngine;
 
 /// <summary>Eserin atölyede nasıl yapıldığı: vazo (çömlek çarkı) / tablo (tuval).</summary>
-public enum ArtKind { None, Vase, Painting }
+public enum ArtKind { None, Vase, Painting, Bust, Jewelry }
 
 /// <summary>Müze teması (GDD Bölüm 8: gerçek müzelerden esinlenilmiş, stilize adlar).</summary>
 public class MuseumTheme
@@ -57,7 +57,7 @@ public sealed class PaintingLook
 /// Müze temaları + vazo / tablo üretimi. Aynı (tohum, kaide adı) her bilgisayarda aynı eseri üretir,
 /// böylece ağdan mesh/doku göndermeye gerek kalmaz: sunucu sadece tema ve tohumu paylaşır (MuseumSession).
 /// </summary>
-public static class ArtworkLook
+public static partial class ArtworkLook
 {
     static Color C(float r, float g, float b) => new Color(r, g, b);
     static string[] N(string en, string tr) => new[] { en, tr };
@@ -135,6 +135,8 @@ public static class ArtworkLook
         string id = def.id != null ? def.id.ToLowerInvariant() : "";
         if (id.Contains("vase")) return ArtKind.Vase;
         if (id.Contains("painting")) return ArtKind.Painting;
+        if (id.Contains("bust")) return ArtKind.Bust;
+        if (id.Contains("ring") || id.Contains("crown") || id.Contains("jewel")) return ArtKind.Jewelry;
         return ArtKind.None;
     }
 

@@ -39,6 +39,15 @@ public class GuardAI : NetworkBehaviour
     [SerializeField] private float lookAroundSeconds = 3f;
     [SerializeField] private VisionConeVisual cone;
 
+    [Header("Görev (MuseumSession)")]
+    [Tooltip("Bu güvenlik hangi görev seviyesinden itibaren görevde? (GDD: seviye arttıkça güvenlik sayısı artar)")]
+    [SerializeField, Min(1)] private int requiredLevel = 1;
+
+    private bool shownOnline = true;
+
+    /// <summary>Bu görevde görevde mi? Değilse görünmez, yürümez, kimseyi görmez.</summary>
+    public bool Online => MuseumSession.IsLevelActive(requiredLevel);
+
     private readonly NetworkVariable<State> state = new NetworkVariable<State>(State.Patrol);
     // "?" işaretinin dolum oranı (0–100): şüphelendiği oyuncunun şüphe seviyesi
     private readonly NetworkVariable<byte> alert = new NetworkVariable<byte>(0);
@@ -90,13 +99,14 @@ public class GuardAI : NetworkBehaviour
 
     private void OnNoise(Vector3 pos, float radius)
     {
+        if (!Online) return;
         if (state.Value == State.Chase) return;
         if (Vector3.Distance(transform.position, pos) <= radius) ServerInvestigate(pos, false);
     }
 
     public void ServerInvestigate(Vector3 pos, bool isFake, ArtworkDisplay display = null)
     {
-        if (!IsServer || state.Value == State.Chase) return;
+        if (!IsServer || !Online || state.Value == State.Chase) return;
         investigatePoint = pos;
         investigateIsFake = isFake;
         investigateDisplay = display;
@@ -107,7 +117,7 @@ public class GuardAI : NetworkBehaviour
 
     public void ServerOnAlarm(Vector3 pos, PlayerStealth culprit)
     {
-        if (!IsServer) return;
+        if (!IsServer || !Online) return;
         lastKnownPos = pos;
 
         // Telsizden haber: suçlunun yerini birkaç saniye boyunca bilirler
@@ -124,7 +134,7 @@ public class GuardAI : NetworkBehaviour
 
     public void ServerOnAlarmEnded()
     {
-        if (!IsServer) return;
+        if (!IsServer || !Online) return;
         focus = null;
         SetState(State.Patrol);
         GoToWaypoint();
@@ -134,6 +144,10 @@ public class GuardAI : NetworkBehaviour
 
     private void Update()
     {
+        bool online = Online;
+        if (online != shownOnline) ApplyOnline(online);
+        if (!online) return;
+
         UpdateConeVisual();
 
         if (!IsServer || !IsSpawned) return;
@@ -348,6 +362,25 @@ public class GuardAI : NetworkBehaviour
         }
     }
 
+    /// <summary>Görev seviyesi gelmemiş güvenlik sahnede durur ama yok sayılır (obje kapatılmaz: ağ senkronu bozulmasın).</summary>
+    private void ApplyOnline(bool online)
+    {
+        shownOnline = online;
+        foreach (Renderer r in GetComponentsInChildren<Renderer>(true)) r.enabled = online;
+        foreach (Collider c in GetComponentsInChildren<Collider>(true)) c.enabled = online;
+
+        if (!IsServer || !IsSpawned) return;
+        if (!online)
+        {
+            if (agent.enabled && agent.isOnNavMesh) agent.ResetPath();
+            agent.enabled = false;
+            focus = null;
+            alert.Value = 0;
+            state.Value = State.Patrol;
+        }
+        // online olunca Update, NavMesh hazırsa agent'ı yeniden açıp devriyeye başlatır
+    }
+
     // ---------------- Yardımcılar ----------------
 
     private void GoToWaypoint()
@@ -417,7 +450,7 @@ public class GuardAI : NetworkBehaviour
     ///   "!" kırmızı, büyük ve zıplayarak çıkar (alarm / kovalama)</summary>
     private void OnGUI()
     {
-        if (!IsSpawned) return;
+        if (!IsSpawned || !Online) return;
 
         if (state.Value != shownState)
         {

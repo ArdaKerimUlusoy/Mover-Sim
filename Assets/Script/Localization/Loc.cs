@@ -178,6 +178,7 @@ public static class Loc
 
         // Fırlatma
         { "throw.hint",       new[] { "[Q] Throw coin", "[Q] Para at" } },
+        { "held.hint",        new[] { "[G] Put away / take out   [Wheel] Distance   [R] Rotate", "[G] Kaldır / ele al   [Tekerlek] Uzaklık   [R] Çevir" } },
         { "throw.none",       new[] { "You have nothing to throw.", "Fırlatacak bir şeyin yok." } },
 
         // Çalma
@@ -252,7 +253,13 @@ public static class Loc
         { "upg.teambackpacks.desc", new[] { "+3 kg for the whole team", "Tüm ekibe +3 kg" } },
 
         // Test müzesi etiketleri
-        { "label.garage",     new[] { "TRUCK / GARAGE", "KAMYON / GARAJ" } },
+        { "label.garage",     new[] { "GARAGE", "GARAJ" } },
+        { "label.truck",      new[] { "TRUCK — WORKSHOP", "KAMYON — ATÖLYE" } },
+        { "label.museum",     new[] { "MUSEUM ENTRANCE", "MÜZE GİRİŞİ" } },
+        { "label.paintings",  new[] { "PAINTING GALLERY", "TABLO GALERİSİ" } },
+        { "label.vases",      new[] { "VASE GALLERY", "VAZO GALERİSİ" } },
+        { "label.treasury",   new[] { "TREASURY", "HAZİNE ODASI" } },
+        { "label.masterpiece",new[] { "MASTERPIECE HALL", "BAŞYAPIT SALONU" } },
         { "label.gallery",    new[] { "GALLERY", "GALERİ" } },
         { "label.market",     new[] { "BLACK MARKET", "KARABORSA" } },
         { "label.shop",       new[] { "GARAGE SHOP", "GARAJ MAĞAZASI" } },
@@ -289,6 +296,8 @@ public static class Loc
         { "item.original_bust",     new[] { "Marble Bust", "Mermer Büst" } },
         { "item.forgery_painting",  new[] { "Forged Painting", "Sahte Tablo" } },
         { "item.forgery_vase",      new[] { "Forged Vase", "Sahte Vazo" } },
+        { "item.forgery_bust",      new[] { "Forged Bust", "Sahte Büst" } },
+        { "item.forgery_ring",      new[] { "Forged Ring", "Sahte Yüzük" } },
         { "item.tool_lockpick",     new[] { "Lockpick Set", "Maymuncuk Seti" } },
         { "item.distraction_coin",  new[] { "Coin", "Bozuk Para" } },
 
@@ -301,7 +310,9 @@ public static class Loc
         { "mission.title",     new[] { "MISSION {0} — {1}, {2}", "GÖREV {0} — {1}, {2}" } },
         { "mission.quota",     new[] { "Team earnings: ${0} / ${1}", "Ekip kazancı: ${0} / ${1}" } },
         { "mission.complete",  new[] { "MISSION COMPLETE!", "GÖREV TAMAM!" } },
-        { "mission.nexthost",  new[] { "Press N for the next mission (new museum, more vases)", "Sonraki görev için N'ye bas (yeni müze, daha fazla vazo)" } },
+        { "mission.nexthost",  new[] { "Press N for the next mission (new museum, more to steal)", "Sonraki görev için N'ye bas (yeni müze, daha çok eser)" } },
+        { "mission.truck",     new[] { "Back in the truck: {0} / {1}", "Kamyona dönen: {0} / {1}" } },
+        { "mission.return",    new[] { "Quota reached! Everyone back to the truck.", "Kota tamam! Herkes kamyona dönsün." } },
         { "mission.nextwait",  new[] { "Waiting for the host to start the next mission...", "Sonraki görevi host başlatacak..." } },
         { "mission.next",      new[] { "Mission {1}: {0}", "Görev {1}: {0}" } },
 
@@ -314,6 +325,17 @@ public static class Loc
         { "bench.choosehint",    new[] { "Click or press 1-9.  Esc: close.  You don't need the original: forge first, swap it in the museum later.", "Tıkla ya da 1-9.  Esc: kapat.  Orijinal gerekmez: önce sahteyi yap, sonra müzede değiştir." } },
         { "bench.wheel",         new[] { "potter's wheel", "çömlek çarkı" } },
         { "bench.canvas",        new[] { "canvas", "tuval" } },
+        { "bench.mold",          new[] { "sculpting mold", "kalıptan şekillendirme" } },
+        { "bench.jeweler",       new[] { "jeweler's bench", "kuyumcu tezgahı" } },
+        { "bench.moldhelp",      new[] { "Left: your copy. Right: the original.\nDrag the sliders until they match, then pick the stone and the base.\nA / D: turn both", "Solda senin kopyan, sağda orijinal.\nKaydırıcıları ikisi aynı olana kadar oynat, sonra taşı ve kaideyi seç.\nA / D: ikisini de çevir" } },
+        { "bench.jewelhelp",     new[] { "Left: your copy. Right: the original.\nPick the body, the metal and the gems so they match.\nA / D: turn both", "Solda senin kopyan, sağda orijinal.\nGövdeyi, metali ve taşları orijinale göre seç.\nA / D: ikisini de çevir" } },
+        { "bench.stone",         new[] { "Material", "Malzeme" } },
+        { "bench.base",          new[] { "Base", "Kaide" } },
+        { "bench.body",          new[] { "Body", "Gövde" } },
+        { "bench.metal",         new[] { "Metal", "Metal" } },
+        { "bench.stonecount",    new[] { "Number of gems", "Taş sayısı" } },
+        { "bench.gem",           new[] { "Gem {0}", "{0}. taş" } },
+        { "bench.sculptesc",     new[] { "Esc: give up — finish the shape and paint it to make a forgery", "Esc: vazgeç — sahte için önce şekli bitir ve boya" } },
         { "bench.alreadyswapped",new[] { "   (already swapped)", "   (zaten değiştirildi)" } },
         { "bench.canvastitle",   new[] { "FORGING: {0}", "SAHTE: {0}" } },
         { "bench.sculpt",        new[] { "1) SHAPE", "1) ŞEKİLLENDİR" } },
@@ -340,7 +362,7 @@ public static class Loc
         { "brief.value",    new[] { "Value ${0}  ·  {1} kg  ·  {2}", "Değer ${0}  ·  {1} kg  ·  {2}" } },
         { "brief.noforge",  new[] { "can't be forged", "sahtesi yapılamaz" } },
         { "brief.swapped",  new[] { "Swapped — a {0}% forgery is in its place", "Değiştirildi — yerinde %{0} sahte var" } },
-        { "brief.plan",     new[] { "Plan: 1) Make forgeries at the workbench (the green guide helps).  2) In the museum, hold E at the pedestal to swap.  3) Sell the originals at the black market. Small antiques on the gallery tables sell too.", "Plan: 1) Atölyede sahteleri yap (yeşil rehber yardım eder).  2) Müzede kaideye E basılı tutup değiştir.  3) Orijinalleri karaborsada sat. Galeri masalarındaki küçük antikalar da satılır." } },
+        { "brief.plan",     new[] { "Plan: 1) Make forgeries at the truck workbench.  2) In the museum, hold E at the pedestal to swap.  3) Sell the originals at the black market.  4) When the quota is met, everyone returns to the truck.", "Plan: 1) Kamyondaki atölyede sahteleri yap.  2) Müzede kaideye E basılı tutup değiştir.  3) Orijinalleri karaborsada sat.  4) Kota dolunca herkes kamyona döner." } },
         { "label.workbench", new[] { "FORGERY WORKBENCH", "SAHTE ATÖLYESİ" } },
         { "label.briefing",  new[] { "BRIEFING", "BRİFİNG" } },
     };
