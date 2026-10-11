@@ -22,6 +22,8 @@ public class PlayerStealth : NetworkBehaviour
     private readonly NetworkVariable<float> suspicion = new NetworkVariable<float>(0f);
     private readonly NetworkVariable<bool> hidden = new NetworkVariable<bool>(false);
     private readonly NetworkVariable<bool> watched = new NetworkVariable<bool>(false);
+    // Hapisteyse: sunucu saatine göre kendiliğinden çıkacağı an (0 = serbest)
+    private readonly NetworkVariable<double> jailedUntil = new NetworkVariable<double>(0);
     private readonly NetworkVariable<bool> crouching = new NetworkVariable<bool>(
         false, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
     private readonly NetworkVariable<bool> doingCrime = new NetworkVariable<bool>(
@@ -44,6 +46,8 @@ public class PlayerStealth : NetworkBehaviour
     public bool IsCrouching => crouching.Value;
     public bool IsDoingCrime => doingCrime.Value;
     public bool IsWanted => IsServer && Time.time < wantedUntil;
+    public bool IsJailed => jailedUntil.Value > 0;
+    public double JailedUntil => jailedUntil.Value;
 
     private string PlayerName
     {
@@ -111,6 +115,7 @@ public class PlayerStealth : NetworkBehaviour
         get
         {
             float level = 0f;
+            if (IsJailed) return 0f; // hapisteki oyuncu kimsenin dikkatini çekmez
             if (doingCrime.Value) level += 2f;
             if (IsHoldingArtwork()) level += 1f;
             if (RestrictedArea.IsInside(transform.position)) level += 1f;
@@ -131,7 +136,7 @@ public class PlayerStealth : NetworkBehaviour
     /// <summary>Sunucu: bir güvenlik/kamera bu oyuncuyu bu karede görüyor. gainRate = saniyede şüphe artışı (seviye 1 için).</summary>
     public void ServerReportSeen(float gainRate, Vector3 seenFrom)
     {
-        if (!IsServer || hidden.Value) return;
+        if (!IsServer || hidden.Value || IsJailed) return;
         lastSeenTime = Time.time;
 
         float level = SuspiciousLevel;
@@ -162,22 +167,49 @@ public class PlayerStealth : NetworkBehaviour
         }
     }
 
-    /// <summary>Sunucu: güvenlik yakaladı. Orijinallere el konur, oyuncu garaja gönderilir (GDD Bölüm 6: ileride polis minibüsü + kurtarma).</summary>
+    /// <summary>Sunucu: güvenlik yakaladı. Çantadaki orijinallere el konur ve KAİDELERİNE GERİ DÖNER;
+    /// oyuncu müzenin hapsine kapatılır (JailCell). Sahnede hapis yoksa kamyona gönderilir.</summary>
     public void ServerCatch()
     {
-        if (!IsServer) return;
+        if (!IsServer || IsJailed) return;
 
-        int lost = inventory != null ? inventory.ServerConfiscateOriginals() : 0;
+        var returned = new List<int>();
+        int lost = inventory != null ? inventory.ServerConfiscateOriginals(returned) : 0;
+        foreach (int key in returned)
+        {
+            ArtworkDisplay d = ArtworkDisplay.FindByKey(key);
+            if (d != null) d.ServerRestoreOriginal();
+        }
         suspicion.Value = 0f;
         wantedUntil = -1f;
 
         if (ChatManager.Instance != null) ChatManager.Instance.ServerSystemMessage("chat.caught", PlayerName, lost.ToString());
         if (inventory != null) inventory.ServerPlaySound(SoundId.Caught, transform.position);
 
+        if (JailCell.Instance != null && JailCell.Instance.IsSpawned)
+        {
+            JailCell.Instance.ServerImprison(this);
+            return;
+        }
+
         SpawnPoint sp = SpawnPoint.All.Count > 0 ? SpawnPoint.All[(int)(OwnerClientId % (ulong)SpawnPoint.All.Count)] : null;
         Vector3 pos = sp != null ? sp.transform.position + Vector3.up : transform.position;
         float yaw = sp != null ? sp.transform.eulerAngles.y : transform.eulerAngles.y;
         TeleportRpc(pos, yaw);
+    }
+
+    /// <summary>Sunucu: hapse girdi (until = çıkış anı) ya da çıktı (0).</summary>
+    public void ServerSetJailed(double until)
+    {
+        if (!IsServer) return;
+        jailedUntil.Value = until;
+        if (until > 0) { suspicion.Value = 0f; wantedUntil = -1f; }
+    }
+
+    /// <summary>Sunucu: oyuncuyu bir noktaya ışınlar (konumu sahibi yönettiği için ona komut gider).</summary>
+    public void ServerTeleport(Vector3 pos, float yaw)
+    {
+        if (IsServer) TeleportRpc(pos, yaw);
     }
 
     public void ServerSetHidden(bool value)
@@ -229,6 +261,14 @@ public class PlayerStealth : NetworkBehaviour
     private void OnGUI()
     {
         if (!IsOwner || !IsSpawned) return;
+
+        if (IsJailed)
+        {
+            double left = jailedUntil.Value - NetworkManager.ServerTime.Time;
+            UIUtil.DrawPrompt(Loc.T("jail.banner"), Screen.height * 0.16f, new Color(1f, 0.6f, 0.4f), 24);
+            UIUtil.DrawPrompt(Loc.T("jail.wait", Mathf.Max(0, Mathf.CeilToInt((float)left))), Screen.height * 0.16f + 32f, Color.white, 16);
+            return;
+        }
 
         float s = suspicion.Value;
         bool showEye = watched.Value && SuspiciousLevel > 0f;

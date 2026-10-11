@@ -9,7 +9,7 @@ public static class Vision
     /// </summary>
     public static bool CanSee(Vector3 eye, Vector3 forward, float range, float fullAngle, PlayerStealth target)
     {
-        if (target == null || target.IsHidden) return false;
+        if (target == null || target.IsHidden || target.IsJailed) return false;
 
         Vector3 chest = target.transform.position + Vector3.up * 0.4f;
         Vector3 to = chest - eye;

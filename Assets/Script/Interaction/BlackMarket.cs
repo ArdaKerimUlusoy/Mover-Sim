@@ -58,7 +58,8 @@ public class BlackMarket : Interactable, IInventoryPanel
             Rect icon = GUILayoutUtility.GetRect(34f, 34f, GUILayout.Width(34f), GUILayout.Height(34f));
             icon.y += 3f;
             UIUtil.DrawRect(icon, new Color(1f, 1f, 1f, 0.06f));
-            if (def.icon != null) GUI.DrawTexture(icon, def.icon, ScaleMode.ScaleToFit);
+            Texture2D iconTex = ItemVisuals.IconFor(def, s);
+            if (iconTex != null) GUI.DrawTexture(icon, iconTex, ScaleMode.ScaleToFit);
             else UIUtil.DrawRect(new Rect(icon.x + 4f, icon.y + 4f, icon.width - 8f, icon.height - 8f), def.uiColor);
 
             GUILayout.Space(8f);

@@ -329,7 +329,9 @@ public class GuardAI : NetworkBehaviour
 
         foreach (ArtworkDisplay d in ArtworkDisplay.All)
         {
-            if (d == null || !d.IsSwapped || inspected.Contains(d)) continue;
+            if (d == null) continue;
+            if (!d.IsSwapped) { inspected.Remove(d); continue; } // orijinali geri kondu: yeniden değiştirilirse tekrar bakılır
+            if (inspected.Contains(d)) continue;
             if (Vector3.Distance(transform.position, d.transform.position) > 5f) continue;
             if (!Vision.CanSeePoint(Eye, transform.forward, 5f, viewAngle, d.transform.position + Vector3.up * 0.6f, d.transform)) continue;
 

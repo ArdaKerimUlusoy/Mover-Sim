@@ -33,6 +33,7 @@ public class WorldItem : NetworkBehaviour
     private bool thrown;
     private float ignoreImpactsUntil;
     private float nextImpactTime;
+    private float expireAt = -1f;
 
     public ItemDefinition Item => item;
     public byte Similarity => IsSpawned ? similarity.Value : ToByte(similarityPercent);
@@ -89,6 +90,12 @@ public class WorldItem : NetworkBehaviour
 
     private void Update()
     {
+        if (expireAt > 0f && IsServer && IsSpawned && Time.time >= expireAt)
+        {
+            ServerConsume();
+            return;
+        }
+
         // Veri istenemediyse (oyuncumuz henüz doğmadıysa) ara ara tekrar dene
         if (artPending && IsSpawned && Time.frameCount % 30 == 0 && ForgeryRegistry.TryGet(forgeryId.Value, out _)) RefreshArtVisual();
     }
@@ -113,6 +120,12 @@ public class WorldItem : NetworkBehaviour
         // Ölçekli prefab'ın çocuğu olunca şekil bozulmasın: dünya ölçeğini koru
         v.transform.SetParent(transform, true);
         artVisual = v;
+    }
+
+    /// <summary>Sunucu: bu eşya belirtilen süre sonra kendiliğinden silinir (fırlatılan bozuk para).</summary>
+    public void ServerExpireAfter(float seconds)
+    {
+        if (seconds > 0f) expireAt = Time.time + seconds;
     }
 
     /// <summary>Sunucu: eşya çantaya alındı, sahneden kaldır.</summary>

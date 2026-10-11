@@ -182,7 +182,7 @@ public class SessionMenuUI : MonoBehaviour
 
     private void DrawMainMenu(SessionManager sm)
     {
-        Rect panel = CenteredRect(400f, 560f);
+        Rect panel = CenteredRect(400f, 640f);
         GUI.Box(panel, GUIContent.none, boxStyle);
 
         GUILayout.BeginArea(new Rect(panel.x + 24f, panel.y + 20f, panel.width - 48f, panel.height - 40f));
@@ -204,6 +204,11 @@ public class SessionMenuUI : MonoBehaviour
         GUILayout.Label(Loc.T("menu.color"), labelStyle);
         int picked = DrawColorPicker(PlayerNetworkSetup.SavedColorIndex);
         if (picked != PlayerNetworkSetup.SavedColorIndex) PlayerNetworkSetup.SavedColorIndex = picked;
+
+        GUILayout.Space(8f);
+        GUILayout.Label(Loc.T("menu.outfit"), labelStyle);
+        int outfit = DrawOutfitPicker(PlayerNetworkSetup.SavedOutfit);
+        if (outfit != PlayerNetworkSetup.SavedOutfit) PlayerNetworkSetup.SavedOutfit = outfit;
 
         GUILayout.Space(14f);
 
@@ -265,7 +270,7 @@ public class SessionMenuUI : MonoBehaviour
 
     private void DrawPauseMenu(SessionManager sm)
     {
-        Rect panel = CenteredRect(440f, 660f);
+        Rect panel = CenteredRect(440f, 720f);
         GUI.Box(panel, GUIContent.none, boxStyle);
 
         GUILayout.BeginArea(new Rect(panel.x + 24f, panel.y + 16f, panel.width - 48f, panel.height - 32f));
@@ -316,6 +321,13 @@ public class SessionMenuUI : MonoBehaviour
         int current = PlayerNetworkSetup.SavedColorIndex;
         int picked = DrawColorPicker(current);
         if (picked != current && localPlayer != null) localPlayer.SetColor(picked);
+
+        // --- Kıyafet ---
+        GUILayout.Space(8f);
+        GUILayout.Label(Loc.T("pause.outfit"), sectionStyle);
+        int currentOutfit = PlayerNetworkSetup.SavedOutfit;
+        int pickedOutfit = DrawOutfitPicker(currentOutfit);
+        if (pickedOutfit != currentOutfit && localPlayer != null) localPlayer.SetOutfit(pickedOutfit);
 
         // --- Ayarlar ---
         GUILayout.Space(10f);
@@ -371,6 +383,21 @@ public class SessionMenuUI : MonoBehaviour
             }
             GUI.backgroundColor = old;
         }
+    }
+
+    /// <summary>Kıyafet düğmeleri: her tıklama o parçanın bir sonraki seçeneğine geçer. Yeni paketi döner.</summary>
+    private int DrawOutfitPicker(int packed)
+    {
+        int hat = PlayerNetworkSetup.OutfitHat(packed);
+        int face = PlayerNetworkSetup.OutfitFace(packed);
+        int build = PlayerNetworkSetup.OutfitBuild(packed);
+
+        GUILayout.BeginHorizontal();
+        if (GUILayout.Button(Loc.T("outfit.hat." + hat), smallButtonStyle, GUILayout.Height(30f))) hat = (hat + 1) % PlayerNetworkSetup.HatCount;
+        if (GUILayout.Button(Loc.T("outfit.face." + face), smallButtonStyle, GUILayout.Height(30f))) face = (face + 1) % PlayerNetworkSetup.FaceCount;
+        if (GUILayout.Button(Loc.T("outfit.build." + build), smallButtonStyle, GUILayout.Height(30f))) build = (build + 1) % PlayerNetworkSetup.BuildCount;
+        GUILayout.EndHorizontal();
+        return PlayerNetworkSetup.PackOutfit(hat, face, build);
     }
 
     /// <summary>Renk kutucukları çizer, tıklanan rengin numarasını döner.</summary>

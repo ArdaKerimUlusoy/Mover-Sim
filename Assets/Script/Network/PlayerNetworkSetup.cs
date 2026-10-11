@@ -34,6 +34,12 @@ public class PlayerNetworkSetup : NetworkBehaviour
 
     private const string NamePrefKey = "MoverSim_PlayerName";
     private const string ColorPrefKey = "MoverSim_PlayerColor";
+    private const string OutfitPrefKey = "MoverSim_PlayerOutfit";
+
+    // Kıyafet seçenekleri (PlayerAvatar bu sırayla kurar). Adlar çeviri tablosunda: outfit.hat.0, outfit.face.1 ...
+    public const int HatCount = 4;    // bere, kasket, silindir şapka, şapkasız
+    public const int FaceCount = 3;   // göz maskesi, bandana, açık
+    public const int BuildCount = 3;  // tombul, ince, iri
     private const int MaxNameBytes = 29; // FixedString32Bytes kapasitesi
 
     [Tooltip("Sadece sahibinde açık kalması gereken ekstra bileşenler (isteğe bağlı).")]
@@ -58,6 +64,42 @@ public class PlayerNetworkSetup : NetworkBehaviour
     /// <summary>Aşağı bakarken artı, yukarı bakarken eksi (derece).</summary>
     public float LookPitch => lookPitch.Value;
 
+    // Kıyafet: şapka (2 bit) | yüz (2 bit) | gövde (2 bit). Sadece sahibi değiştirebilir.
+    private readonly NetworkVariable<byte> outfit = new NetworkVariable<byte>(
+        0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
+
+    public static int PackOutfit(int hat, int face, int build) => (hat & 3) | ((face & 3) << 2) | ((build & 3) << 4);
+    public static int OutfitHat(int packed) => Mathf.Min(packed & 3, HatCount - 1);
+    public static int OutfitFace(int packed) => Mathf.Min((packed >> 2) & 3, FaceCount - 1);
+    public static int OutfitBuild(int packed) => Mathf.Min((packed >> 4) & 3, BuildCount - 1);
+
+    /// <summary>Kayıtlı kıyafet (menüde seçilir, bilgisayara kaydedilir).</summary>
+    public static int SavedOutfit
+    {
+        get => PlayerPrefs.GetInt(OutfitPrefKey, 0) & 63;
+        set
+        {
+            PlayerPrefs.SetInt(OutfitPrefKey, value & 63);
+            PlayerPrefs.Save();
+        }
+    }
+
+    /// <summary>Oyun içinden kıyafet değiştirmek için (sadece kendi oyuncun).</summary>
+    public void SetOutfit(int packed)
+    {
+        SavedOutfit = packed;
+        if (IsOwner && IsSpawned) outfit.Value = (byte)SavedOutfit;
+        ApplyOutfit();
+    }
+
+    private void ApplyOutfit()
+    {
+        int o = IsSpawned ? outfit.Value : SavedOutfit;
+        if (avatar != null) avatar.SetOutfit(OutfitHat(o), OutfitFace(o), OutfitBuild(o));
+    }
+
+    private void OnOutfitChanged(byte oldValue, byte newValue) => ApplyOutfit();
+
     public Color PlayerColor => Colors[colorIndex.Value % Colors.Length];
     public bool IsHostPlayer => OwnerClientId == NetworkManager.ServerClientId;
 
@@ -67,6 +109,7 @@ public class PlayerNetworkSetup : NetworkBehaviour
         SavedColorIndex = index;
         if (IsOwner && IsSpawned) colorIndex.Value = (byte)SavedColorIndex;
         ApplyColor();
+        ApplyOutfit();
     }
 
     public string PlayerName
@@ -167,6 +210,7 @@ public class PlayerNetworkSetup : NetworkBehaviour
         {
             playerName.Value = new FixedString32Bytes(SanitizeName(SavedName));
             colorIndex.Value = (byte)SavedColorIndex;
+            outfit.Value = (byte)SavedOutfit;
 
             MoveToSpawnPoint();
             Cursor.lockState = CursorLockMode.Locked;
@@ -179,14 +223,17 @@ public class PlayerNetworkSetup : NetworkBehaviour
 
         UpdateObjectName();
         ApplyColor();
+        ApplyOutfit();
         playerName.OnValueChanged += OnNameChanged;
         colorIndex.OnValueChanged += OnColorChanged;
+        outfit.OnValueChanged += OnOutfitChanged;
     }
 
     public override void OnNetworkDespawn()
     {
         playerName.OnValueChanged -= OnNameChanged;
         colorIndex.OnValueChanged -= OnColorChanged;
+        outfit.OnValueChanged -= OnOutfitChanged;
         All.Remove(this);
 
         if (IsOwner)

@@ -303,6 +303,9 @@ public static class TestMuseumBuilder
         Label(root, "Label_Treasury", new Vector3(25.2f, 3.3f, -3.6f), "label.treasury", 0f);
         Pedestal(m, "Display_Ring1", new Vector3(27f, 0.5f, -10f), "original_ring", 3);
 
+        // ---------------- Hapis: müzenin girişe en uzak köşesi (güneydoğu) ----------------
+        BuildJail(m, root);
+
         // ---------------- Başyapıt salonu (Seviye 4+) ----------------
         Label(root, "Label_Masterpiece", new Vector3(9.2f, 3.3f, -3.6f), "label.masterpiece", 0f);
         Pedestal(m, "Display_Bust1", new Vector3(5f, 0.5f, -10f), "original_bust", 4);
@@ -310,7 +313,7 @@ public static class TestMuseumBuilder
         // ---------------- Küçük ganimet masaları (sahtesi gerekmez; kotayı tamamlamak için) ----------------
         LootTable(m, "LootTable_A", new Vector3(0f, 0.4f, -2.4f), "loot_snuffbox", "loot_coinpouch");
         LootTable(m, "LootTable_B", new Vector3(18f, 0.4f, 2.4f), "loot_figurine", "loot_snuffbox");
-        LootTable(m, "LootTable_C", new Vector3(34f, 0.4f, -15.4f), "loot_coinpouch", "loot_figurine");
+        LootTable(m, "LootTable_C", new Vector3(28f, 0.4f, -15.4f), "loot_coinpouch", "loot_figurine");
         LootTable(m, "LootTable_D", new Vector3(-2f, 0.4f, -15.4f), "loot_snuffbox", "loot_figurine");
 
         // ---------------- Saklanma noktaları: dolaplar ve perdeler (yaw = odaya bakan yön) ----------------
@@ -336,7 +339,7 @@ public static class TestMuseumBuilder
         });
         Guard(m, "Guard_4", 3, new Vector3(19f, 1f, -6f), new[]
         {
-            new Vector3(19f, 0f, -6f), new Vector3(35f, 0f, -6f), new Vector3(35f, 0f, -13f), new Vector3(19f, 0f, -13f)
+            new Vector3(19f, 0f, -6f), new Vector3(32f, 0f, -6f), new Vector3(32f, 0f, -13f), new Vector3(19f, 0f, -13f)
         });
         Guard(m, "Guard_5", 4, new Vector3(-3f, 1f, -6f), new[]
         {
@@ -361,6 +364,51 @@ public static class TestMuseumBuilder
     // =====================================================================
     //  Eski prototip nesneleri
     // =====================================================================
+
+    /// <summary>
+    /// Hapis hücresi: x 34.4..37.85, z -15.85..-12.6 (hazine odasının güneydoğu köşesi, girişe en uzak nokta).
+    /// Yakalanan oyuncu içeri ışınlanır; kapıdaki JailCell ile arkadaşı kurtarır ya da süre dolunca çıkar.
+    /// </summary>
+    private static void BuildJail(GameObject m, GameObject root)
+    {
+        GameObject jail = Group(m, "Jail");
+
+        // Görünmez duvarlar (parmaklıkların arasından geçilmesin)
+        Box(jail, "Jail_Block_N", new Vector3(36.1f, 1.5f, -12.6f), new Vector3(3.6f, 3f, 0.12f), darkMat).GetComponent<Renderer>().enabled = false;
+        Box(jail, "Jail_Block_W", new Vector3(34.4f, 1.5f, -14.25f), new Vector3(0.12f, 3f, 3.4f), darkMat).GetComponent<Renderer>().enabled = false;
+
+        // Parmaklıklar ve üst / alt raylar (dekor)
+        for (float x = 34.4f; x <= 37.86f; x += 0.3f)
+            Decor(jail, "Jail_Bar", PrimitiveType.Cylinder, new Vector3(x, 1.5f, -12.6f), new Vector3(0.06f, 1.5f, 0.06f), darkMat);
+        for (float z = -15.6f; z <= -12.6f; z += 0.3f)
+            Decor(jail, "Jail_Bar", PrimitiveType.Cylinder, new Vector3(34.4f, 1.5f, z), new Vector3(0.06f, 1.5f, 0.06f), darkMat);
+        foreach (float y in new[] { 0.06f, 2.95f })
+        {
+            Decor(jail, "Jail_Rail", PrimitiveType.Cube, new Vector3(36.1f, y, -12.6f), new Vector3(3.6f, 0.1f, 0.12f), darkMat);
+            Decor(jail, "Jail_Rail", PrimitiveType.Cube, new Vector3(34.4f, y, -14.25f), new Vector3(0.12f, 0.1f, 3.4f), darkMat);
+        }
+        Box(jail, "Jail_Bench", new Vector3(37.3f, 0.25f, -14.6f), new Vector3(0.7f, 0.5f, 2f), cabinetMat);
+
+        // Kapı: ileri yönü (+z) hücrenin dışına bakar
+        GameObject door = Box(jail, "JailDoor", new Vector3(35.6f, 1.1f, -12.52f), new Vector3(1.2f, 2.2f, 0.14f), lockerMat);
+        door.AddComponent<NetworkObject>();
+        JailCell cell = door.AddComponent<JailCell>();
+
+        GameObject inside = new GameObject("Jail_InsidePoint");
+        inside.transform.SetParent(jail.transform, false);
+        inside.transform.localPosition = new Vector3(35.9f, 1.05f, -14.3f);
+        GameObject release = new GameObject("Jail_ReleasePoint");
+        release.transform.SetParent(jail.transform, false);
+        release.transform.localPosition = new Vector3(35.6f, 1.05f, -10.9f);
+
+        SerializedObject so = new SerializedObject(cell);
+        so.FindProperty("insidePoint").objectReferenceValue = inside.transform;
+        so.FindProperty("releasePoint").objectReferenceValue = release.transform;
+        so.ApplyModifiedPropertiesWithoutUndo();
+
+        Label(door, "Label", Vector3.zero, "label.jail", 1.7f);
+        PointLight(jail, "JailLight", new Vector3(36.1f, 2.6f, -14.2f), new Color(0.8f, 0.85f, 1f), 3f, 6f);
+    }
 
     /// <summary>TestMuseum'dan önceki denemelerden kalan kök nesneleri siler (zemin, küpler, kapı, eski doğma noktaları, yerdeki eşyalar).</summary>
     private static int RemoveOldPrototypeObjects()

@@ -284,7 +284,11 @@ public static partial class ArtworkLook
             case ArtKind.Vase:
             {
                 int radial = d.VaseRadial, rows = d.VaseRows;
-                if (radial < 3 || rows < 1 || d.shape.Length < (radial + 1) * (rows + 1)) return null;
+                if (radial < 3 || rows < 1 || d.shape.Length < (radial + 1) * (rows + 1))
+                {
+                    Debug.LogWarning($"[Forgery] Vazo verisi eksik: dilim {radial}, satır {rows}, şekil {d.shape.Length} bayt.");
+                    return null;
+                }
                 tex = d.BuildTexture();
                 mesh = GridLathe((row, seg) => d.VaseRadiusAt(row, seg), radial, rows, d.VaseHeight);
                 go = new GameObject("ForgedVase");
@@ -325,17 +329,147 @@ public static partial class ArtworkLook
         return go;
     }
 
-    /// <summary>Çanta ikonu: tablo → resmin kendisi, vazo → silüet. Diğer türlerde null (eşyanın kendi ikonu kullanılır).</summary>
+    // ---------------------------------------------------------------
+    // 2D ikonlar (çanta, karaborsa, brifing): eserin kendi görünümünden çizilir
+    // ---------------------------------------------------------------
+    const int IconSize = 96;
+    static readonly Color IconBg = new Color(0.16f, 0.17f, 0.2f, 1f);
+    static readonly Dictionary<string, Texture2D> originalIcons = new Dictionary<string, Texture2D>();
+
+    /// <summary>Müzedeki orijinal eserin ikonu (tohum + kaide adına göre; önbellekli).</summary>
+    public static Texture2D OriginalIcon(ArtKind kind, int seed, int theme, string key)
+    {
+        string ck = (int)kind + "|" + seed + "|" + theme + "|" + key;
+        if (originalIcons.TryGetValue(ck, out Texture2D t) && t != null) return t;
+        switch (kind)
+        {
+            case ArtKind.Vase: t = VaseIcon(Vase(seed, theme, key), IconSize); break;
+            case ArtKind.Painting: t = Painting(seed, theme, key).image; break;
+            case ArtKind.Bust: { BustLook b = Bust(seed, theme, key); t = BustIcon(b.sliders, b.stone, b.baseColor); break; }
+            case ArtKind.Jewelry: { JewelLook j = Jewel(seed, theme, key); t = JewelIcon(j.style, j.metal, j.stoneCount, j.stones); break; }
+            default: return null;
+        }
+        originalIcons[ck] = t;
+        return t;
+    }
+
+    static Color[] NewIcon()
+    {
+        var px = new Color[IconSize * IconSize];
+        for (int i = 0; i < px.Length; i++) px[i] = IconBg;
+        return px;
+    }
+
+    static Texture2D FinishIcon(Color[] px, string name)
+    {
+        var tex = new Texture2D(IconSize, IconSize, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp, name = name };
+        tex.SetPixels(px);
+        tex.Apply();
+        return tex;
+    }
+
+    /// <summary>İçi dolu elips (piksel koordinatı, y yukarı). inner > 0 ise halka çizer.</summary>
+    static void Ellipse(Color[] px, float cx, float cy, float rx, float ry, Color c, float inner = 0f)
+    {
+        int x0 = Mathf.Max(0, Mathf.FloorToInt(cx - rx)), x1 = Mathf.Min(IconSize - 1, Mathf.CeilToInt(cx + rx));
+        int y0 = Mathf.Max(0, Mathf.FloorToInt(cy - ry)), y1 = Mathf.Min(IconSize - 1, Mathf.CeilToInt(cy + ry));
+        for (int y = y0; y <= y1; y++)
+            for (int x = x0; x <= x1; x++)
+            {
+                float dx = (x - cx) / Mathf.Max(0.5f, rx), dy = (y - cy) / Mathf.Max(0.5f, ry);
+                float d = dx * dx + dy * dy;
+                if (d > 1f || d < inner * inner) continue;
+                float shade = 1f - Mathf.Clamp01(dx * 0.5f + 0.5f) * 0.35f; // soldan ışık
+                px[y * IconSize + x] = new Color(c.r * shade, c.g * shade, c.b * shade, 1f);
+            }
+    }
+
+    static void Block(Color[] px, float cx, float cy, float w, float h, Color c)
+    {
+        int x0 = Mathf.Max(0, Mathf.RoundToInt(cx - w * 0.5f)), x1 = Mathf.Min(IconSize - 1, Mathf.RoundToInt(cx + w * 0.5f));
+        int y0 = Mathf.Max(0, Mathf.RoundToInt(cy - h * 0.5f)), y1 = Mathf.Min(IconSize - 1, Mathf.RoundToInt(cy + h * 0.5f));
+        c.a = 1f;
+        for (int y = y0; y <= y1; y++)
+            for (int x = x0; x <= x1; x++) px[y * IconSize + x] = c;
+    }
+
+    /// <summary>Büstün önden görünüşü (BuildBustVisual ile aynı ölçüler).</summary>
+    public static Texture2D BustIcon(float[] s, int stone, int baseColor)
+    {
+        Color[] px = NewIcon();
+        Color st = BustStones[Mathf.Clamp(stone, 0, BustStones.Length - 1)];
+        Color bc = BustBases[Mathf.Clamp(baseColor, 0, BustBases.Length - 1)];
+        const float M = 112f;            // metre → piksel
+        float cx = IconSize * 0.5f, y0 = 6f;
+
+        float bh = Mathf.Lerp(0.06f, 0.18f, s[5]);
+        float headW = Mathf.Lerp(0.17f, 0.27f, s[0]);
+        float headH = Mathf.Lerp(0.20f, 0.32f, s[1]);
+        float noseL = Mathf.Lerp(0.03f, 0.12f, s[2]);
+        float jawW = Mathf.Lerp(0.12f, 0.24f, s[3]);
+        float shoulderW = Mathf.Lerp(0.30f, 0.50f, s[4]);
+        float headY = bh + 0.24f + headH * 0.5f;
+
+        Block(px, cx, y0 + bh * 0.5f * M, 0.34f * M, bh * M, bc);
+        Ellipse(px, cx, y0 + (bh + 0.07f) * M, shoulderW * 0.5f * M, 0.085f * M, st);
+        Block(px, cx, y0 + (bh + 0.19f) * M, 0.10f * M, 0.14f * M, st * 0.9f);
+        Ellipse(px, cx, y0 + (headY - headH * 0.32f) * M, jawW * 0.5f * M, 0.065f * M, st);
+        Ellipse(px, cx, y0 + headY * M, headW * 0.5f * M, headH * 0.5f * M, st);
+        // Burun: uzadıkça önden daha belirgin görünür
+        Block(px, cx, y0 + (headY - 0.01f) * M, 0.035f * M, (0.05f + noseL * 0.4f) * M, st * 0.78f);
+        return FinishIcon(px, "BustIcon");
+    }
+
+    /// <summary>Yüzüğün önden görünüşü (BuildJewelVisual ile aynı düzen).</summary>
+    public static Texture2D JewelIcon(int style, int metal, int stoneCount, int[] stones)
+    {
+        Color[] px = NewIcon();
+        Color m = JewelMetals[Mathf.Clamp(metal, 0, JewelMetals.Length - 1)];
+        float cx = IconSize * 0.5f, cy = 40f, R = 28f;
+        float thick = style == 1 ? 8f : style == 2 ? 6f : 4f;
+
+        Ellipse(px, cx, cy, R + thick * 0.5f, R + thick * 0.5f, m, (R - thick * 0.5f) / (R + thick * 0.5f));
+        float top = R + thick * 0.5f;
+        if (style == 2)
+        {
+            Block(px, cx, cy + top + 2f, 26f, 7f, m * 0.9f);
+            top += 5f;
+        }
+
+        stoneCount = Mathf.Clamp(stoneCount, 0, JewelLook.MaxStones);
+        for (int i = 0; i < stoneCount; i++)
+        {
+            float angle = stoneCount == 1 ? 90f : stoneCount == 2 ? (i == 0 ? 105f : 75f) : 90f + (1 - i) * 26f;
+            float rad = angle * Mathf.Deg2Rad;
+            float size = (stoneCount == 3 && i != 1) ? 5.5f : 7.5f;
+            int gem = stones != null && i < stones.Length ? Mathf.Clamp(stones[i], 0, JewelGems.Length - 1) : 0;
+            Ellipse(px, cx + Mathf.Cos(rad) * (top + size * 0.4f), cy + Mathf.Sin(rad) * (top + size * 0.4f), size, size, JewelGems[gem]);
+        }
+        return FinishIcon(px, "RingIcon");
+    }
+
+    /// <summary>Çanta ikonu: oyuncunun yaptığı sahtenin kendi görünümü (tablo: resim, vazo: silüet, büst / yüzük: önden çizim).</summary>
     public static Texture2D ForgeryIcon(ForgeryData d)
     {
         if (d == null) return null;
         if (d.kind == ArtKind.Painting) return d.BuildTexture();
+        if (d.kind == ArtKind.Bust && d.pars.Length >= BustLook.SliderCount + 2)
+        {
+            var s = new float[BustLook.SliderCount];
+            for (int i = 0; i < s.Length; i++) s[i] = d.pars[i] / 255f;
+            return BustIcon(s, d.pars[BustLook.SliderCount], d.pars[BustLook.SliderCount + 1]);
+        }
+        if (d.kind == ArtKind.Jewelry && d.pars.Length >= 3 + JewelLook.MaxStones)
+        {
+            var stones = new int[JewelLook.MaxStones];
+            for (int i = 0; i < stones.Length; i++) stones[i] = d.pars[3 + i];
+            return JewelIcon(d.pars[0], d.pars[1], d.pars[2], stones);
+        }
         if (d.kind != ArtKind.Vase || d.VaseRows < 1 || d.VaseRadial < 3) return null;
 
-        const int size = 96;
+        const int size = IconSize;
         var tex = new Texture2D(size, size, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp, name = "ForgeryIcon" };
         var px = new Color[size * size];
-        Color bg = new Color(0.16f, 0.17f, 0.2f, 1f);
         float h = d.VaseHeight, scale = d.VaseRadiusScale;
         float drawH = size * 0.88f;
         float pxPerMeter = drawH / Mathf.Max(0.01f, h);
@@ -349,7 +483,7 @@ public static partial class ArtworkLook
             float half = Mathf.Min(size * 0.48f, radius * pxPerMeter);
             for (int x = 0; x < size; x++)
             {
-                Color c = bg;
+                Color c = IconBg;
                 float dx = Mathf.Abs(x - size * 0.5f);
                 if (t >= 0f && t <= 1f && dx <= half && scale > 0f)
                 {

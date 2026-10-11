@@ -45,16 +45,22 @@ public class BriefingTerminal : Interactable
 
         if (hologram != null)
         {
-            hologram.transform.Rotate(0f, 40f * Time.deltaTime, 0f, Space.World);
-            holoTimer += Time.deltaTime;
-            if (holoTargets.Count > 1 && holoTimer > 3f)
+            // Kesintisiz döner: her eser tam bir tur (360°) atar, sonra sıradaki esere geçilir
+            holoTimer += HologramSpinSpeed * Time.deltaTime;
+            if (holoTimer >= 360f)
             {
-                holoTimer = 0f;
-                holoIndex = (holoIndex + 1) % holoTargets.Count;
-                BuildHologram();
+                holoTimer -= 360f;
+                if (holoTargets.Count > 1)
+                {
+                    holoIndex = (holoIndex + 1) % holoTargets.Count;
+                    BuildHologram();
+                }
             }
+            if (hologram != null) hologram.transform.rotation = Quaternion.Euler(0f, holoTimer, 0f);
         }
     }
+
+    private const float HologramSpinSpeed = 72f; // derece / saniye: bir tur 5 saniye
 
     private void BuildHologram()
     {
@@ -65,7 +71,23 @@ public class BriefingTerminal : Interactable
         if (ms == null || d == null) return;
         hologram = ArtworkLook.BuildOriginalVisual(d.Kind, ms.Seed, ms.ThemeIndex, d.name);
         if (hologram == null) return;
+
+        // Tablo dönerken arkası da resmi göstersin (tuvalin bir kopyası arka yüze)
+        if (d.Kind == ArtKind.Painting)
+        {
+            Transform canvas = hologram.transform.Find("Canvas");
+            if (canvas != null)
+            {
+                Transform back = Instantiate(canvas.gameObject, hologram.transform).transform;
+                Vector3 p = canvas.localPosition;
+                back.localPosition = new Vector3(p.x, p.y, -p.z);
+                back.localRotation = Quaternion.Euler(0f, 180f, 0f);
+                back.localScale = canvas.localScale;
+            }
+        }
+
         ItemVisuals.Fit(hologram, 0.5f);
+        hologram.transform.rotation = Quaternion.Euler(0f, holoTimer, 0f);
         Collider c = GetComponentInChildren<Collider>();
         float top = c != null ? c.bounds.max.y : transform.position.y + 0.5f;
         hologram.transform.position = new Vector3(transform.position.x, top + hologramHeight * 0.2f, transform.position.z);
@@ -123,7 +145,8 @@ public class BriefingUI : MonoBehaviour
     {
         string key = ms.Seed + "|" + ms.ThemeIndex + "|" + d.name;
         if (icons.TryGetValue(key, out Texture2D t)) return t;
-        t = kind == ArtKind.Vase ? ArtworkLook.VaseIcon(ms.VaseFor(d)) : kind == ArtKind.Painting ? ms.PaintingFor(d).image : d.Artwork.icon;
+        t = ArtworkLook.OriginalIcon(kind, ms.Seed, ms.ThemeIndex, d.name);
+        if (t == null) t = d.Artwork.icon;
         icons[key] = t;
         return t;
     }

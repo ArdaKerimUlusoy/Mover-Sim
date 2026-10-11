@@ -161,6 +161,8 @@ public class MuseumSession : NetworkBehaviour
         }
         ForgeryRegistry.Clear();
 
+        JailCell.ServerReleaseAll(); // yeni müzeye herkes birlikte gider
+
         level.Value = level.Value + 1;
         PickNewMuseum();
         baseline.Value = TeamBank.Instance != null ? TeamBank.Instance.Money : 0;

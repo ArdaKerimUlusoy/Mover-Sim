@@ -111,6 +111,13 @@ public class ArtworkDisplay : Interactable
         ForceRefreshVisual();
     }
 
+    /// <summary>Sunucu: çalınan orijinal geri geldi (hırsız yakalandı). Kaidedeki sahte kaldırılır, orijinal yerine konur.</summary>
+    public void ServerRestoreOriginal()
+    {
+        if (!IsServer || !swapped.Value) return;
+        ServerResetForMission();
+    }
+
     /// <summary>Ekranda görünen ad: temalı müzede vazo/tablonun kendi adı.</summary>
     private string ShownName => MuseumSession.Instance != null ? MuseumSession.Instance.ArtworkName(this) : artwork.DisplayName;
 

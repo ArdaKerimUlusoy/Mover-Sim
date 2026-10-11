@@ -21,6 +21,9 @@ public class PlayerAvatar : MonoBehaviour
     private PlayerInventory inventory;
 
     private Transform root, body, head, armL, armR, legL, legR, sack;
+    private Transform torso;
+    private GameObject[] hats, faces;
+    private int build = -1;
     private Material mainMat, hatMat, skinMat, darkMat, whiteMat, sackMat, cheekMat;
     private readonly List<Renderer> renderers = new List<Renderer>();
 
@@ -63,25 +66,46 @@ public class PlayerAvatar : MonoBehaviour
         body.SetParent(root, false);
 
         // Gövde: çizgili kazak hissi için koyu kuşak
-        Part(body, "Torso", PrimitiveType.Sphere, new Vector3(0f, 0.72f, 0f), new Vector3(0.74f, 0.80f, 0.64f), mainMat);
-        Part(body, "Belt", PrimitiveType.Cylinder, new Vector3(0f, 0.60f, 0f), new Vector3(0.70f, 0.035f, 0.61f), darkMat);
+        torso = new GameObject("TorsoGroup").transform;
+        torso.SetParent(body, false);
+        Part(torso, "Torso", PrimitiveType.Sphere, new Vector3(0f, 0.72f, 0f), new Vector3(0.74f, 0.80f, 0.64f), mainMat);
+        Part(torso, "Belt", PrimitiveType.Cylinder, new Vector3(0f, 0.60f, 0f), new Vector3(0.70f, 0.035f, 0.61f), darkMat);
 
         // Kafa
         head = new GameObject("Head").transform;
         head.SetParent(body, false);
         head.localPosition = new Vector3(0f, 1.22f, 0f);
         Part(head, "Face", PrimitiveType.Sphere, new Vector3(0f, 0.16f, 0f), new Vector3(0.60f, 0.56f, 0.58f), skinMat);
-        Part(head, "Mask", PrimitiveType.Sphere, new Vector3(0f, 0.20f, 0.05f), new Vector3(0.615f, 0.17f, 0.545f), darkMat);
+        // Yüz seçenekleri: 0 göz maskesi, 1 bandana (ağzı kapatır), 2 açık
+        faces = new GameObject[PlayerNetworkSetup.FaceCount];
+        faces[0] = Group(head, "Face_Mask");
+        Part(faces[0].transform, "Mask", PrimitiveType.Sphere, new Vector3(0f, 0.20f, 0.05f), new Vector3(0.615f, 0.17f, 0.545f), darkMat);
+        faces[1] = Group(head, "Face_Bandana");
+        Part(faces[1].transform, "Bandana", PrimitiveType.Sphere, new Vector3(0f, 0.04f, 0.04f), new Vector3(0.62f, 0.27f, 0.56f), hatMat);
+        Part(faces[1].transform, "Knot", PrimitiveType.Sphere, new Vector3(0f, 0.05f, -0.29f), new Vector3(0.12f, 0.1f, 0.1f), hatMat);
+        faces[2] = Group(head, "Face_None");
         Part(head, "EyeL", PrimitiveType.Sphere, new Vector3(-0.13f, 0.20f, 0.265f), new Vector3(0.13f, 0.15f, 0.07f), whiteMat);
         Part(head, "EyeR", PrimitiveType.Sphere, new Vector3(0.13f, 0.20f, 0.265f), new Vector3(0.13f, 0.15f, 0.07f), whiteMat);
         Part(head, "PupilL", PrimitiveType.Sphere, new Vector3(-0.12f, 0.19f, 0.295f), new Vector3(0.06f, 0.08f, 0.03f), darkMat);
         Part(head, "PupilR", PrimitiveType.Sphere, new Vector3(0.12f, 0.19f, 0.295f), new Vector3(0.06f, 0.08f, 0.03f), darkMat);
         Part(head, "CheekL", PrimitiveType.Sphere, new Vector3(-0.2f, 0.07f, 0.22f), new Vector3(0.1f, 0.06f, 0.04f), cheekMat);
         Part(head, "CheekR", PrimitiveType.Sphere, new Vector3(0.2f, 0.07f, 0.22f), new Vector3(0.1f, 0.06f, 0.04f), cheekMat);
-        // Bere + ponpon
-        Part(head, "Beanie", PrimitiveType.Sphere, new Vector3(0f, 0.33f, -0.01f), new Vector3(0.63f, 0.42f, 0.61f), hatMat);
-        Part(head, "BeanieRim", PrimitiveType.Cylinder, new Vector3(0f, 0.30f, -0.01f), new Vector3(0.64f, 0.04f, 0.62f), darkMat);
-        Part(head, "Pompom", PrimitiveType.Sphere, new Vector3(0f, 0.57f, -0.02f), new Vector3(0.16f, 0.16f, 0.16f), whiteMat);
+        // Şapka seçenekleri: 0 bere, 1 kasket, 2 silindir şapka, 3 yok
+        hats = new GameObject[PlayerNetworkSetup.HatCount];
+        hats[0] = Group(head, "Hat_Beanie");
+        Part(hats[0].transform, "Beanie", PrimitiveType.Sphere, new Vector3(0f, 0.33f, -0.01f), new Vector3(0.63f, 0.42f, 0.61f), hatMat);
+        Part(hats[0].transform, "BeanieRim", PrimitiveType.Cylinder, new Vector3(0f, 0.30f, -0.01f), new Vector3(0.64f, 0.04f, 0.62f), darkMat);
+        Part(hats[0].transform, "Pompom", PrimitiveType.Sphere, new Vector3(0f, 0.57f, -0.02f), new Vector3(0.16f, 0.16f, 0.16f), whiteMat);
+        hats[1] = Group(head, "Hat_Cap");
+        Part(hats[1].transform, "Dome", PrimitiveType.Sphere, new Vector3(0f, 0.34f, -0.01f), new Vector3(0.62f, 0.32f, 0.60f), hatMat);
+        Part(hats[1].transform, "Visor", PrimitiveType.Cylinder, new Vector3(0f, 0.33f, 0.24f), new Vector3(0.46f, 0.015f, 0.40f), darkMat);
+        hats[2] = Group(head, "Hat_Top");
+        Part(hats[2].transform, "Brim", PrimitiveType.Cylinder, new Vector3(0f, 0.40f, 0f), new Vector3(0.74f, 0.015f, 0.74f), darkMat);
+        Part(hats[2].transform, "Crown", PrimitiveType.Cylinder, new Vector3(0f, 0.58f, 0f), new Vector3(0.44f, 0.18f, 0.44f), darkMat);
+        Part(hats[2].transform, "Band", PrimitiveType.Cylinder, new Vector3(0f, 0.45f, 0f), new Vector3(0.455f, 0.035f, 0.455f), hatMat);
+        hats[3] = Group(head, "Hat_None");
+        Part(hats[3].transform, "Hair", PrimitiveType.Sphere, new Vector3(0f, 0.30f, -0.04f), new Vector3(0.58f, 0.34f, 0.56f), darkMat);
+        SetOutfit(0, 0, 0);
 
         // Kollar (omuz pivotlu) ve eldivenler
         armL = Limb(body, "ArmL", new Vector3(-0.40f, 1.02f, 0f), new Vector3(0.17f, 0.24f, 0.17f), 0.24f, mainMat, darkMat, 0.11f);
@@ -100,6 +124,28 @@ public class PlayerAvatar : MonoBehaviour
         Part(sack, "Bag", PrimitiveType.Sphere, Vector3.zero, new Vector3(0.50f, 0.56f, 0.44f), sackMat);
         Part(sack, "Knot", PrimitiveType.Sphere, new Vector3(0f, 0.30f, 0f), new Vector3(0.16f, 0.14f, 0.16f), sackMat);
         Part(sack, "Rope", PrimitiveType.Cylinder, new Vector3(0f, 0.24f, 0f), new Vector3(0.2f, 0.015f, 0.2f), darkMat);
+    }
+
+    private static GameObject Group(Transform parent, string name)
+    {
+        GameObject go = new GameObject(name);
+        go.transform.SetParent(parent, false);
+        return go;
+    }
+
+    /// <summary>Oyuncunun seçtiği kıyafet: şapka, yüz ve gövde yapısı (PlayerNetworkSetup herkese senkronlar).</summary>
+    public void SetOutfit(int hat, int face, int bodyBuild)
+    {
+        if (hats == null || faces == null) return;
+        for (int i = 0; i < hats.Length; i++) hats[i].SetActive(i == Mathf.Clamp(hat, 0, hats.Length - 1));
+        for (int i = 0; i < faces.Length; i++) faces[i].SetActive(i == Mathf.Clamp(face, 0, faces.Length - 1));
+
+        // Gövde: 0 tombul, 1 ince, 2 iri
+        build = Mathf.Clamp(bodyBuild, 0, PlayerNetworkSetup.BuildCount - 1);
+        float w = build == 1 ? 0.8f : build == 2 ? 1.18f : 1f;
+        torso.localScale = new Vector3(w, build == 2 ? 1.06f : 1f, w);
+        if (armL != null) armL.localPosition = new Vector3(-0.40f * w, 1.02f, 0f);
+        if (armR != null) armR.localPosition = new Vector3(0.40f * w, 1.02f, 0f);
     }
 
     private Transform Limb(Transform parent, string name, Vector3 pivot, Vector3 scale, float halfLength, Material mat, Material tipMat, float tipSize)

@@ -16,7 +16,7 @@ using UnityEngine.SceneManagement;
 [InitializeOnLoad]
 public static class SceneAutoSetup
 {
-    private const string Version = "2026-10-11-gdd-scene-1";
+    private const string Version = "2026-10-11-gdd-scene-2-jail";
     private const string MarkerPath = "ProjectSettings/SahteSaheserSetup.txt";
     private const string ScenePath = "Assets/Scenes/SampleScene.unity";
 

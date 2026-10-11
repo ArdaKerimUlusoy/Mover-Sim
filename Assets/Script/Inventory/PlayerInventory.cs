@@ -30,6 +30,8 @@ public class PlayerInventory : NetworkBehaviour
 
     [Header("Fırlatma (Q)")]
     [SerializeField] private float throwForce = 9f;
+    [Tooltip("Fırlatılan bozuk para kaç saniye sonra yerden silinsin (sürekli para atılmasın diye).")]
+    [SerializeField] private float thrownCoinLifetime = 12f;
 
     [Header("Çalma")]
     [SerializeField] private float stealRange = 2.5f;
@@ -500,8 +502,9 @@ public class PlayerInventory : NetworkBehaviour
         direction = direction.sqrMagnitude > 0.001f ? direction.normalized : transform.forward;
 
         Vector3 spawnPos = origin + direction * 0.6f;
-        if (ServerSpawnFromSlot(slotIndex, spawnPos, direction * throwForce + Vector3.up * 1.5f, out _))
+        if (ServerSpawnFromSlot(slotIndex, spawnPos, direction * throwForce + Vector3.up * 1.5f, out WorldItem coin))
         {
+            if (coin != null) coin.ServerExpireAfter(thrownCoinLifetime); // atılan para geri toplanamadan kaybolur
             ServerPlaySound(SoundId.CoinThrow, origin);
         }
     }
@@ -867,7 +870,7 @@ public class PlayerInventory : NetworkBehaviour
     }
 
     /// <summary>Sunucu: yakalanınca çantadaki orijinal eserlere el konur. Kaç adet gittiğini döner.</summary>
-    public int ServerConfiscateOriginals()
+    public int ServerConfiscateOriginals(List<int> returnedLookKeys = null)
     {
         if (!IsServer) return 0;
         int lost = 0;
@@ -877,6 +880,8 @@ public class PlayerInventory : NetworkBehaviour
             if (d != null && d.type == ItemType.Original)
             {
                 lost += slots[i].Count;
+                // Müze eseriyse hangi kaideye ait olduğunu bildir: yerine geri konacak
+                if (returnedLookKeys != null && slots[i].LookKey != 0) returnedLookKeys.Add(slots[i].LookKey);
                 slots.RemoveAt(i);
             }
         }
@@ -1205,9 +1210,8 @@ public class PlayerInventory : NetworkBehaviour
     private static void DrawIcon(Rect r, ItemDefinition def, InventorySlot s)
     {
         UIUtil.DrawRect(r, new Color(1f, 1f, 1f, 0.06f));
-        Texture2D own = s.ForgeryId != 0 ? ForgeryRegistry.Icon(s.ForgeryId) : null;
-        if (own != null) GUI.DrawTexture(r, own, ScaleMode.ScaleToFit);
-        else if (def.icon != null) GUI.DrawTexture(r, def.icon, ScaleMode.ScaleToFit);
+        Texture2D icon = ItemVisuals.IconFor(def, s);
+        if (icon != null) GUI.DrawTexture(r, icon, ScaleMode.ScaleToFit);
         else UIUtil.DrawRect(new Rect(r.x + 4f, r.y + 4f, r.width - 8f, r.height - 8f), def.uiColor);
     }
 

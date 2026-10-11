@@ -72,7 +72,11 @@ public static class ItemVisuals
 
         if (def.type == ItemType.Forgery && slot.ForgeryId != 0)
         {
-            if (ForgeryRegistry.TryGet(slot.ForgeryId, out ForgeryData data)) art = ArtworkLook.BuildForgeryVisual(data);
+            if (ForgeryRegistry.TryGet(slot.ForgeryId, out ForgeryData data))
+            {
+                art = ArtworkLook.BuildForgeryVisual(data);
+                if (art == null) Debug.LogWarning($"[Forgery] {def.id} (kayıt {slot.ForgeryId}, tür {data.kind}) için görsel kurulamadı; hazır şekil gösteriliyor.");
+            }
             else pending = true;
         }
         else if (def.type == ItemType.Original && slot.LookKey != 0)
@@ -92,6 +96,24 @@ public static class ItemVisuals
     }
 
     /// <summary>Görseli, pivotu sınırlarının ortası olan boş bir kökün altına alır.</summary>
+    /// <summary>
+    /// Çanta / karaborsa ikonu: eşyanın GERÇEK görünümü. Atölyede yapılan sahtede oyuncunun kendi eseri,
+    /// müzeden alınan orijinalde o eserin kendisi; diğer eşyalarda (alet, para, ganimet) hazır ikon.
+    /// </summary>
+    public static Texture2D IconFor(ItemDefinition def, InventorySlot slot)
+    {
+        if (def == null) return null;
+        Texture2D t = null;
+        if (def.type == ItemType.Forgery && slot.ForgeryId != 0) t = ForgeryRegistry.Icon(slot.ForgeryId);
+        else if (def.type == ItemType.Original && slot.LookKey != 0)
+        {
+            ArtworkDisplay d = ArtworkDisplay.FindByKey(slot.LookKey);
+            MuseumSession ms = MuseumSession.Instance;
+            if (d != null && ms != null && ms.Ready) t = ArtworkLook.OriginalIcon(ArtworkLook.KindOf(def), ms.Seed, ms.ThemeIndex, d.name);
+        }
+        return t != null ? t : def.icon;
+    }
+
     /// <summary>BuildFor gerçek bir eser görünümü bulamayıp prefab görüntüsüne mi düştü?</summary>
     public static bool IsPrefabFallback(GameObject built) => built != null && built.name.StartsWith("Held_Visual_");
 
