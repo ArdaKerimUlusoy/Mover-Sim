@@ -44,6 +44,7 @@ public class ObjectCarrier : MonoBehaviour
     public bool IsCarryingHeavy => heldBody != null && heldBody.mass >= heavyMassThreshold;
 
     private Rigidbody heldBody;
+    private NetworkPickupable heldNet;
     private Collider[] heldColliders;
     private Collider[] playerColliders;
     private Quaternion heldRotationOffset;
@@ -81,6 +82,13 @@ public class ObjectCarrier : MonoBehaviour
 
         lookTarget = heldBody == null ? FindPickupTarget() : null;
 
+        // Menü açıkken (imleç serbest) oyun girdilerini alma.
+        if (Cursor.lockState != CursorLockMode.Locked)
+        {
+            CancelThrowCharge();
+            return;
+        }
+
         // E ile Kaldır / Bırak
         if (Keyboard.current.eKey.wasPressedThisFrame)
         {
@@ -96,7 +104,16 @@ public class ObjectCarrier : MonoBehaviour
                     Pickupable p = lookTarget.GetComponent<Pickupable>();
                     if (p == null || p.CanBePickedUp)
                     {
-                        PickUp(lookTarget);
+                        NetworkPickupable np = lookTarget.GetComponent<NetworkPickupable>();
+                        if (np != null && np.IsSpawned)
+                        {
+                            // Online: önce sunucudan izin iste, sahiplik gelince PickUp otomatik çağrılır.
+                            np.RequestPickup(this);
+                        }
+                        else
+                        {
+                            PickUp(lookTarget); // Tek kişilik mod
+                        }
                     }
                 }
             }
@@ -170,6 +187,13 @@ public class ObjectCarrier : MonoBehaviour
     {
         if (heldBody == null) return;
 
+        // Online'da sahiplik bir şekilde elimizden çıktıysa (obje kinematic olduysa) bırak.
+        if (heldBody.isKinematic)
+        {
+            Drop();
+            return;
+        }
+
         Vector3 targetPos = GetHoldPoint();
         Vector3 toTarget = targetPos - heldBody.worldCenterOfMass;
 
@@ -213,14 +237,20 @@ public class ObjectCarrier : MonoBehaviour
             result = hit.rigidbody;
         }
 
-        if (result == null || result.isKinematic) return null;
+        if (result == null) return null;
+
+        // Online'da başkasına ait objeler bizde kinematic görünür; NetworkPickupable varsa yine hedeflenebilir.
+        if (result.isKinematic && result.GetComponent<NetworkPickupable>() == null) return null;
 
         return result;
     }
 
-    private void PickUp(Rigidbody body)
+    public void PickUp(Rigidbody body)
     {
+        if (heldBody != null) return;
+
         heldBody = body;
+        heldNet = body.GetComponent<NetworkPickupable>();
         heldColliders = body.GetComponentsInChildren<Collider>();
 
         originalUseGravity = body.useGravity;
@@ -265,6 +295,9 @@ public class ObjectCarrier : MonoBehaviour
         heldBody.angularVelocity = Vector3.zero;
 
         SetPlayerCollisionIgnored(false);
+
+        if (heldNet != null) heldNet.NotifyReleased();
+        heldNet = null;
 
         heldBody = null;
         heldColliders = null;
@@ -323,7 +356,14 @@ public class ObjectCarrier : MonoBehaviour
             Pickupable p = lookTarget.GetComponent<Pickupable>();
             string objName = (p != null && !string.IsNullOrEmpty(p.DisplayName)) ? p.DisplayName : lookTarget.name;
 
-            if (lookTarget.mass > maxPickupMass)
+            NetworkPickupable np = lookTarget.GetComponent<NetworkPickupable>();
+
+            if (np != null && np.IsHeldByOther)
+            {
+                text = $"{objName} (Başka biri taşıyor)";
+                textColor = new Color(0.8f, 0.8f, 0.8f);
+            }
+            else if (lookTarget.mass > maxPickupMass)
             {
                 text = $"Bu çok ağır, tek kaldıramazsın! ({objName} - {Mathf.RoundToInt(lookTarget.mass)} kg)";
                 textColor = new Color(1f, 0.35f, 0.35f);
@@ -384,4 +424,4 @@ public class ObjectCarrier : MonoBehaviour
         }
         GUI.color = Color.white;
     }
-}
+}

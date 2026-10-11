@@ -215,6 +215,7 @@ public class PlayerController : MonoBehaviour
     private void HandleMouseLook()
     {
         if (playerCamera == null || Mouse.current == null) return;
+        if (Cursor.lockState != CursorLockMode.Locked) return; // Menü açıkken kamera dönmesin
 
         float turnFactor = carrier != null ? carrier.TurnSensitivityMultiplier : 1f;
         Vector2 mouseDelta = Mouse.current.delta.ReadValue() * (lookSensitivity * turnFactor);
@@ -225,4 +226,4 @@ public class PlayerController : MonoBehaviour
         playerCamera.localRotation = Quaternion.Euler(rotationX + currentCamTilt, 0f, 0f);
         transform.Rotate(Vector3.up * mouseDelta.x);
     }
-}
+}
