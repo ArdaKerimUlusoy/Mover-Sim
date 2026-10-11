@@ -379,3 +379,59 @@ ekranın üstünde **Suspicion** çubuğu dolar; dolarsa **ALARM** çalar.
 - Görevli: `GuardAI` (görüş mesafesi/açısı, hızlar, şüphe hızı, devriye noktaları)
 - Kamera: `SecurityCamera` (tarama açısı/hızı, görüş)
 - Alarm süresi: `SecurityManager`
+
+---
+
+## Ek 8: Sahte atölyesi, brifing, görevler ve rastgele müzeler
+
+**Yeni dosyalar** (`Assets/Script/Forgery/`): `ForgeryWorkbench`, `WorkbenchUI`, `ClaySculptor`, `CanvasPainter`,
+`ForgeryGhost.shader`, `BriefingTerminal` (+ `BriefingUI`), `MuseumSession`, `ArtworkLook`
+**Değişenler:** `ArtworkDisplay` (görev seviyesi, temalı görünüm, görev sıfırlama), `SessionMenuUI` / `PlayerInventory`
+(atölye/brifing açıkken Esc ve Tab), `Loc` (yeni metinler), `ItemTools` (küçük ganimetler), `TestMuseumBuilder`
+
+### Kurulum (bir kişi yapsın, commit'lesin)
+1. **Tools → Sahte Şaheser → Create Sample Items** → 3 küçük ganimet eklenir (Enfiye Kutusu, Bronz Heykelcik, Sikke Kesesi).
+2. **Tools → Sahte Şaheser → Create Test Museum** → "Evet". Bu sefer:
+   - Garajdaki sahte dolapları yerine **Sahte Atölyesi** ve **Brifing Terminali** gelir
+   - Galeriye 2. ve 3. vazo kaideleri (2. ve 3. görevde açılır) ve 3 küçük ganimet masası eklenir
+   - ChatManager objesine `MuseumSession` eklenir
+3. NetworkManager → *Network Prefabs Lists*'te yeni ganimet prefab'larını kontrol et (Ek 4, 4. adım).
+4. **Ctrl+S** ve commit: `Assets/Items`, `Assets/Resources`, `Assets/Script`, sahne. ⚠️ Eşya listesi değişti, arkadaşın çekmeli.
+
+### Sahte atölyesi (GDD Bölüm 3)
+- Atölyeye **E** → "Neyin sahtesini yapacaksın?" → müzedeki aktif vazo / tablolardan birini seç.
+  **Orijinali almaya gerek yok:** önce sahteyi yap, sonra müzede kaideye E basılı tutup değiştir.
+- **Vazo (çömlek çarkı):** kil hedefle aynı boyda oluşur, üstünde **saydam yeşil rehber** görünür
+  (kilin içinde kalan kısım ince çizgi, eksik kısım yeşil dolgu).
+  Sol tık = tüm halkayı içeri it, sağ tık = dışarı çek, Shift + tık = tek nokta, orta tuş = çevir, tekerlek = fırça.
+  Şekil %75'i geçince **SPACE** → boyama: yandaki orijinale bakarak boya (Shift = bant, B = doldur, 1-6 = renk).
+- **Tablo (tuval):** ekrana tuval gelir, yanında orijinal; üstünde **yeşil kontur rehberi** (G aç/kapa).
+  Sol tık fırça, Shift + tık kova, 1-7 renk, B doldur.
+- **Esc** = bitir → sahte, gerçek benzerlik yüzdesiyle **çantana** girer (sunucu ekler; çanta doluysa uyarır).
+  Vazo benzerliği = %70 şekil + %30 boya. Güvenliklerin sahteyi fark etme şansı ve karaborsa fiyatı bu yüzdeye bağlı.
+- Kaideye konan sahte, benzerliğine göre **bozuk görünür** (kaba sahte kil rengine kayar, şekli dalgalanır).
+
+### Brifing terminali
+- Üstünde bu görevin vazoları sırayla dönen hologram. **E** → müze adı, görev seviyesi, kota ve
+  hedef eserlerin resmi / değeri / durumu.
+
+### Görevler ve rastgele müze (MuseumSession)
+- Her oda kurulduğunda ve her yeni görevde **8 müze temasından** biri rastgele seçilir (bir öncekiyle asla aynı olmaz):
+  Le Grand Musée (Paris), Royal Antiquities Museum (Londra), Rijks Galerij (Amsterdam), Galleria Fiorentina (Floransa),
+  Museo Real (Madrid), Saray Hazinesi (İstanbul), Nile Antiquities Museum (Kahire), Museum of Eastern Arts (Tokyo).
+- Tema: duvar / zemin / kaide renkleri, vazo ve tablo görünümleri ve adları. Vazolar (5 şekil, rastgele boy ve bant deseni)
+  ve tablolar (6 kompozisyon) host'un gönderdiği **tohumdan** her bilgisayarda aynı üretilir → ağdan mesh/doku gitmez.
+- **Seviye:** 1. görev 1 vazo + tablolar, 2. görev 2 vazo, 3+ görev 3 vazo (`ArtworkDisplay` → *Required Level*).
+- **Kota:** sol üstte "Ekip kazancı: $X / $Y". Aktif vazo/tabloların değerinin ekibe kalan payı + $100; yani her görevde
+  biraz küçük ganimet ya da yüzük/büst de satmak gerekir. Kota dolunca **host N** → sonraki görev
+  (yeni müze, +1 vazo, kaideler orijinal haline döner).
+- Ayar: `MuseumSession` → *Quota Factor*, *Quota Extra*. Temalar ve üretim: `ArtworkLook.cs`.
+
+### Küçük ganimetler
+Galeri masalarında durur, E ile çantaya alınır; sahtesi gerekmez, karaborsada "sıcak mal" (×0.5) olarak satılır.
+
+### Kendi haritanızda kullanmak
+- **Atölye:** obje + `NetworkObject` + `ForgeryWorkbench` (isteğe bağlı *Camera Point* / *Work Point*).
+- **Brifing:** obje + `NetworkObject` + `BriefingTerminal`.
+- **Görev:** NetworkObject'li bir sahne objesine (ör. ChatManager) `MuseumSession`.
+- Vazo/tablo kaidesi olarak görünmesi için eserin id'sinde `vase` ya da `painting` geçmeli.

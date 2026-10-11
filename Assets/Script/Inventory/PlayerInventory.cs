@@ -226,7 +226,7 @@ public class PlayerInventory : NetworkBehaviour
             SetPanelOpen(false);
         }
 
-        bool blocked = ChatUI.IsTyping || SessionMenuUI.IsPaused;
+        bool blocked = ChatUI.IsTyping || SessionMenuUI.IsPaused || WorkbenchUI.IsOpen || BriefingUI.IsOpen;
         if (blocked) return;
 
         if (kb.tabKey.wasPressedThisFrame)

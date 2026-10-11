@@ -80,6 +80,7 @@ public class SessionMenuUI : MonoBehaviour
 
         if (!localPlayerSpawned || Keyboard.current == null) return;
         if (ChatUI.IsTyping || ChatUI.ClosedRecently) return; // Esc sohbeti kapatıyor, menüyü açmasın
+        if (WorkbenchUI.IsOpen || BriefingUI.IsOpen) return;  // Esc atölyeyi / brifingi kapatıyor
 
         if (Keyboard.current.escapeKey.wasPressedThisFrame)
         {

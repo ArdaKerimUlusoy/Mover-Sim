@@ -291,5 +291,57 @@ public static class Loc
         { "item.forgery_vase",      new[] { "Forged Vase", "Sahte Vazo" } },
         { "item.tool_lockpick",     new[] { "Lockpick Set", "Maymuncuk Seti" } },
         { "item.distraction_coin",  new[] { "Coin", "Bozuk Para" } },
+
+        // Küçük ganimetler (galeri masaları — sahtesi gerekmez)
+        { "item.loot_snuffbox",  new[] { "Snuff Box", "Enfiye Kutusu" } },
+        { "item.loot_figurine",  new[] { "Bronze Figurine", "Bronz Heykelcik" } },
+        { "item.loot_coinpouch", new[] { "Old Coin Pouch", "Eski Sikke Kesesi" } },
+
+        // Görev / müze (MuseumSession)
+        { "mission.title",     new[] { "MISSION {0} — {1}, {2}", "GÖREV {0} — {1}, {2}" } },
+        { "mission.quota",     new[] { "Team earnings: ${0} / ${1}", "Ekip kazancı: ${0} / ${1}" } },
+        { "mission.complete",  new[] { "MISSION COMPLETE!", "GÖREV TAMAM!" } },
+        { "mission.nexthost",  new[] { "Press N for the next mission (new museum, more vases)", "Sonraki görev için N'ye bas (yeni müze, daha fazla vazo)" } },
+        { "mission.nextwait",  new[] { "Waiting for the host to start the next mission...", "Sonraki görevi host başlatacak..." } },
+        { "mission.next",      new[] { "Mission {1}: {0}", "Görev {1}: {0}" } },
+
+        // Sahte atölyesi (ForgeryWorkbench / WorkbenchUI / CanvasPainter)
+        { "bench.prompt",        new[] { "[E] Forgery workbench", "[E] Sahte atölyesi" } },
+        { "bench.notargets",     new[] { "Workbench — no targets in this museum", "Atölye — bu müzede hedef yok" } },
+        { "bench.nodef",         new[] { "There is no forgery item for {1}.", "{1} için sahte eşya tanımı yok." } },
+        { "bench.done",          new[] { "Forgery ready ({0}%): {1} is in your bag.", "Sahte hazır (%{0}): {1} çantanda." } },
+        { "bench.choose",        new[] { "What will you forge?", "Neyin sahtesini yapacaksın?" } },
+        { "bench.choosehint",    new[] { "Click or press 1-9.  Esc: close.  You don't need the original: forge first, swap it in the museum later.", "Tıkla ya da 1-9.  Esc: kapat.  Orijinal gerekmez: önce sahteyi yap, sonra müzede değiştir." } },
+        { "bench.wheel",         new[] { "potter's wheel", "çömlek çarkı" } },
+        { "bench.canvas",        new[] { "canvas", "tuval" } },
+        { "bench.alreadyswapped",new[] { "   (already swapped)", "   (zaten değiştirildi)" } },
+        { "bench.canvastitle",   new[] { "FORGING: {0}", "SAHTE: {0}" } },
+        { "bench.sculpt",        new[] { "1) SHAPE", "1) ŞEKİLLENDİR" } },
+        { "bench.sculpthelp",    new[] { "Fit the clay to the green guide.\nLeft click: push in (whole ring)  |  Right click: pull out\nShift + click: single point  |  Middle mouse: rotate  |  Wheel: brush", "Kili yeşil rehbere oturt.\nSol tık: içeri it (tüm halka)  |  Sağ tık: dışarı çek\nShift + tık: tek nokta  |  Orta tuş: çevir  |  Tekerlek: fırça" } },
+        { "bench.shape",         new[] { "Shape", "Şekil" } },
+        { "bench.toPaint",       new[] { "Ready! Press SPACE to paint", "Hazır! Boyamak için SPACE" } },
+        { "bench.paint",         new[] { "2) PAINT", "2) BOYA" } },
+        { "bench.painthelp",     new[] { "Copy the pattern from the original next to it.\nLeft click: paint  |  Shift: whole band  |  B: fill all\n1-{0}: color  |  Middle mouse: rotate  |  Wheel: brush", "Yandaki orijinale bakarak deseni kopyala.\nSol tık: boya  |  Shift: tüm bant  |  B: hepsini doldur\n1-{0}: renk  |  Orta tuş: çevir  |  Tekerlek: fırça" } },
+        { "bench.paintscore",    new[] { "Paint", "Boya" } },
+        { "bench.similarity",    new[] { "Similarity: {0}% ({1})", "Benzerlik: %{0} ({1})" } },
+        { "bench.cancel",        new[] { "Cancel", "Vazgeç" } },
+        { "bench.finish",        new[] { "Esc: finish — the forgery goes into your bag", "Esc: bitir — sahte çantana girer" } },
+        { "bench.canvashelp",    new[] { "Left click: brush  |  Shift + click: bucket fill  |  Wheel: brush size ({0})  |  1-{1}: color  |  B: fill all  |  G: guide {2}  |  Esc: finish", "Sol tık: fırça  |  Shift + tık: kova  |  Tekerlek: fırça boyu ({0})  |  1-{1}: renk  |  B: hepsini doldur  |  G: rehber {2}  |  Esc: bitir" } },
+        { "bench.on",            new[] { "on", "açık" } },
+        { "bench.off",           new[] { "off", "kapalı" } },
+        { "bench.original",      new[] { "ORIGINAL", "ORİJİNAL" } },
+        { "bench.colors",        new[] { "Colors", "Renkler" } },
+
+        // Brifing terminali
+        { "brief.prompt",   new[] { "[E] Mission briefing", "[E] Görev brifingi" } },
+        { "brief.waiting",  new[] { "Preparing the museum...", "Müze hazırlanıyor..." } },
+        { "brief.close",    new[] { "E / Esc: close", "E / Esc: kapat" } },
+        { "brief.quota",    new[] { "Quota: earn ${0} for the team bank (so far ${1})", "Kota: ekip kasasına ${0} kazandır (şu an ${1})" } },
+        { "brief.value",    new[] { "Value ${0}  ·  {1} kg  ·  {2}", "Değer ${0}  ·  {1} kg  ·  {2}" } },
+        { "brief.noforge",  new[] { "can't be forged", "sahtesi yapılamaz" } },
+        { "brief.swapped",  new[] { "Swapped — a {0}% forgery is in its place", "Değiştirildi — yerinde %{0} sahte var" } },
+        { "brief.plan",     new[] { "Plan: 1) Make forgeries at the workbench (the green guide helps).  2) In the museum, hold E at the pedestal to swap.  3) Sell the originals at the black market. Small antiques on the gallery tables sell too.", "Plan: 1) Atölyede sahteleri yap (yeşil rehber yardım eder).  2) Müzede kaideye E basılı tutup değiştir.  3) Orijinalleri karaborsada sat. Galeri masalarındaki küçük antikalar da satılır." } },
+        { "label.workbench", new[] { "FORGERY WORKBENCH", "SAHTE ATÖLYESİ" } },
+        { "label.briefing",  new[] { "BRIEFING", "BRİFİNG" } },
     };
 }

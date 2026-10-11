@@ -71,6 +71,10 @@ public static class ItemTools
         Create("forgery_vase",      "Forged Vase",     ItemType.Forgery,     4f,   0,    false, 1,  new Color(0.35f, 0.60f, 0.70f), PrimitiveType.Cylinder, new Vector3(0.3f, 0.2f, 0.3f),      85);
         Create("tool_lockpick",     "Lockpick Set",    ItemType.Tool,        0.5f, 150,  false, 1,  new Color(0.50f, 0.50f, 0.55f), PrimitiveType.Cube,     new Vector3(0.15f, 0.03f, 0.08f),  -1);
         Create("distraction_coin",  "Coin",            ItemType.Distraction, 0.1f, 1,    true,  10, new Color(0.95f, 0.75f, 0.30f), PrimitiveType.Cylinder, new Vector3(0.12f, 0.015f, 0.12f), -1);
+        // Küçük ganimetler: galeri masalarında durur, sahtesi gerekmez, karaborsada "sıcak mal" olarak satılır (kotayı tamamlamak için)
+        Create("loot_snuffbox",     "Snuff Box",       ItemType.Original,    0.4f, 160,  false, 1,  new Color(0.80f, 0.70f, 0.40f), PrimitiveType.Cube,     new Vector3(0.14f, 0.06f, 0.10f),  -1);
+        Create("loot_figurine",     "Bronze Figurine", ItemType.Original,    1.2f, 220,  false, 1,  new Color(0.55f, 0.40f, 0.20f), PrimitiveType.Capsule,  new Vector3(0.10f, 0.14f, 0.10f),  -1);
+        Create("loot_coinpouch",    "Old Coin Pouch",  ItemType.Original,    0.6f, 140,  false, 1,  new Color(0.45f, 0.30f, 0.18f), PrimitiveType.Sphere,   new Vector3(0.14f, 0.12f, 0.14f),  -1);
 
         // Hangi sahte hangi orijinalin kopyası
         LinkForgery("forgery_painting", "original_painting");

@@ -9,9 +9,9 @@ using UnityEngine.AI;
 /// <summary>
 /// Tools → Sahte Şaheser → Create Test Museum
 /// Açık sahneye, harita gelene kadar test için gri kutulardan basit bir müze kurar:
-///  - Kamyon/Garaj odası: doğma noktaları, sahte eser ve bozuk para dolapları, karaborsa, garaj mağazası
+///  - Kamyon/Garaj odası: doğma noktaları, sahte atölyesi, brifing terminali, bozuk para dolabı, karaborsa, garaj mağazası
 ///  - Kapı (açılıp kapanır)
-///  - Galeri: 5 eser kaidesi, ara duvar, 2 saklanma dolabı, "Staff Only" odası
+///  - Galeri: eser kaideleri (2. ve 3. vazo görev seviyesiyle açılır), küçük ganimet masaları, ara duvar, 2 saklanma dolabı, "Staff Only" odası
 ///  - Güvenlik: 2 devriye görevlisi, 2 dönen kamera (NavMesh oyun başında otomatik oluşur)
 ///  - Gerekli bileşenler ChatManager objesine ve Player prefab'ına otomatik eklenir
 /// Var olan diğer SpawnPoint'ler kapatılır, oyuncular müzede doğar. Ctrl+Z ile geri alınabilir.
@@ -37,7 +37,7 @@ public static class TestMuseumBuilder
         }
 
         // Örnek eşyalar yoksa önce onları oluştur
-        if (ItemTools.FindItem("original_painting") == null || ItemTools.FindItem("forgery_vase") == null)
+        if (ItemTools.FindItem("original_painting") == null || ItemTools.FindItem("forgery_vase") == null || ItemTools.FindItem("loot_figurine") == null)
         {
             ItemTools.CreateSampleItems();
         }
@@ -81,8 +81,9 @@ public static class TestMuseumBuilder
             sp.AddComponent<SpawnPoint>();
         }
 
-        Cabinet(root, "Cabinet_ForgedPainting", new Vector3(-13.5f, 0.6f, 9.8f), "forgery_painting", 1, 72);
-        Cabinet(root, "Cabinet_ForgedVase", new Vector3(-11f, 0.6f, 9.8f), "forgery_vase", 1, 85);
+        // Sahteler artık dolaptan değil ATÖLYEDEN çıkar (çömlek çarkı / tuval, gerçek benzerlik yüzdesiyle)
+        Workbench(root, "ForgeryWorkbench", new Vector3(-12.25f, 0.45f, 9.6f));
+        Terminal(root, "BriefingTerminal", new Vector3(-6.5f, 0.6f, 9.9f));
         Cabinet(root, "Cabinet_Coins", new Vector3(-8.5f, 0.6f, 9.8f), "distraction_coin", 5, -1);
 
         GameObject market = Box(root, "BlackMarket", new Vector3(-14f, 0.75f, -9.5f), new Vector3(2.2f, 1.5f, 1f), marketMat);
@@ -100,11 +101,18 @@ public static class TestMuseumBuilder
 
         Pedestal(root, "Display_Painting", new Vector3(2f, 0.5f, 9f), "original_painting");
         Pedestal(root, "Display_Vase", new Vector3(8f, 0.5f, 9f), "original_vase");
+        Pedestal(root, "Display_Vase2", new Vector3(5f, 0.5f, 9f), "original_vase", 2);   // 2. görevden itibaren
+        Pedestal(root, "Display_Vase3", new Vector3(11f, 0.5f, -9f), "original_vase", 3); // 3. görevden itibaren
         Pedestal(root, "Display_Ring", new Vector3(2f, 0.5f, -9f), "original_ring");
         Pedestal(root, "Display_Bust", new Vector3(8f, 0.5f, -9f), "original_bust");
         Pedestal(root, "Display_Painting2", new Vector3(14.5f, 0.5f, 9.5f), "original_painting"); // Staff Only odasında
 
         Box(root, "Gallery_Partition", new Vector3(6f, 1.6f, 0f), new Vector3(5f, 3.2f, 0.3f), wallMat);
+
+        // Küçük ganimet masaları (sahtesi gerekmez; kotayı tamamlamak için)
+        LootTable(root, "LootTable_A", new Vector3(-1.5f, 0.4f, -10.3f), "loot_snuffbox", "loot_coinpouch");
+        LootTable(root, "LootTable_B", new Vector3(5f, 0.4f, -10.3f), "loot_figurine", "loot_snuffbox");
+        LootTable(root, "LootTable_C", new Vector3(-2.5f, 0.4f, 10.3f), "loot_coinpouch", "loot_figurine");
 
         // ---------------- Staff Only odası (kuzeydoğu köşe) ----------------
         Box(root, "StaffFloor", new Vector3(13.5f, 0.01f, 8f), new Vector3(5f, 0.02f, 6f), staffFloorMat).GetComponent<Collider>().enabled = false;
@@ -207,7 +215,7 @@ public static class TestMuseumBuilder
         Label(go, "Label", Vector3.zero, "label.cabinet", 1.1f, item);
     }
 
-    private static void Pedestal(GameObject root, string name, Vector3 pos, string itemId)
+    private static void Pedestal(GameObject root, string name, Vector3 pos, string itemId, int requiredLevel = 1)
     {
         GameObject go = Box(root, name, pos, new Vector3(1f, 1f, 1f), pedestalMat);
         go.AddComponent<NetworkObject>();
@@ -215,7 +223,56 @@ public static class TestMuseumBuilder
 
         SerializedObject so = new SerializedObject(d);
         so.FindProperty("artwork").objectReferenceValue = ItemTools.FindItem(itemId);
+        so.FindProperty("requiredLevel").intValue = requiredLevel;
         so.ApplyModifiedPropertiesWithoutUndo();
+    }
+
+    /// <summary>Sahte atölyesi: tezgah + kamera/çalışma noktaları.</summary>
+    private static void Workbench(GameObject root, string name, Vector3 pos)
+    {
+        GameObject go = Box(root, name, pos, new Vector3(2.6f, 0.9f, 1f), cabinetMat);
+        go.AddComponent<NetworkObject>();
+        ForgeryWorkbench bench = go.AddComponent<ForgeryWorkbench>();
+
+        GameObject work = new GameObject(name + "_WorkPoint");
+        work.transform.SetParent(root.transform, false);
+        work.transform.localPosition = pos + new Vector3(0f, 0.45f, 0f);
+
+        GameObject camPoint = new GameObject(name + "_CameraPoint");
+        camPoint.transform.SetParent(root.transform, false);
+        camPoint.transform.localPosition = pos + new Vector3(0f, 1.2f, -1.15f);
+
+        SerializedObject so = new SerializedObject(bench);
+        so.FindProperty("workPoint").objectReferenceValue = work.transform;
+        so.FindProperty("cameraPoint").objectReferenceValue = camPoint.transform;
+        so.ApplyModifiedPropertiesWithoutUndo();
+
+        Label(go, "Label", Vector3.zero, "label.workbench", 1.3f);
+    }
+
+    /// <summary>Brifing terminali: üstünde hedef vazoların hologramı döner.</summary>
+    private static void Terminal(GameObject root, string name, Vector3 pos)
+    {
+        GameObject go = Box(root, name, pos, new Vector3(0.8f, 1.2f, 0.5f), marketMat);
+        go.AddComponent<NetworkObject>();
+        go.AddComponent<BriefingTerminal>();
+        Label(go, "Label", Vector3.zero, "label.briefing", 1.9f);
+    }
+
+    /// <summary>Küçük ganimet masası: üstüne sahnede duran eşya prefab'ları konur.</summary>
+    private static void LootTable(GameObject root, string name, Vector3 pos, params string[] itemIds)
+    {
+        Box(root, name, pos, new Vector3(2f, 0.8f, 0.9f), pedestalMat);
+        for (int i = 0; i < itemIds.Length; i++)
+        {
+            ItemDefinition def = ItemTools.FindItem(itemIds[i]);
+            if (def == null || def.worldPrefab == null) continue;
+            GameObject item = (GameObject)PrefabUtility.InstantiatePrefab(def.worldPrefab);
+            item.transform.SetParent(root.transform, false);
+            float x = (i - (itemIds.Length - 1) * 0.5f) * 0.7f;
+            item.transform.localPosition = pos + new Vector3(x, 0.55f, 0f);
+            Undo.RegisterCreatedObjectUndo(item, "Loot");
+        }
     }
 
     private static void Locker(GameObject root, string name, Vector3 pos, float yaw)
@@ -326,6 +383,7 @@ public static class TestMuseumBuilder
         if (go.GetComponent<TeamBank>() == null) Undo.AddComponent<TeamBank>(go);
         if (go.GetComponent<SecurityManager>() == null) Undo.AddComponent<SecurityManager>(go);
         if (go.GetComponent<PingSystem>() == null) Undo.AddComponent<PingSystem>(go);
+        if (go.GetComponent<MuseumSession>() == null) Undo.AddComponent<MuseumSession>(go);
     }
 
     /// <summary>Player prefab'ına PlayerStealth (ve yoksa PlayerInventory) ekler.</summary>

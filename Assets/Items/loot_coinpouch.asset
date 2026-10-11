@@ -1,0 +1,25 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: bf373c25ee9a2984fb17dadd385a6c68, type: 3}
+  m_Name: loot_coinpouch
+  m_EditorClassIdentifier: Assembly-CSharp::ItemDefinition
+  id: loot_coinpouch
+  displayName: Old Coin Pouch
+  type: 0
+  weightKg: 0.6
+  baseValue: 140
+  stackable: 0
+  maxStack: 1
+  forgeryOf: {fileID: 0}
+  uiColor: {r: 0.45, g: 0.3, b: 0.18, a: 1}
+  icon: {fileID: 2800000, guid: 7a06619db6076ca4f84e96753449b1e2, type: 3}
+  worldPrefab: {fileID: 9219378662922702918, guid: 7a51a554064b6084792772826866afd4, type: 3}
