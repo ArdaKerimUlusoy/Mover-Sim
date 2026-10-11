@@ -103,6 +103,14 @@ public class PlayerController : MonoBehaviour
         if (Keyboard.current.aKey.isPressed || Keyboard.current.leftArrowKey.isPressed) horizontal -= 1f;
         if (Keyboard.current.dKey.isPressed || Keyboard.current.rightArrowKey.isPressed) horizontal += 1f;
 
+        // Sohbete yazarken tuşlar karakteri hareket ettirmesin.
+        bool inputBlocked = ChatUI.IsTyping;
+        if (inputBlocked)
+        {
+            horizontal = 0f;
+            vertical = 0f;
+        }
+
         Vector3 inputDir = (transform.right * horizontal + transform.forward * vertical).normalized;
 
         bool carryingHeavy = carrier != null && carrier.IsCarryingHeavy;
@@ -110,7 +118,7 @@ public class PlayerController : MonoBehaviour
         // Hedef hız
         float targetSpeed = walkSpeed;
         if (isCrouching) targetSpeed = crouchSpeed;
-        else if (Keyboard.current.leftShiftKey.isPressed && !carryingHeavy) targetSpeed = sprintSpeed;
+        else if (!inputBlocked && Keyboard.current.leftShiftKey.isPressed && !carryingHeavy) targetSpeed = sprintSpeed;
 
         if (carrier != null) targetSpeed *= carrier.SpeedMultiplier;
 
@@ -140,7 +148,7 @@ public class PlayerController : MonoBehaviour
         characterController.Move(currentHorizontalVelocity * Time.deltaTime);
 
         // Zıplama
-        if (Keyboard.current.spaceKey.wasPressedThisFrame && isGrounded && !isCrouching && !carryingHeavy)
+        if (!inputBlocked && Keyboard.current.spaceKey.wasPressedThisFrame && isGrounded && !isCrouching && !carryingHeavy)
         {
             verticalVelocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
         }
@@ -159,7 +167,7 @@ public class PlayerController : MonoBehaviour
     {
         if (Keyboard.current == null) return;
 
-        isCrouching = Keyboard.current.leftCtrlKey.isPressed || Keyboard.current.cKey.isPressed;
+        isCrouching = !ChatUI.IsTyping && (Keyboard.current.leftCtrlKey.isPressed || Keyboard.current.cKey.isPressed);
 
         float targetHeight = isCrouching ? crouchHeight : standingHeight;
         float targetCenterY = isCrouching ? -(standingHeight - crouchHeight) / 2f : 0f;
@@ -215,10 +223,10 @@ public class PlayerController : MonoBehaviour
     private void HandleMouseLook()
     {
         if (playerCamera == null || Mouse.current == null) return;
-        if (Cursor.lockState != CursorLockMode.Locked) return; // Menü açıkken kamera dönmesin
+        if (Cursor.lockState != CursorLockMode.Locked || ChatUI.IsTyping) return; // Menü/sohbet açıkken kamera dönmesin
 
         float turnFactor = carrier != null ? carrier.TurnSensitivityMultiplier : 1f;
-        Vector2 mouseDelta = Mouse.current.delta.ReadValue() * (lookSensitivity * turnFactor);
+        Vector2 mouseDelta = Mouse.current.delta.ReadValue() * (lookSensitivity * turnFactor * GameSettings.MouseSensitivity);
 
         rotationX -= mouseDelta.y;
         rotationX = Mathf.Clamp(rotationX, -lookXLimit, lookXLimit);

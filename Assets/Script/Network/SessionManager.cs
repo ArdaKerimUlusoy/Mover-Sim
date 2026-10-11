@@ -221,7 +221,10 @@ public class SessionManager : MonoBehaviour
     {
         if (ActiveSession == null || isLeaving) return;
 
-        Status = wasHost ? "Oda kapandı." : "Host ile bağlantı koptu.";
+        // Host bizi attıysa sebebini göster ("Host seni odadan attı.").
+        string reason = NetworkManager.Singleton != null ? NetworkManager.Singleton.DisconnectReason : null;
+        if (!string.IsNullOrEmpty(reason)) Status = reason;
+        else Status = wasHost ? "Oda kapandı." : "Host ile bağlantı koptu.";
         _ = LeaveRoomAsync();
     }
 }

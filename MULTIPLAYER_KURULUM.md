@@ -108,3 +108,51 @@ Biri oda kurar, kodu WhatsApp'tan atar, diğeri katılır.
 - 40 kg üstü objeleri **iki kişinin birlikte taşıması** (oyunun temasına çok uyar).
 - Oyuncu isimleri / kafa üstünde isim etiketi.
 - Kamera bakış açısını (yukarı/aşağı) senkronlamak, basit karakter modeli.
+
+---
+
+## Ek: Sohbet, isimler, katıldı/ayrıldı mesajları
+
+**Yeni dosyalar:** `Assets/Script/Network/ChatManager.cs`, `Assets/Script/Network/ChatUI.cs`
+**Değişenler:** `PlayerNetworkSetup.cs` (isim + kafa üstü etiket), `SessionMenuUI.cs` (isim kutusu),
+`PlayerController.cs` / `ObjectCarrier.cs` (sohbete yazarken karakter hareket etmez)
+
+### Kurulum (tek adım)
+1. Sahnede boş bir obje oluştur: `ChatManager`.
+2. Üzerine ekle: `NetworkObject` + `ChatManager` + `ChatUI`.
+   (NetworkManager objesine EKLEME, ayrı obje olmalı.)
+
+Player prefab'ında değişiklik yapmana gerek yok.
+
+### Kullanım
+- Ana menüde **Adın** kutusuna ismini yaz (bir sonraki açılışta hatırlanır).
+- Oyunda **Enter** → yaz → **Enter** gönderir (boşsa sadece kapatır), **Esc** vazgeçer (menü açılmaz).
+- Biri katılınca / ayrılınca sohbete sarı renkte bilgi mesajı düşer.
+- Diğer oyuncuların kafasının üstünde isimleri görünür.
+- Mesajlar 10 saniye sonra soluklaşıp kaybolur; Enter'a basınca son mesajlar tekrar görünür.
+
+### Nasıl çalışıyor
+Mesaj önce sunucuya (host) gider, sunucu gönderenin adını ekleyip herkese dağıtır;
+bu yüzden kimse başkasının adıyla mesaj gönderemez. İsimler oyuncu objesinde bir
+`NetworkVariable` olarak tutulur, sonradan katılan da herkesin adını görür.
+
+---
+
+## Ek 2: Oyuncu listesi, renk, ayarlar, ping, oyuncu atma
+
+**Yeni dosya:** `Assets/Script/Network/GameSettings.cs`
+**Değişenler:** `SessionMenuUI.cs`, `PlayerNetworkSetup.cs`, `ChatManager.cs`, `SessionManager.cs`, `PlayerController.cs`
+
+Unity'de ek kurulum **gerekmez**. Sadece Player prefab'ındaki `PlayerNetworkSetup` bileşeninde
+eski "Remote Player Color" alanı kalktı, Unity bunu kendiliğinden temizler.
+
+- **Ana menü:** isim + 8 renkten biri seçilir (hatırlanır).
+- **Sağ üst:** ping (yeşil < 80 ms, sarı < 150 ms, kırmızı üstü). Host'ta "Host • 0 ms" yazar.
+- **Esc menüsü:**
+  - Oyuncu listesi: renk, isim, (Host) / (Sen) etiketleri.
+  - Host'ta her oyuncunun yanında **At** butonu → oyuncu ana menüye düşer, ekranında
+    "Host seni odadan attı." yazar, sohbete "X odadan atıldı." düşer. (Kodla tekrar girebilir; kalıcı ban yok.)
+  - Oyun içinden renk değiştirme.
+  - Ses ve fare hassasiyeti kaydırıcıları (bilgisayara kaydedilir).
+
+> Not: GDD'de **Tab = çanta** olduğu için oyuncu listesi Tab'a değil Esc menüsüne konuldu.
