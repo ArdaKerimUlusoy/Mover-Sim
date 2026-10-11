@@ -50,6 +50,11 @@ public class SessionManager : MonoBehaviour
             return;
         }
         Instance = this;
+
+        // Pencere arka plandayken (alt-tab, Discord'a geçmek vb.) oyun durmasın.
+        // Durursa host Relay'e "hâlâ buradayım" sinyali gönderemez ve diğer oyuncunun
+        // bağlantısı "Relay: not connected" hatasıyla kopar.
+        Application.runInBackground = true;
     }
 
     private void Start()
