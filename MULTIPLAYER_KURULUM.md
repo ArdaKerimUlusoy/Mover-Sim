@@ -287,3 +287,95 @@ Listede olmayan sesler geçici sesle çalmaya devam eder.
 - Sağ üstte **Team** (ekip kasası) ve **You** (kişisel cüzdan) görünür.
 - Kod tarafı hazır: `TeamBank.Instance.ServerAdd/ServerTrySpend`, `PlayerInventory.ServerAddMoney/ServerTrySpendMoney`.
   Karaborsa ve garaj mağazası bunları kullanacak.
+
+---
+
+## Ek 6: Eser değiştirme, karaborsa, garaj mağazası ve test müzesi
+
+### Kurulum (bir kişi yapsın, commit'lesin)
+1. **Tools → Sahte Şaheser → Create Sample Items** (tekrar çalıştır): yeni **Forged Vase** eşyası eklenir
+   ve sahteler orijinallerine bağlanır (Forged Painting → Small Painting, Forged Vase → Ancient Vase).
+2. **Tools → Sahte Şaheser → Create Test Museum**: sahnenin x=40 civarına gri kutulardan bir müze kurulur.
+   Eski doğma noktaları kapatılır, oyuncular müzenin garaj odasında doğar. (Ctrl+Z ile geri alınır.)
+3. Sahnede **ChatManager** objesinde `TeamBank` olduğundan emin ol (Ek 5).
+4. **Ctrl+S** ve commit: `Assets/Items`, `Assets/Resources`, `Assets/TestMuseum`, sahne.
+   ⚠️ Eşya listesi değiştiği için arkadaşın mutlaka çekmeli.
+
+### Test müzesinde oynanış döngüsü
+1. **Garaj odası:** kahverengi dolaplara E basılı tut → *Forged Painting* (benzerlik %72) ve
+   *Forged Vase* (%85) çantana girer. Bozuk para dolabından 5 para al. Dolaplar 10 sn'de yeniden dolar.
+2. **Kapıdan** (E) galeriye geç.
+3. **Eser kaidesi:** sahtesi çantandaysa E basılı tut (eser ağırsa daha uzun sürer) →
+   orijinal çantana girer, kaidede artık sahte durur. Sahtesi olmayan eserler (yüzük, büst) değiştirilemez.
+4. Garaja dön, **mor kutu = Karaborsa**: orijinalleri sat.
+   Fiyat = taban değer × bırakılan sahtenin kalitesi (Kusursuz %100, İyi %85, Şüpheli %65, Kaba %45;
+   sahte bırakmadan alınan "sıcak mal" %50). Paranın %80'i ekip kasasına, %20'si sana.
+5. **Turkuaz kutu = Garaj Mağazası:** upgrade al.
+
+| Upgrade | Etki | Seviye | Fiyat | Kim öder |
+|---|---|---|---|---|
+| Bigger Bag | +5 kg çanta | 3 | 150 / 300 / 500 | Sen |
+| Quiet Shoes | Ayak sesi %30 kısılır (her seviye) | 2 | 120 / 260 | Sen |
+| Swift Gloves | Değiştirme %20 hızlanır (her seviye) | 2 | 200 / 420 | Sen |
+| Team Backpacks | Herkese +3 kg | 2 | 400 / 800 | Ekip kasası |
+
+Fiyat ve etkiler `Assets/Script/Economy/UpgradeCatalog.cs` ve `PriceRules.cs` içinde; denge ayarı oradan.
+
+### Kendi haritanızda kullanmak
+- **Eser kaidesi:** obje + `NetworkObject` + `ArtworkDisplay` → *Artwork* alanına orijinal eseri sürükle.
+- **Karaborsa / mağaza:** obje + `NetworkObject` + `BlackMarket` / `GarageShop`.
+- **Yüzen yazı:** `WorldLabel` (çeviri anahtarı ile).
+- Yeni bir sahte eser eklerken tanımındaki **Forgery Of** alanına orijinalini koyun.
+
+---
+
+## Ek 7: Güvenlik görevlileri, kameralar, saklanma, işaretleme
+
+### Kurulum (bir kişi yapsın, commit'lesin)
+1. **Tools → Sahte Şaheser → Create Test Museum** → "Evet" ile müzeyi yeniden kur. Bu sefer otomatik olarak:
+   - 2 güvenlik görevlisi (devriye noktalarıyla), 2 dönen kamera, 2 saklanma dolabı, kırmızı zeminli **Staff Only** odası
+   - ChatManager objesine `SecurityManager` ve `PingSystem`
+   - **Player prefab'ına `PlayerStealth`** eklenir.
+2. **Ctrl+S** ve commit (sahne + Player prefab + `Assets/TestMuseum`). ⚠️ Arkadaşın mutlaka çekmeli.
+
+NavMesh (güvenliklerin yürüme alanı) oyun başında otomatik oluşur; elle bake etmenize gerek yok.
+
+### Şüphe sistemi (GDD Bölüm 5)
+Oyuncular sıradan ziyaretçidir: **görülmek tek başına sorun değil.** Şüpheli bir şey yaparken görülürsen
+ekranın üstünde **Suspicion** çubuğu dolar; dolarsa **ALARM** çalar.
+
+| Şüpheli davranış | Etki |
+|---|---|
+| Eser değiştirirken / arkadaşından çalarken görülmek | Çok hızlı dolar (×2) |
+| Elinde eser (orijinal/sahte) taşımak | Dolar (×1) |
+| Staff Only odasında bulunmak | Dolar (×1) |
+| Alarm sırasında "aranan" kişi olmak | Dolar (×1.5) |
+| Eğilmek (Ctrl/C) | Güvenlikler %25 daha kısa mesafeden görür, şüphe %40 yavaş dolar |
+
+- Görülmezsen şüphe yavaşça azalır.
+- **Değiştirme sırasında biri izliyorsa işlem yarıda kalır** ("Not now, someone is watching!").
+
+### Güvenlik görevlisi
+- Yerde **görüş konisi**: sarı = devriye, turuncu = şüpheleniyor/araştırıyor ("?"), kırmızı = kovalıyor ("!").
+- **Bozuk para (Q)** düştüğü yeri duyan güvenlik oraya gidip etrafa bakar → dikkat dağıtma.
+- **Sahte eser kontrolü:** değiştirilmiş bir eserin önünden geçerken benzerliğe göre fark edebilir:
+  Kusursuz %0, İyi %15, Şüpheli %50, Kaba %90 → fark ederse esere gider ve alarm çalar.
+- Kapıları kendisi açar.
+- **Alarm** (25 sn): tüm güvenlikler kovalar. Yakalanırsan **çantandaki orijinallere el konur** ve garaja
+  gönderilirsin (GDD'deki polis minibüsü + kurtarma ileride).
+
+### Kamera
+- Sağa sola tarar, görüş konisi mavi. Şüpheli davranan oyuncuyu görünce şüphe ekler ve
+  **en yakın güvenliği oraya yollar.**
+
+### Saklanma dolabı
+- **E** ile gir, **E** ile çık. İçerideyken güvenlikler ve kameralar seni göremez. Tek kişilik.
+
+### İşaretleme (ping)
+- **Orta fare tuşu** veya **F** → baktığın yere senin renginde bir işaret koyar, herkes görür (8 sn).
+  Bir esere / eşyaya bakıyorsan adı da yazar.
+
+### Ayar yapmak
+- Görevli: `GuardAI` (görüş mesafesi/açısı, hızlar, şüphe hızı, devriye noktaları)
+- Kamera: `SecurityCamera` (tarama açısı/hızı, görüş)
+- Alarm süresi: `SecurityManager`

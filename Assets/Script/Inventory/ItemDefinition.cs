@@ -33,6 +33,9 @@ public class ItemDefinition : ScriptableObject
     public bool stackable;
     [Min(1)] public int maxStack = 1;
 
+    [Tooltip("Sadece sahte eserler: hangi orijinalin sahtesi? Boş = her esere uyar (test).")]
+    public ItemDefinition forgeryOf;
+
     [Tooltip("Çanta panelindeki renk (ikon yokken).")]
     public Color uiColor = Color.white;
     public Texture2D icon;

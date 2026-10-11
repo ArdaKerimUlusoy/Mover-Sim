@@ -20,6 +20,53 @@ public static class UIUtil
         }
     }
 
+    // ---- Panel stilleri (karaborsa, mağaza vb. ortak kullanır) ----
+    private static GUIStyle box, title, row, small, button, hint, accent;
+
+    public static GUIStyle BoxStyle { get { EnsureStyles(); return box; } }
+    public static GUIStyle TitleStyle { get { EnsureStyles(); return title; } }
+    public static GUIStyle RowStyle { get { EnsureStyles(); return row; } }
+    public static GUIStyle SmallStyle { get { EnsureStyles(); return small; } }
+    public static GUIStyle ButtonStyle { get { EnsureStyles(); return button; } }
+    public static GUIStyle HintStyle { get { EnsureStyles(); return hint; } }
+    public static GUIStyle AccentStyle { get { EnsureStyles(); return accent; } }
+
+    private static void EnsureStyles()
+    {
+        if (box != null) return;
+
+        box = new GUIStyle(GUI.skin.box);
+        box.normal.background = PanelTexture;
+
+        title = new GUIStyle(GUI.skin.label) { fontSize = 24, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
+        title.normal.textColor = Color.white;
+
+        row = new GUIStyle(GUI.skin.label) { fontSize = 16, fontStyle = FontStyle.Bold };
+        row.normal.textColor = Color.white;
+
+        small = new GUIStyle(GUI.skin.label) { fontSize = 12, wordWrap = true };
+        small.normal.textColor = new Color(0.8f, 0.8f, 0.8f);
+
+        hint = new GUIStyle(small) { alignment = TextAnchor.MiddleRight, wordWrap = false };
+
+        accent = new GUIStyle(GUI.skin.label) { fontSize = 15, fontStyle = FontStyle.Bold };
+        accent.normal.textColor = new Color(1f, 0.85f, 0.4f);
+
+        button = new GUIStyle(GUI.skin.button) { fontSize = 14, fontStyle = FontStyle.Bold };
+    }
+
+    /// <summary>Ekran ortasında panel kutusu çizer ve iç alanı döner.</summary>
+    public static Rect BeginCenteredPanel(float w, float h)
+    {
+        Rect panel = new Rect((Screen.width - w) / 2f, (Screen.height - h) / 2f, w, h);
+        GUI.Box(panel, GUIContent.none, BoxStyle);
+        Rect inner = new Rect(panel.x + 20f, panel.y + 14f, panel.width - 40f, panel.height - 28f);
+        GUILayout.BeginArea(inner);
+        return panel;
+    }
+
+    public static void EndCenteredPanel() => GUILayout.EndArea();
+
     public static void DrawRect(Rect r, Color c)
     {
         Color old = GUI.color;

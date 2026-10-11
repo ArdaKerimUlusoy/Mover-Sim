@@ -89,6 +89,71 @@ public static class SoundSynth
                     return (Mathf.Sin(TwoPi * 80f * t) * 0.6f + lp) * Env(t, 0.002f, 18f) * 0.6f;
                 }) };
             }
+            case SoundId.Sell:
+                return new[] { Make("Sell", 0.7f, t =>
+                {
+                    // Yazar kasa: "çın-çın"
+                    float a = Mathf.Sin(TwoPi * 1568f * t) * Env(t, 0.003f, 9f);
+                    float t2 = t - 0.09f;
+                    float b = t2 > 0f ? (Mathf.Sin(TwoPi * 2093f * t2) + Mathf.Sin(TwoPi * 3136f * t2) * 0.4f) * Env(t2, 0.003f, 6f) : 0f;
+                    return (a + b) * 0.22f;
+                }) };
+            case SoundId.Purchase:
+                return new[] { Make("Purchase", 0.45f, t =>
+                {
+                    int step = Mathf.Min(2, (int)(t / 0.07f));
+                    float lt = t - step * 0.07f;
+                    float f = step == 0 ? 660f : step == 1 ? 880f : 1320f;
+                    return Mathf.Sin(TwoPi * f * lt) * Env(lt, 0.004f, step == 2 ? 7f : 25f) * 0.3f;
+                }) };
+            case SoundId.Swap:
+            {
+                System.Random r = new System.Random(31);
+                float lp = 0f;
+                return new[] { Make("Swap", 0.35f, t =>
+                {
+                    lp += (Noise(r) - lp) * 0.1f;
+                    float slide = lp * Mathf.Sin(Mathf.PI * Mathf.Clamp01(t / 0.25f)) * 0.8f;
+                    float t2 = t - 0.22f;
+                    float click = t2 > 0f ? Mathf.Sin(TwoPi * 900f * t2) * Env(t2, 0.001f, 60f) * 0.5f : 0f;
+                    return (slide + click) * 0.5f;
+                }) };
+            }
+            case SoundId.Alarm:
+                return new[] { Make("Alarm", 1.2f, t =>
+                {
+                    // İki tonlu siren
+                    float f = (t % 0.6f) < 0.3f ? 880f : 660f;
+                    float sq = Mathf.Sign(Mathf.Sin(TwoPi * f * t)) * 0.5f + Mathf.Sin(TwoPi * f * t) * 0.5f;
+                    float env = Mathf.Clamp01(t / 0.02f) * Mathf.Clamp01((1.2f - t) / 0.05f);
+                    return sq * env * 0.18f;
+                }) };
+            case SoundId.Ping:
+                return new[] { Make("Ping", 0.25f, t =>
+                    (Mathf.Sin(TwoPi * 1760f * t) * 0.6f + Mathf.Sin(TwoPi * 2640f * t) * 0.3f) * Env(t, 0.002f, 16f) * 0.3f) };
+            case SoundId.Caught:
+                return new[] { Make("Caught", 0.9f, t =>
+                {
+                    // "Vah vah" inen tonlar
+                    int step = Mathf.Min(2, (int)(t / 0.25f));
+                    float lt = t - step * 0.25f;
+                    float f = step == 0 ? 392f : step == 1 ? 370f : 349f;
+                    float vib = step == 2 ? Mathf.Sin(TwoPi * 6f * lt) * 6f : 0f;
+                    float saw = ((f + vib) * t % 1f) * 2f - 1f;
+                    return saw * Env(lt, 0.01f, step == 2 ? 2.5f : 5f) * 0.2f;
+                }) };
+            case SoundId.GuardAlert:
+                return new[] { Make("GuardAlert", 0.35f, t =>
+                {
+                    float a = Mathf.Sin(TwoPi * 1046f * t) + Mathf.Sin(TwoPi * 1568f * t) * 0.6f;
+                    return a * Env(t, 0.002f, 9f) * 0.25f;
+                }) };
+            case SoundId.GuardHuh:
+                return new[] { Make("GuardHuh", 0.3f, t =>
+                {
+                    float f = Mathf.Lerp(300f, 520f, t / 0.3f);
+                    return (Mathf.Sin(TwoPi * f * t) + Mathf.Sin(TwoPi * f * 2f * t) * 0.3f) * Env(t, 0.02f, 8f) * 0.3f;
+                }) };
             default:
                 return Array.Empty<AudioClip>();
         }

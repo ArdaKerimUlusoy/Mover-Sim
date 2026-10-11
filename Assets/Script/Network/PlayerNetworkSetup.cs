@@ -258,6 +258,8 @@ public class PlayerNetworkSetup : NetworkBehaviour
     private void OnGUI()
     {
         if (!IsSpawned || IsOwner) return;
+        PlayerStealth st = GetComponent<PlayerStealth>();
+        if (st != null && st.IsHidden) return; // dolapta saklanıyorsa ismi görünmesin
 
         Camera cam = Camera.main;
         if (cam == null) return;

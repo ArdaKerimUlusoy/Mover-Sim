@@ -206,6 +206,76 @@ public static class Loc
         { "interact.empty",   new[] { "Empty", "Boş" } },
         { "interact.found",   new[] { "Found: {1}", "Bulundu: {1}" } },
 
+        { "card.swapquality", new[] { "Forgery left behind: {0}% ({1})", "Bırakılan sahte: %{0} ({1})" } },
+        { "card.hot",         new[] { "No forgery left behind (hot item, -50%)", "Yerine sahte bırakılmadı (sıcak mal, -%50)" } },
+        { "card.price",       new[] { "Black market: ${0}", "Karaborsa: ${0}" } },
+        { "card.forgeryof",   new[] { "Forgery of: {0}", "Şunun sahtesi: {0}" } },
+        { "panel.close",      new[] { "[Tab] / [Esc] Close", "[Tab] / [Esc] Kapat" } },
+
+        // Eser kaidesi
+        { "display.swap",       new[] { "[Hold E] Swap {0} with your forgery ({1}%)", "[E Basılı Tut] {0} eserini sahtenle değiştir (%{1})" } },
+        { "display.needforgery",new[] { "{0} — you need a forgery of it", "{0} — bunun sahtesi lazım" } },
+        { "display.swapped",    new[] { "{0} (already swapped)", "{0} (zaten değiştirildi)" } },
+        { "display.done",       new[] { "Swapped! {1} is in your bag.", "Değiştirildi! {1} çantanda." } },
+
+        // Karaborsa
+        { "market.prompt",    new[] { "[E] Black Market", "[E] Karaborsa" } },
+        { "market.title",     new[] { "BLACK MARKET", "KARABORSA" } },
+        { "market.help",      new[] { "Team bank gets {0}%, you get {1}%. Better forgeries left behind = higher prices.",
+                                      "Ekip kasasına %{0}, sana %{1}. Yerine bırakılan sahte ne kadar iyiyse fiyat o kadar yüksek." } },
+        { "market.helpnobank",new[] { "All money goes to you (no team bank in scene).", "Tüm para sana (sahnede ekip kasası yok)." } },
+        { "market.sell",      new[] { "Sell ${0}", "Sat ${0}" } },
+        { "market.sellall",   new[] { "Sell All (${0})", "Hepsini Sat (${0})" } },
+        { "market.none",      new[] { "You have no originals to sell.", "Satacak orijinal eserin yok." } },
+        { "market.hot",       new[] { "Hot item (no forgery left)", "Sıcak mal (sahte bırakılmadı)" } },
+        { "market.sold",      new[] { "Sold {1} for ${0}!", "{1} ${0} karşılığında satıldı!" } },
+        { "market.soldall",   new[] { "Sold everything for ${0}!", "Hepsi ${0} karşılığında satıldı!" } },
+
+        // Garaj mağazası
+        { "shop.prompt",      new[] { "[E] Garage Shop", "[E] Garaj Mağazası" } },
+        { "shop.title",       new[] { "GARAGE SHOP", "GARAJ MAĞAZASI" } },
+        { "shop.level",       new[] { "Lv {0}/{1}", "Sv {0}/{1}" } },
+        { "shop.max",         new[] { "MAX", "MAKS" } },
+        { "shop.buy",         new[] { "Buy ${0}", "Al ${0}" } },
+        { "shop.payteam",     new[] { "paid by team bank", "ekip kasasından" } },
+        { "shop.payyou",      new[] { "paid by you", "senin cüzdanından" } },
+        { "shop.bought",      new[] { "Bought: {0}", "Satın alındı: {0}" } },
+        { "shop.notenough",   new[] { "Not enough money!", "Yeterli paran yok!" } },
+        { "shop.notenoughteam",new[] { "Not enough money in the team bank!", "Ekip kasasında yeterli para yok!" } },
+        { "upg.biggerbag.name",     new[] { "Bigger Bag", "Büyük Çanta" } },
+        { "upg.biggerbag.desc",     new[] { "+5 kg bag capacity", "+5 kg çanta kapasitesi" } },
+        { "upg.quietshoes.name",    new[] { "Quiet Shoes", "Sessiz Ayakkabı" } },
+        { "upg.quietshoes.desc",    new[] { "Quieter footsteps", "Daha sessiz ayak sesi" } },
+        { "upg.swiftgloves.name",   new[] { "Swift Gloves", "Hızlı Eldiven" } },
+        { "upg.swiftgloves.desc",   new[] { "Swap artworks 20% faster", "Eserleri %20 daha hızlı değiştir" } },
+        { "upg.teambackpacks.name", new[] { "Team Backpacks", "Ekip Çantaları" } },
+        { "upg.teambackpacks.desc", new[] { "+3 kg for the whole team", "Tüm ekibe +3 kg" } },
+
+        // Test müzesi etiketleri
+        { "label.garage",     new[] { "TRUCK / GARAGE", "KAMYON / GARAJ" } },
+        { "label.gallery",    new[] { "GALLERY", "GALERİ" } },
+        { "label.market",     new[] { "BLACK MARKET", "KARABORSA" } },
+        { "label.shop",       new[] { "GARAGE SHOP", "GARAJ MAĞAZASI" } },
+        { "label.cabinet",    new[] { "{0}", "{0}" } },
+
+        // Gizlilik / güvenlik
+        { "stealth.suspicion",  new[] { "Suspicion", "Şüphe" } },
+        { "stealth.watched",    new[] { "Someone is watching you!", "Biri seni izliyor!" } },
+        { "stealth.hidden",     new[] { "Hidden", "Saklanıyorsun" } },
+        { "display.watched",    new[] { "Not now, someone is watching!", "Şimdi olmaz, biri izliyor!" } },
+        { "alarm.banner",       new[] { "ALARM!  {0}s", "ALARM!  {0} sn" } },
+        { "alarm.spotted",      new[] { "Security spotted {0}! ALARM!", "Güvenlik {0} kişisini fark etti! ALARM!" } },
+        { "alarm.seenswap",     new[] { "{0} was seen swapping an artwork! ALARM!", "{0} eser değiştirirken görüldü! ALARM!" } },
+        { "alarm.fake",         new[] { "A guard noticed a fake artwork! ALARM!", "Bir güvenlik sahte eseri fark etti! ALARM!" } },
+        { "alarm.ended",        new[] { "The alarm has stopped.", "Alarm sustu." } },
+        { "chat.caught",        new[] { "{0} was caught by security! ({1} originals confiscated)", "{0} güvenliğe yakalandı! ({1} orijinale el konuldu)" } },
+
+        // Saklanma
+        { "hide.enter",         new[] { "[E] Hide", "[E] Saklan" } },
+        { "hide.occupied",      new[] { "Occupied", "Dolu" } },
+        { "hide.leave",         new[] { "[E] Leave hiding spot", "[E] Saklandığın yerden çık" } },
+        { "label.staff",        new[] { "STAFF ONLY", "SADECE PERSONEL" } },
+
         // Eşya türleri
         { "item.type.original",    new[] { "Original", "Orijinal" } },
         { "item.type.forgery",     new[] { "Forgery", "Sahte" } },
@@ -218,6 +288,7 @@ public static class Loc
         { "item.original_ring",     new[] { "Golden Ring", "Altın Yüzük" } },
         { "item.original_bust",     new[] { "Marble Bust", "Mermer Büst" } },
         { "item.forgery_painting",  new[] { "Forged Painting", "Sahte Tablo" } },
+        { "item.forgery_vase",      new[] { "Forged Vase", "Sahte Vazo" } },
         { "item.tool_lockpick",     new[] { "Lockpick Set", "Maymuncuk Seti" } },
         { "item.distraction_coin",  new[] { "Coin", "Bozuk Para" } },
     };

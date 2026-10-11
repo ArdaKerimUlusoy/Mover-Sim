@@ -13,6 +13,7 @@ public class PlayerFootsteps : MonoBehaviour
     [SerializeField] private float loudVolume = 0.8f;
     [SerializeField] private float runSpeed = 7f;
 
+    private PlayerInventory inventory;
     private Vector3 lastPos;
     private float distanceSinceStep;
     private bool initialized;
@@ -20,6 +21,7 @@ public class PlayerFootsteps : MonoBehaviour
     private void OnEnable()
     {
         initialized = false;
+        inventory = GetComponent<PlayerInventory>();
     }
 
     private void Update()
@@ -54,6 +56,7 @@ public class PlayerFootsteps : MonoBehaviour
         {
             distanceSinceStep = 0f;
             float volume = Mathf.Lerp(quietVolume, loudVolume, Mathf.InverseLerp(minSpeed, runSpeed, speed));
+            if (inventory != null && inventory.IsSpawned) volume *= inventory.FootstepVolumeMultiplier; // sessiz ayakkabı
             GameAudio.PlayAt(SoundId.Footstep, pos + Vector3.down * 0.9f, volume, 0.1f);
             // İleride: güvenlikler için NoiseSystem.Emit(pos, yarıçap) buradan (sunucuda) çağrılacak.
         }

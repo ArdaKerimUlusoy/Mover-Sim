@@ -52,6 +52,9 @@ public class PlayerController : MonoBehaviour
     private Vector3 currentHorizontalVelocity;
     private float rotationX = 0f;
     private bool isCrouching = false;
+
+    /// <summary>Eğiliyor mu? (Güvenlikler eğilen oyuncuyu daha geç fark eder.)</summary>
+    public bool IsCrouching => isCrouching;
     private bool wasGrounded = true;
     private float currentBaseCamY;
     private float currentCamTilt = 0f;

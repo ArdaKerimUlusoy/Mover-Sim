@@ -68,8 +68,13 @@ public static class ItemTools
         Create("original_ring",     "Golden Ring",     ItemType.Original,    0.3f, 1200, false, 1,  new Color(1.00f, 0.82f, 0.20f), PrimitiveType.Sphere,   new Vector3(0.12f, 0.12f, 0.12f),  -1);
         Create("original_bust",     "Marble Bust",     ItemType.Original,    12f,  2500, false, 1,  new Color(0.92f, 0.92f, 0.90f), PrimitiveType.Cube,     new Vector3(0.35f, 0.55f, 0.35f),  -1);
         Create("forgery_painting",  "Forged Painting", ItemType.Forgery,     2f,   0,    false, 1,  new Color(0.75f, 0.60f, 0.40f), PrimitiveType.Cube,     new Vector3(0.6f, 0.45f, 0.05f),   72);
+        Create("forgery_vase",      "Forged Vase",     ItemType.Forgery,     4f,   0,    false, 1,  new Color(0.35f, 0.60f, 0.70f), PrimitiveType.Cylinder, new Vector3(0.3f, 0.2f, 0.3f),      85);
         Create("tool_lockpick",     "Lockpick Set",    ItemType.Tool,        0.5f, 150,  false, 1,  new Color(0.50f, 0.50f, 0.55f), PrimitiveType.Cube,     new Vector3(0.15f, 0.03f, 0.08f),  -1);
         Create("distraction_coin",  "Coin",            ItemType.Distraction, 0.1f, 1,    true,  10, new Color(0.95f, 0.75f, 0.30f), PrimitiveType.Cylinder, new Vector3(0.12f, 0.015f, 0.12f), -1);
+
+        // Hangi sahte hangi orijinalin kopyası
+        LinkForgery("forgery_painting", "original_painting");
+        LinkForgery("forgery_vase", "original_vase");
 
         AssetDatabase.SaveAssets();
         RebuildDatabase();
@@ -266,6 +271,23 @@ public static class ItemTools
 
         def.worldPrefab = prefab;
         EditorUtility.SetDirty(def);
+    }
+
+    private static void LinkForgery(string forgeryId, string originalId)
+    {
+        ItemDefinition forgery = AssetDatabase.LoadAssetAtPath<ItemDefinition>($"{ItemsFolder}/{forgeryId}.asset");
+        ItemDefinition original = AssetDatabase.LoadAssetAtPath<ItemDefinition>($"{ItemsFolder}/{originalId}.asset");
+        if (forgery == null || original == null) return;
+        forgery.forgeryOf = original;
+        EditorUtility.SetDirty(forgery);
+    }
+
+    /// <summary>id'ye göre eşya tanımını bulur (test müzesi oluşturucu kullanır).</summary>
+    public static ItemDefinition FindItem(string id)
+    {
+        return AssetDatabase.FindAssets("t:ItemDefinition")
+            .Select(g => AssetDatabase.LoadAssetAtPath<ItemDefinition>(AssetDatabase.GUIDToAssetPath(g)))
+            .FirstOrDefault(d => d != null && d.id == id);
     }
 
     private static Material GetOrCreateMaterial(string id, Color color)

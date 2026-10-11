@@ -45,6 +45,14 @@ public class PlayerInventory : NetworkBehaviour
     [SerializeField] private Vector3 remoteHandOffset = new Vector3(0.35f, 0.25f, 0.55f);
     [SerializeField] private float heldMaxSize = 0.35f;
 
+    // Upgrade seviyeleri (garaj mağazası, sunucu yazar)
+    private readonly NetworkVariable<byte> bagLevel = new NetworkVariable<byte>(0);
+    private readonly NetworkVariable<byte> shoesLevel = new NetworkVariable<byte>(0);
+    private readonly NetworkVariable<byte> glovesLevel = new NetworkVariable<byte>(0);
+
+    // Çanta yerine açık olan başka panel (karaborsa, mağaza...)
+    private IInventoryPanel externalPanel;
+
     private NetworkList<InventorySlot> slots;
     private readonly NetworkVariable<float> capacityKg = new NetworkVariable<float>(10f);
     private readonly NetworkVariable<int> personalMoney = new NetworkVariable<int>(0);
@@ -84,6 +92,24 @@ public class PlayerInventory : NetworkBehaviour
     public InventorySlot GetSlot(int i) => slots[i];
     public int PersonalMoney => personalMoney.Value;
     public int HeldSlot => heldSlot.Value;
+
+    public int GetUpgradeLevel(UpgradeType t)
+    {
+        switch (t)
+        {
+            case UpgradeType.BiggerBag: return bagLevel.Value;
+            case UpgradeType.QuietShoes: return shoesLevel.Value;
+            case UpgradeType.SwiftGloves: return glovesLevel.Value;
+            case UpgradeType.TeamBackpacks: return TeamBank.Instance != null ? TeamBank.Instance.TeamBagLevel : 0;
+            default: return 0;
+        }
+    }
+
+    /// <summary>Eser değiştirme süresi çarpanı (eldiven upgrade'i).</summary>
+    public float SwapTimeMultiplier => Mathf.Max(0.4f, 1f - UpgradeCatalog.GlovesFasterPerLevel * glovesLevel.Value);
+
+    /// <summary>Ayak sesi şiddeti çarpanı (sessiz ayakkabı upgrade'i).</summary>
+    public float FootstepVolumeMultiplier => Mathf.Max(0.25f, 1f - UpgradeCatalog.ShoesQuietPerLevel * shoesLevel.Value);
 
     public float CurrentWeightKg
     {
@@ -138,7 +164,7 @@ public class PlayerInventory : NetworkBehaviour
 
     public override void OnNetworkSpawn()
     {
-        if (IsServer) capacityKg.Value = baseCapacityKg;
+        if (IsServer) ServerApplyCapacity();
         if (IsOwner) Local = this;
 
         slots.OnListChanged += OnSlotsChanged;
@@ -195,6 +221,11 @@ public class PlayerInventory : NetworkBehaviour
             SetPanelOpen(false);
         }
 
+        if (IsPanelOpen && externalPanel != null && !externalPanel.StillValid(this))
+        {
+            SetPanelOpen(false);
+        }
+
         bool blocked = ChatUI.IsTyping || SessionMenuUI.IsPaused;
         if (blocked) return;
 
@@ -227,14 +258,26 @@ public class PlayerInventory : NetworkBehaviour
     private void OpenOwnPanel()
     {
         stealTarget = null;
+        externalPanel = null;
+        SetPanelOpen(true);
+    }
+
+    /// <summary>Karaborsa, mağaza gibi panelleri çanta paneli yerine açar.</summary>
+    public void OpenExternal(IInventoryPanel panel)
+    {
+        if (!IsOwner || panel == null) return;
+        stealTarget = null;
+        externalPanel = panel;
+        IsPanelOpen = false; // açma işleminin (imleç, ses) çalışması için
         SetPanelOpen(true);
     }
 
     private void SetPanelOpen(bool open)
     {
-        if (IsPanelOpen == open && (open || stealTarget == null)) return;
+        if (IsPanelOpen == open && (open || (stealTarget == null && externalPanel == null))) return;
 
         bool wasStealing = stealTarget != null;
+        bool wasExternal = externalPanel != null;
         IsPanelOpen = open;
         pendingHoveredSlot = -1;
 
@@ -242,17 +285,18 @@ public class PlayerInventory : NetworkBehaviour
         {
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
-            GameAudio.Play2D(SoundId.BagOpen, 0.7f);
+            GameAudio.Play2D(externalPanel != null ? SoundId.UiClick : SoundId.BagOpen, 0.7f);
         }
         else
         {
             stealTarget = null;
+            externalPanel = null;
             if (!SessionMenuUI.IsPaused)
             {
                 Cursor.lockState = CursorLockMode.Locked;
                 Cursor.visible = false;
             }
-            if (!wasStealing) GameAudio.Play2D(SoundId.BagClose, 0.6f);
+            if (!wasStealing && !wasExternal) GameAudio.Play2D(SoundId.BagClose, 0.6f);
         }
     }
 
@@ -532,7 +576,10 @@ public class PlayerInventory : NetworkBehaviour
             if (d != null) itemName = d.DisplayName;
         }
 
-        bool bad = key == "inv.full" || key == "inv.cantdrop" || key == "steal.stolen" || key == "steal.rummage";
+        if (Loc.Has(arg)) arg = Loc.T(arg); // ör. upgrade adı anahtarı → oyuncunun dilinde
+
+        bool bad = key == "inv.full" || key == "inv.cantdrop" || key == "steal.stolen" || key == "steal.rummage" ||
+                   key.StartsWith("shop.not");
         ShowToast(Loc.T(key, arg, itemName), bad ? Bad : Good);
 
         if (key == "steal.stolen" || key == "steal.rummage") GameAudio.Play2D(SoundId.Steal, 0.8f);
@@ -602,6 +649,97 @@ public class PlayerInventory : NetworkBehaviour
         if (IsServer) capacityKg.Value = Mathf.Max(0f, kg);
     }
 
+    /// <summary>Sunucu: kapasiteyi upgrade'lere göre yeniden hesaplar.</summary>
+    public void ServerApplyCapacity()
+    {
+        if (!IsServer) return;
+        int teamLevel = TeamBank.Instance != null ? TeamBank.Instance.TeamBagLevel : 0;
+        capacityKg.Value = baseCapacityKg + bagLevel.Value * UpgradeCatalog.BagKgPerLevel + teamLevel * UpgradeCatalog.TeamBagKgPerLevel;
+    }
+
+    /// <summary>Sunucu: kişisel upgrade seviyesini bir artırır (ödeme GarageShop'ta yapılır).</summary>
+    public bool ServerIncreaseUpgrade(UpgradeType t)
+    {
+        if (!IsServer) return false;
+        int max = UpgradeCatalog.MaxLevel(t);
+        switch (t)
+        {
+            case UpgradeType.BiggerBag:
+                if (bagLevel.Value >= max) return false;
+                bagLevel.Value++;
+                ServerApplyCapacity();
+                return true;
+            case UpgradeType.QuietShoes:
+                if (shoesLevel.Value >= max) return false;
+                shoesLevel.Value++;
+                return true;
+            case UpgradeType.SwiftGloves:
+                if (glovesLevel.Value >= max) return false;
+                glovesLevel.Value++;
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>Bu orijinal eserin sahtesi çantada var mı? En yüksek benzerlikli sahtenin satırını döner, yoksa -1.
+    /// Sahte tanımında "Forgery Of" boşsa her esere uyar (test için).</summary>
+    public int FindForgeryFor(ItemDefinition original)
+    {
+        int best = -1;
+        int bestSim = -1;
+        for (int i = 0; i < SlotCount; i++)
+        {
+            InventorySlot s = slots[i];
+            ItemDefinition d = Def(s);
+            if (d == null || d.type != ItemType.Forgery) continue;
+            if (d.forgeryOf != null && d.forgeryOf != original) continue;
+
+            int sim = s.HasSimilarity ? s.Similarity : 0;
+            if (sim > bestSim) { bestSim = sim; best = i; }
+        }
+        return best;
+    }
+
+    /// <summary>Sunucu: çantadaki sahteyi verir, orijinali alır. Orijinal, bırakılan sahtenin benzerliğini taşır.</summary>
+    public bool ServerSwapForgery(int forgerySlot, ItemDefinition original, out byte similarity)
+    {
+        similarity = InventorySlot.NoSimilarity;
+        if (!IsServer || forgerySlot < 0 || forgerySlot >= slots.Count || original == null) return false;
+
+        InventorySlot s = slots[forgerySlot];
+        ItemDefinition forgery = Def(s);
+        if (forgery == null) return false;
+
+        if (CurrentWeightKg - forgery.weightKg + original.weightKg > CapacityKg + 0.0001f) return false;
+
+        similarity = s.Similarity;
+        ServerRemoveAt(forgerySlot, 1);
+        if (!ServerAddItem(original, similarity))
+        {
+            ServerAddItem(forgery, similarity); // geri koy
+            return false;
+        }
+        return true;
+    }
+
+    /// <summary>Sunucu: yakalanınca çantadaki orijinal eserlere el konur. Kaç adet gittiğini döner.</summary>
+    public int ServerConfiscateOriginals()
+    {
+        if (!IsServer) return 0;
+        int lost = 0;
+        for (int i = slots.Count - 1; i >= 0; i--)
+        {
+            ItemDefinition d = Def(slots[i]);
+            if (d != null && d.type == ItemType.Original)
+            {
+                lost += slots[i].Count;
+                slots.RemoveAt(i);
+            }
+        }
+        return lost;
+    }
+
     /// <summary>Sunucu: kişisel cüzdana para ekler.</summary>
     public void ServerAddMoney(int amount)
     {
@@ -665,7 +803,7 @@ public class PlayerInventory : NetworkBehaviour
             handAnchor.localRotation = Quaternion.Euler(10f, -20f, 0f);
         }
 
-        heldVisual = BuildVisual(def.worldPrefab, heldMaxSize);
+        heldVisual = ItemVisuals.Build(def.worldPrefab, heldMaxSize);
         heldVisual.transform.SetParent(handAnchor, false);
     }
 
@@ -674,56 +812,6 @@ public class PlayerInventory : NetworkBehaviour
         if (heldVisual != null) Destroy(heldVisual);
         heldVisual = null;
         heldVisualItemIndex = -2;
-    }
-
-    /// <summary>Prefab'ın sadece görüntüsünü (mesh + malzeme) kopyalar: fizik ve ağ bileşeni yok.</summary>
-    private static GameObject BuildVisual(GameObject prefab, float maxSize)
-    {
-        GameObject root = new GameObject("HeldItem_" + prefab.name);
-        Matrix4x4 toLocal = prefab.transform.worldToLocalMatrix;
-
-        foreach (MeshFilter mf in prefab.GetComponentsInChildren<MeshFilter>(true))
-        {
-            MeshRenderer mr = mf.GetComponent<MeshRenderer>();
-            if (mr == null || mf.sharedMesh == null) continue;
-
-            GameObject part = new GameObject(mf.name);
-            part.transform.SetParent(root.transform, false);
-
-            if (mf.transform == prefab.transform)
-            {
-                part.transform.localScale = prefab.transform.localScale;
-            }
-            else
-            {
-                Matrix4x4 m = toLocal * mf.transform.localToWorldMatrix;
-                part.transform.localPosition = m.GetColumn(3);
-                part.transform.localRotation = Quaternion.LookRotation(m.GetColumn(2), m.GetColumn(1));
-                part.transform.localScale = Vector3.Scale(prefab.transform.localScale, mf.transform.lossyScale);
-            }
-
-            part.AddComponent<MeshFilter>().sharedMesh = mf.sharedMesh;
-            MeshRenderer r = part.AddComponent<MeshRenderer>();
-            r.sharedMaterials = mr.sharedMaterials;
-            r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-        }
-
-        // Boyutu ele sığacak şekilde ayarla
-        Bounds b = new Bounds();
-        bool any = false;
-        foreach (Renderer r in root.GetComponentsInChildren<Renderer>())
-        {
-            if (!any) { b = r.bounds; any = true; }
-            else b.Encapsulate(r.bounds);
-        }
-        if (any)
-        {
-            float size = Mathf.Max(b.size.x, b.size.y, b.size.z);
-            if (size > maxSize) root.transform.localScale = Vector3.one * (maxSize / size);
-            else if (size < maxSize * 0.4f && size > 0.0001f) root.transform.localScale = Vector3.one * (maxSize * 0.4f / size);
-        }
-
-        return root;
     }
 
     // ---------------- Arayüz ----------------
@@ -751,7 +839,11 @@ public class PlayerInventory : NetworkBehaviour
             UIUtil.DrawPrompt(toastText, Screen.height / 2f + 70f, toastColor);
         }
 
-        if (IsPanelOpen) DrawPanel(stealTarget != null ? stealTarget : this, stealTarget != null);
+        if (IsPanelOpen)
+        {
+            if (externalPanel != null) externalPanel.DrawPanel(this);
+            else DrawPanel(stealTarget != null ? stealTarget : this, stealTarget != null);
+        }
     }
 
     private void DrawWeightHud()
@@ -947,8 +1039,22 @@ public class PlayerInventory : NetworkBehaviour
         {
             Color old = GUI.contentColor;
             GUI.contentColor = ItemDefinition.GradeColor(s.Similarity);
-            GUILayout.Label(Loc.T("card.similarity", s.Similarity, ItemDefinition.GradeName(s.Similarity)), rowStyle);
+            string simKey = def.type == ItemType.Original ? "card.swapquality" : "card.similarity";
+            GUILayout.Label(Loc.T(simKey, s.Similarity, ItemDefinition.GradeName(s.Similarity)), rowStyle);
             GUI.contentColor = old;
+        }
+        else if (def.type == ItemType.Original)
+        {
+            GUILayout.Label(Loc.T("card.hot"), smallStyle);
+        }
+
+        if (def.type == ItemType.Original)
+        {
+            GUILayout.Label(Loc.T("card.price", PriceRules.SalePrice(def, s.Similarity).ToString("N0")), rowStyle);
+        }
+        if (def.type == ItemType.Forgery && def.forgeryOf != null)
+        {
+            GUILayout.Label(Loc.T("card.forgeryof", def.forgeryOf.DisplayName), smallStyle);
         }
 
         if (held) GUILayout.Label(Loc.T("inv.inhand"), smallStyle);

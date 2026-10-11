@@ -19,6 +19,7 @@ MonoBehaviour:
   baseValue: 1200
   stackable: 0
   maxStack: 1
+  forgeryOf: {fileID: 0}
   uiColor: {r: 1, g: 0.82, b: 0.2, a: 1}
   icon: {fileID: 2800000, guid: f2ae145e601b62347b34af11b888a381, type: 3}
   worldPrefab: {fileID: 3801851970529838032, guid: b7ce101c5ca125241b40a94b3bb7e09e, type: 3}

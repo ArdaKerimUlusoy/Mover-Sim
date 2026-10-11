@@ -1,0 +1,43 @@
+﻿using UnityEngine;
+
+/// <summary>
+/// Karaborsa fiyat kuralları (GDD Bölüm 4 ve 7):
+///   Satış fiyatı = taban değer × benzerlik çarpanı (× ileride aranma çarpanı)
+/// Orijinal eserin "benzerlik" değeri, müzede YERİNE BIRAKILAN sahtenin benzerliğidir:
+/// sahte ne kadar iyiyse orijinal o kadar geç fark edilir ve o kadar pahalı satılır.
+/// </summary>
+public static class PriceRules
+{
+    /// <summary>Satıştan satan oyuncunun kişisel cüzdanına giden pay (gerisi ekip kasasına).</summary>
+    public const float SellerShare = 0.2f;
+
+    /// <summary>Hiç sahte bırakılmadan alınmış ("sıcak") eserlerin çarpanı.</summary>
+    public const float HotItemMultiplier = 0.5f;
+
+    public static float SimilarityMultiplier(byte similarity)
+    {
+        if (similarity == InventorySlot.NoSimilarity) return HotItemMultiplier;
+        if (similarity >= 90) return 1f;     // Kusursuz → tam fiyat
+        if (similarity >= 75) return 0.85f;  // İyi → yüksek fiyat
+        if (similarity >= 50) return 0.65f;  // Şüpheli → orta fiyat
+        return 0.45f;                        // Kaba
+    }
+
+    public static int SalePrice(ItemDefinition def, byte similarity)
+    {
+        if (def == null || def.type != ItemType.Original) return 0;
+        return Mathf.Max(1, Mathf.RoundToInt(def.baseValue * SimilarityMultiplier(similarity)));
+    }
+
+    public static void Split(int price, bool hasTeamBank, out int team, out int personal)
+    {
+        if (!hasTeamBank)
+        {
+            team = 0;
+            personal = price;
+            return;
+        }
+        personal = Mathf.RoundToInt(price * SellerShare);
+        team = price - personal;
+    }
+}

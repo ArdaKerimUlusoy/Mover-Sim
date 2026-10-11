@@ -48,6 +48,12 @@ public class DoorInteractable : Interactable
         return Loc.T(isOpen.Value ? "interact.close" : "interact.open");
     }
 
+    /// <summary>Sunucu: kapıyı aç/kapat (güvenlikler geçerken kullanır).</summary>
+    public void ServerSetOpen(bool open)
+    {
+        if (IsServer && isOpen.Value != open) isOpen.Value = open;
+    }
+
     protected override void ServerInteract(ulong clientId, NetworkObject player)
     {
         isOpen.Value = !isOpen.Value;

@@ -13,8 +13,24 @@ public class TeamBank : NetworkBehaviour
     [SerializeField, Min(0)] private int startingMoney = 0;
 
     private readonly NetworkVariable<int> money = new NetworkVariable<int>(0);
+    private readonly NetworkVariable<byte> teamBagLevel = new NetworkVariable<byte>(0);
 
     public int Money => money.Value;
+    public int TeamBagLevel => teamBagLevel.Value;
+
+    /// <summary>Sunucu: ekip çantası upgrade'i (herkese +kg).</summary>
+    public bool ServerIncreaseTeamBag()
+    {
+        if (!IsServer || teamBagLevel.Value >= UpgradeCatalog.MaxLevel(UpgradeType.TeamBackpacks)) return false;
+        teamBagLevel.Value++;
+        foreach (NetworkClient c in NetworkManager.ConnectedClientsList)
+        {
+            if (c.PlayerObject == null) continue;
+            PlayerInventory inv = c.PlayerObject.GetComponent<PlayerInventory>();
+            if (inv != null) inv.ServerApplyCapacity();
+        }
+        return true;
+    }
 
     private void Awake()
     {

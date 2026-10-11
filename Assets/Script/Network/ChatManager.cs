@@ -154,6 +154,17 @@ public class ChatManager : NetworkBehaviour
     [Rpc(SendTo.ClientsAndHost)]
     private void SystemRpc(string key, string arg0, string arg1)
     {
+        AddSystemLine(key, arg0, arg1);
+    }
+
+    /// <summary>Sunucu: herkese sistem mesajı (çeviri anahtarı + en fazla 2 parametre).</summary>
+    public void ServerSystemMessage(string key, string arg0, string arg1)
+    {
+        if (IsServer && IsSpawned) SystemRpc(key, arg0 ?? "", arg1 ?? "");
+    }
+
+    private void AddSystemLine(string key, string arg0, string arg1)
+    {
         AddLine(new ChatLine { Sender = "", Text = key, Arg0 = arg0, Arg1 = arg1, IsSystem = true });
     }
 

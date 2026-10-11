@@ -18,6 +18,14 @@ public enum SoundId : byte
     UiClick = 10,
     DoorOpen = 11,
     DoorClose = 12,
+    Sell = 13,
+    Purchase = 14,
+    Swap = 15,
+    Alarm = 16,
+    Ping = 17,
+    Caught = 18,
+    GuardAlert = 19,
+    GuardHuh = 20,
 }
 
 /// <summary>

@@ -21,6 +21,25 @@ public abstract class Interactable : NetworkBehaviour
     public float HoldDuration => holdDuration;
     public float MaxDistance => maxDistance;
 
+    /// <summary>Basılı tutma süresi oyuncuya göre değişebilir (ör. hızlı değiştirme eldiveni).</summary>
+    public virtual float GetHoldDuration(GameObject player) => holdDuration;
+
+    /// <summary>true ise etkileşim sunucuya gitmez, sadece oyuncunun ekranında bir şey açar (ör. mağaza paneli).</summary>
+    public virtual bool HandleLocally => false;
+
+    /// <summary>HandleLocally = true ise E'ye basınca bu çağrılır (oyuncunun kendi bilgisayarında).</summary>
+    public virtual void ClientInteract(PlayerInteractor player) { }
+
+    /// <summary>Sunucu: RPC gönderen oyuncunun objesini bulur ve mesafeyi doğrular.</summary>
+    protected bool TryGetNearbyPlayer(ulong clientId, out NetworkObject playerObj, float extraDistance = 1.5f)
+    {
+        playerObj = null;
+        if (!NetworkManager.ConnectedClients.TryGetValue(clientId, out NetworkClient client)) return false;
+        playerObj = client.PlayerObject;
+        if (playerObj == null) return false;
+        return Vector3.Distance(playerObj.transform.position, GetClosestPoint(playerObj.transform.position)) <= maxDistance + extraDistance;
+    }
+
     /// <summary>Ekranda görünecek yazı (ör. "[E] Open"). Çeviri anahtarlarıyla döndürün.</summary>
     public abstract string GetPrompt(PlayerInteractor player);
 

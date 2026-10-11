@@ -18,6 +18,7 @@ public class PlayerInteractor : MonoBehaviour
     private enum TargetKind { None, Item, Interactable, Player }
 
     private PlayerNetworkSetup netSetup;
+    private PlayerStealth stealth;
     private PlayerInventory inventory;
     private ObjectCarrier carrier;
     private Transform cam;
@@ -36,6 +37,7 @@ public class PlayerInteractor : MonoBehaviour
     private void Awake()
     {
         netSetup = GetComponent<PlayerNetworkSetup>();
+        stealth = GetComponent<PlayerStealth>();
         inventory = GetComponent<PlayerInventory>();
         carrier = GetComponent<ObjectCarrier>();
         ownColliders = GetComponentsInChildren<Collider>();
@@ -52,6 +54,20 @@ public class PlayerInteractor : MonoBehaviour
     private void Update()
     {
         if (!IsLocalOwner) return;
+
+        UpdateCrimeFlag();
+
+        // Dolapta saklanıyorsa: E = dışarı çık (içeriden ışın dolabı göremez)
+        if (stealth != null && stealth.CurrentHidingSpot != null)
+        {
+            ClearTarget();
+            CancelHold();
+            if (!ChatUI.IsTyping && !SessionMenuUI.IsPaused && Keyboard.current != null && Keyboard.current.eKey.wasPressedThisFrame)
+            {
+                stealth.CurrentHidingSpot.RequestExit();
+            }
+            return;
+        }
 
         if (InputBlocked)
         {
@@ -74,12 +90,17 @@ public class PlayerInteractor : MonoBehaviour
 
             case TargetKind.Interactable:
                 if (!targetInteractable.CanInteract(gameObject)) { CancelHold(); break; }
-                if (targetInteractable.HoldDuration <= 0f)
+                float duration = targetInteractable.GetHoldDuration(gameObject);
+                if (duration <= 0f)
                 {
                     CancelHold();
-                    if (kb.eKey.wasPressedThisFrame) targetInteractable.RequestInteract();
+                    if (kb.eKey.wasPressedThisFrame)
+                    {
+                        if (targetInteractable.HandleLocally) targetInteractable.ClientInteract(this);
+                        else targetInteractable.RequestInteract();
+                    }
                 }
-                else if (UpdateHold(kb, targetInteractable, targetInteractable.HoldDuration))
+                else if (UpdateHold(kb, targetInteractable, duration))
                 {
                     GameAudio.Play2D(SoundId.HoldComplete, 0.6f);
                     targetInteractable.RequestInteract();
@@ -128,6 +149,16 @@ public class PlayerInteractor : MonoBehaviour
             return true;
         }
         return false;
+    }
+
+    /// <summary>Eser değiştirirken / çalarken güvenliklere "suç işliyor" görünürsün.</summary>
+    private void UpdateCrimeFlag()
+    {
+        if (stealth == null) return;
+        bool crime = holdTime > 0f && holdTarget != null &&
+                     ((kind == TargetKind.Player && holdTarget == targetPlayer) ||
+                      (kind == TargetKind.Interactable && holdTarget == targetInteractable && targetInteractable is ArtworkDisplay));
+        stealth.SetDoingCrime(crime);
     }
 
     private void CancelHold()
@@ -201,7 +232,15 @@ public class PlayerInteractor : MonoBehaviour
 
     private void OnGUI()
     {
-        if (!IsLocalOwner || kind == TargetKind.None) return;
+        if (!IsLocalOwner) return;
+
+        if (stealth != null && stealth.CurrentHidingSpot != null)
+        {
+            UIUtil.DrawPrompt(Loc.T("hide.leave"), Screen.height / 2f + 34f, Color.white);
+            return;
+        }
+
+        if (kind == TargetKind.None) return;
 
         float y = Screen.height / 2f + 34f;
         Vector2 center = new Vector2(Screen.width / 2f, Screen.height / 2f);
@@ -226,9 +265,10 @@ public class PlayerInteractor : MonoBehaviour
             {
                 bool can = targetInteractable.CanInteract(gameObject);
                 UIUtil.DrawPrompt(targetInteractable.GetPrompt(this), y, can ? Color.white : new Color(0.75f, 0.75f, 0.75f));
-                if (can && targetInteractable.HoldDuration > 0f && holdTarget == targetInteractable && holdTime > 0f)
+                float duration = targetInteractable.GetHoldDuration(gameObject);
+                if (can && duration > 0f && holdTarget == targetInteractable && holdTime > 0f)
                 {
-                    UIUtil.DrawRing(center, 22f, holdTime / targetInteractable.HoldDuration, new Color(1f, 0.8f, 0.3f));
+                    UIUtil.DrawRing(center, 22f, holdTime / duration, new Color(1f, 0.8f, 0.3f));
                 }
                 break;
             }
