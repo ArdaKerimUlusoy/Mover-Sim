@@ -23,7 +23,17 @@ public class SessionManager : MonoBehaviour
 
     public ISession ActiveSession { get; private set; }
     public bool IsBusy { get; private set; }
-    public string Status { get; private set; } = "";
+    // Durum mesajı çeviri anahtarı olarak tutulur; dil değişirse menüde hemen yeni dilde görünür.
+    private string statusKey = "";
+    private object statusArg;
+    public string Status => string.IsNullOrEmpty(statusKey) ? "" :
+        (statusArg != null ? Loc.T(statusKey, statusArg) : Loc.T(statusKey));
+
+    private void SetStatus(string key, object arg = null)
+    {
+        statusKey = key ?? "";
+        statusArg = arg;
+    }
     public int MaxPlayers => maxPlayers;
 
     /// <summary>Oda kurulduğunda, katılındığında veya ayrılındığında tetiklenir.</summary>
@@ -81,7 +91,7 @@ public class SessionManager : MonoBehaviour
         }
         catch (Exception e)
         {
-            Status = "Servislere bağlanılamadı (internet / Unity Cloud bağlantısını kontrol et).";
+            SetStatus("status.servicesfail");
             Debug.LogException(e);
         }
     }
@@ -126,7 +136,7 @@ public class SessionManager : MonoBehaviour
         if (IsBusy || ActiveSession != null) return;
 
         IsBusy = true;
-        Status = "Oda kuruluyor...";
+        SetStatus("status.creating");
         try
         {
             await EnsureSignedInAsync();
@@ -139,13 +149,13 @@ public class SessionManager : MonoBehaviour
 
             // Bu çağrı Relay'i ayarlar ve NetworkManager'ı otomatik olarak HOST başlatır.
             ActiveSession = await MultiplayerService.Instance.CreateSessionAsync(options);
-            Status = "";
+            SetStatus("");
             Debug.Log($"[Session] Oda kuruldu. Kod: {ActiveSession.Code}");
         }
         catch (Exception e)
         {
             ActiveSession = null;
-            Status = "Oda kurulamadı: " + e.Message;
+            SetStatus("status.createfail", e.Message);
             Debug.LogException(e);
         }
         finally
@@ -162,25 +172,25 @@ public class SessionManager : MonoBehaviour
         code = (code ?? "").Trim().ToUpperInvariant();
         if (code.Length == 0)
         {
-            Status = "Önce oda kodunu yaz.";
+            SetStatus("status.entercode");
             return;
         }
 
         IsBusy = true;
-        Status = "Odaya katılınıyor...";
+        SetStatus("status.joining");
         try
         {
             await EnsureSignedInAsync();
 
             // Bu çağrı NetworkManager'ı otomatik olarak CLIENT başlatır.
             ActiveSession = await MultiplayerService.Instance.JoinSessionByCodeAsync(code);
-            Status = "";
+            SetStatus("");
             Debug.Log($"[Session] Odaya katılındı. Kod: {ActiveSession.Code}");
         }
         catch (Exception e)
         {
             ActiveSession = null;
-            Status = "Katılınamadı. Kod yanlış olabilir ya da oda dolu/kapalı.";
+            SetStatus("status.joinfail");
             Debug.LogException(e);
         }
         finally
@@ -221,10 +231,10 @@ public class SessionManager : MonoBehaviour
     {
         if (ActiveSession == null || isLeaving) return;
 
-        // Host bizi attıysa sebebini göster ("Host seni odadan attı.").
+        // Host bizi attıysa sebebi bir çeviri anahtarı olarak gelir ("status.kicked").
         string reason = NetworkManager.Singleton != null ? NetworkManager.Singleton.DisconnectReason : null;
-        if (!string.IsNullOrEmpty(reason)) Status = reason;
-        else Status = wasHost ? "Oda kapandı." : "Host ile bağlantı koptu.";
+        if (Loc.Has(reason)) SetStatus(reason);
+        else SetStatus(wasHost ? "status.roomclosed" : "status.disconnected");
         _ = LeaveRoomAsync();
     }
 }

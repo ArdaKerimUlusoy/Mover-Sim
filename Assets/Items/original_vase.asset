@@ -1,0 +1,24 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: bf373c25ee9a2984fb17dadd385a6c68, type: 3}
+  m_Name: original_vase
+  m_EditorClassIdentifier: Assembly-CSharp::ItemDefinition
+  id: original_vase
+  displayName: Ancient Vase
+  type: 0
+  weightKg: 4
+  baseValue: 900
+  stackable: 0
+  maxStack: 1
+  uiColor: {r: 0.3, g: 0.55, b: 0.75, a: 1}
+  icon: {fileID: 0}
+  worldPrefab: {fileID: 3143499543331755884, guid: 7157f3746e337a746901d96e1fac29b7, type: 3}

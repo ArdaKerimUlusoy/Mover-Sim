@@ -20,8 +20,12 @@ public class ChatManager : NetworkBehaviour
     public struct ChatLine
     {
         public string Sender;   // sistem mesajında boş
-        public string Text;
+        public string Text;     // oyuncu mesajı ya da sistem mesajının çeviri anahtarı
+        public string Arg0, Arg1; // sistem mesajı parametreleri (oyuncu adları)
         public bool IsSystem;
+
+        /// <summary>Ekranda gösterilecek metin (sistem mesajları o anki dile çevrilir).</summary>
+        public string Display => IsSystem ? Loc.T(Text, Arg0, Arg1) : Text;
         public float Time;
     }
 
@@ -87,7 +91,7 @@ public class ChatManager : NetworkBehaviour
         text = Clean(text);
         if (text.Length == 0) return;
 
-        BroadcastRpc(GetServerName(sender), text, false);
+        ChatRpc(GetServerName(sender), text);
     }
 
     /// <summary>
@@ -104,14 +108,12 @@ public class ChatManager : NetworkBehaviour
 
         if (isNew)
         {
-            string msg = clientId == NetworkManager.ServerClientId
-                ? $"{playerName} odayı kurdu."
-                : $"{playerName} odaya katıldı.";
-            BroadcastRpc("", msg, true);
+            string key = clientId == NetworkManager.ServerClientId ? "chat.created" : "chat.joined";
+            SystemRpc(key, playerName, "");
         }
         else if (oldName != playerName)
         {
-            BroadcastRpc("", $"{oldName} artık {playerName} adını kullanıyor.", true);
+            SystemRpc("chat.renamed", oldName, playerName);
         }
         return true;
     }
@@ -121,7 +123,7 @@ public class ChatManager : NetworkBehaviour
     {
         if (!IsSpawned || !IsServer) return;
         serverNames.Remove(clientId);
-        BroadcastRpc("", $"{playerName} odadan atıldı.", true);
+        SystemRpc("chat.kicked", playerName, "");
     }
 
     private void OnClientDisconnected(ulong clientId)
@@ -131,30 +133,35 @@ public class ChatManager : NetworkBehaviour
         if (serverNames.TryGetValue(clientId, out string playerName))
         {
             serverNames.Remove(clientId);
-            BroadcastRpc("", $"{playerName} odadan ayrıldı.", true);
+            SystemRpc("chat.left", playerName, "");
         }
     }
 
     private string GetServerName(ulong clientId)
     {
-        return serverNames.TryGetValue(clientId, out string n) ? n : $"Oyuncu{clientId}";
+        return serverNames.TryGetValue(clientId, out string n) ? n : $"Player{clientId}";
     }
 
     // ---------------- Herkese ----------------
 
     [Rpc(SendTo.ClientsAndHost)]
-    private void BroadcastRpc(string sender, string text, bool isSystem)
+    private void ChatRpc(string sender, string text)
     {
-        lines.Add(new ChatLine
-        {
-            Sender = sender,
-            Text = text,
-            IsSystem = isSystem,
-            Time = UnityEngine.Time.unscaledTime
-        });
+        AddLine(new ChatLine { Sender = sender, Text = text, IsSystem = false });
+    }
 
+    /// <summary>Sistem mesajı: metin değil çeviri anahtarı gönderilir, her oyuncu kendi dilinde görür.</summary>
+    [Rpc(SendTo.ClientsAndHost)]
+    private void SystemRpc(string key, string arg0, string arg1)
+    {
+        AddLine(new ChatLine { Sender = "", Text = key, Arg0 = arg0, Arg1 = arg1, IsSystem = true });
+    }
+
+    private void AddLine(ChatLine line)
+    {
+        line.Time = UnityEngine.Time.unscaledTime;
+        lines.Add(line);
         if (lines.Count > MaxStoredLines) lines.RemoveAt(0);
-
         LineAdded?.Invoke();
     }
 

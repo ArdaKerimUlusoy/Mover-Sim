@@ -17,6 +17,7 @@ GameObject:
   - component: {fileID: -2077885657831174761}
   - component: {fileID: -4398921004655305324}
   - component: {fileID: -8875221612254930545}
+  - component: {fileID: -777887000430378806}
   m_Layer: 0
   m_Name: Player
   m_TagString: Untagged
@@ -277,7 +278,29 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::PlayerNetworkSetup
   ShowTopMostFoldoutHeaderGroup: 1
   ownerOnlyBehaviours: []
-  remotePlayerColor: {r: 0.95, g: 0.55, b: 0.15, a: 1}
+  nameTagHeight: 1.35
+  nameTagMaxDistance: 30
+--- !u!114 &-777887000430378806
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5922517504410087230}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e6752ff3c1a77184cad8cc307ce68435, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PlayerInventory
+  ShowTopMostFoldoutHeaderGroup: 1
+  baseCapacityKg: 10
+  minSpeedAtFullLoad: 0.6
+  pickupRange: 3
+  serverMaxPickupDistance: 5
+  pickupMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  playerCamera: {fileID: 0}
 --- !u!1 &8242356915584335425
 GameObject:
   m_ObjectHideFlags: 0

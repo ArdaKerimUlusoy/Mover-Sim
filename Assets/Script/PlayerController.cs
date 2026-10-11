@@ -47,6 +47,7 @@ public class PlayerController : MonoBehaviour
 
     private CharacterController characterController;
     private ObjectCarrier carrier;
+    private PlayerInventory inventory;
     private Vector3 verticalVelocity;
     private Vector3 currentHorizontalVelocity;
     private float rotationX = 0f;
@@ -61,6 +62,7 @@ public class PlayerController : MonoBehaviour
     {
         characterController = GetComponent<CharacterController>();
         carrier = GetComponent<ObjectCarrier>();
+        inventory = GetComponent<PlayerInventory>();
         currentBaseCamY = standingCameraY;
     }
 
@@ -121,11 +123,13 @@ public class PlayerController : MonoBehaviour
         else if (!inputBlocked && Keyboard.current.leftShiftKey.isPressed && !carryingHeavy) targetSpeed = sprintSpeed;
 
         if (carrier != null) targetSpeed *= carrier.SpeedMultiplier;
+        if (inventory != null) targetSpeed *= inventory.SpeedMultiplier; // çanta doldukça yavaşla
 
         Vector3 targetVelocity = inputDir * targetSpeed;
 
         // Ağırlık oranını al
         float weightRatio = carrier != null ? carrier.WeightRatio : 0f;
+        if (inventory != null) weightRatio = Mathf.Max(weightRatio, inventory.LoadRatio * 0.5f); // dolu çanta ivmeyi de biraz ağırlaştırır
 
         // Tuşa basılıyor mu (hızlanma) yoksa bırakıldı mı (frenleme)?
         bool isMovingInput = inputDir.sqrMagnitude > 0.01f;

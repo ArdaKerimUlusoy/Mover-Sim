@@ -67,7 +67,7 @@ public class PlayerNetworkSetup : NetworkBehaviour
         get
         {
             string n = playerName.Value.ToString();
-            return string.IsNullOrWhiteSpace(n) ? $"Oyuncu{OwnerClientId}" : n;
+            return string.IsNullOrWhiteSpace(n) ? $"Player{OwnerClientId}" : n;
         }
     }
 
@@ -83,7 +83,7 @@ public class PlayerNetworkSetup : NetworkBehaviour
             string n = PlayerPrefs.GetString(NamePrefKey, "");
             if (string.IsNullOrWhiteSpace(n))
             {
-                n = "Oyuncu" + UnityEngine.Random.Range(100, 1000);
+                n = "Player" + UnityEngine.Random.Range(100, 1000);
                 PlayerPrefs.SetString(NamePrefKey, n);
             }
             return n;
@@ -203,7 +203,7 @@ public class PlayerNetworkSetup : NetworkBehaviour
 
     private void UpdateObjectName()
     {
-        gameObject.name = IsOwner ? $"Player_{OwnerClientId} ({PlayerName}, Sen)" : $"Player_{OwnerClientId} ({PlayerName})";
+        gameObject.name = IsOwner ? $"Player_{OwnerClientId} ({PlayerName}, You)" : $"Player_{OwnerClientId} ({PlayerName})";
     }
 
     private void Update()

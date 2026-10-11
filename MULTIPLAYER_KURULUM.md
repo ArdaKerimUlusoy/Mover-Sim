@@ -156,3 +156,84 @@ eski "Remote Player Color" alanı kalktı, Unity bunu kendiliğinden temizler.
   - Ses ve fare hassasiyeti kaydırıcıları (bilgisayara kaydedilir).
 
 > Not: GDD'de **Tab = çanta** olduğu için oyuncu listesi Tab'a değil Esc menüsüne konuldu.
+
+---
+
+## Ek 3: Dil desteği (varsayılan İngilizce)
+
+**Yeni dosya:** `Assets/Script/Localization/Loc.cs`. Oyundaki tüm metinler buradaki tablodan gelir.
+Unity'de ek kurulum gerekmez.
+
+- Ana menünün altında ve Esc menüsünde **English / Türkçe** seçimi var; seçim kaydedilir.
+- Sohbetteki "katıldı / ayrıldı / atıldı" mesajları her oyuncuya **kendi dilinde** görünür
+  (ağdan metin değil çeviri anahtarı gönderilir).
+
+### Yeni metin eklerken
+Koda doğrudan yazı yazmayın:
+```csharp
+GUILayout.Label("Ready");            // YANLIŞ
+GUILayout.Label(Loc.T("lobby.ready")); // DOĞRU
+```
+ve `Loc.cs` tablosuna satır ekleyin:
+```csharp
+{ "lobby.ready", new[] { "Ready", "Hazır" } },
+```
+Parametreli metin: `{ "chat.joined", new[] { "{0} joined the room.", "{0} odaya katıldı." } }` →
+`Loc.T("chat.joined", isim)`. Tabloda olmayan anahtar ekranda anahtarın kendisi olarak görünür,
+böylece eksik çeviri hemen fark edilir. Bir dilde metin boş bırakılırsa İngilizcesi gösterilir.
+
+### Yeni dil eklemek
+1. `Language` enum'una ekleyin (ör. `German = 2`).
+2. `LanguageNames` dizisine dilin kendi adını ekleyin (`"Deutsch"`).
+3. Tablodaki satırlara üçüncü metni ekleyin.
+
+> İleride metin sayısı çok artarsa (yüzlerce satır) tablo bir CSV/Google Sheets dosyasına taşınabilir;
+> koddaki `Loc.T("...")` çağrıları değişmez.
+
+---
+
+## Ek 4: Çanta (envanter) sistemi
+
+Nakliye mantığından GDD'ye geçiş: **eserler, aletler ve dikkat dağıtma eşyaları çantaya girer**;
+elde fiziksel taşıma (E ile kaldır/fırlat) sadece sahne objeleri (sandalye, kova...) için kalır.
+
+**Yeni dosyalar** (`Assets/Script/Inventory/`): `ItemDefinition`, `ItemDatabase`, `InventorySlot`,
+`WorldItem`, `PlayerInventory` + editör aracı `Assets/Script/Editor/ItemTools.cs`
+**Değişenler:** `PlayerController` (çanta ağırlığı hızı düşürür), `ObjectCarrier` (çanta eşyalarını
+elde taşımaz), `SessionMenuUI` (Esc önce çantayı kapatır), `ChatUI`, `Loc`
+
+### Kurallar
+- Çanta kapasitesi **kilo** ile: başlangıç **10 kg** (`PlayerInventory` → *Base Capacity Kg*).
+  Upgrade'ler ileride `ServerSetCapacity(kg)` ile artıracak.
+- Sığmayan eşya alınamaz ("won't fit in your bag").
+- Çanta doldukça yürüme yavaşlar: tam doluyken %60 hız (*Min Speed At Full Load*).
+- Bozuk para gibi eşyalar tek satırda birikir (x10'a kadar).
+- Sahte eserlerin üzerinde benzerlik yüzdesi taşınır (şimdilik elle verilir, ileride yapay zeka hesaplayacak).
+- Çantanın içeriği host'ta tutulur → ileride "arkadaşın çantasından çalma" kolayca eklenir.
+
+### Kurulum (bir kişi yapsın, sonra commit'lesin!)
+1. Unity menüsünden **Tools → Sahte Şaheser → Create Sample Items**.
+   `Assets/Items` (eşyalar, prefab'lar) ve `Assets/Resources/ItemDatabase.asset` oluşur.
+2. **Player prefab**'ını aç → `PlayerInventory` bileşenini ekle → kaydet.
+3. `Assets/Items/Prefabs` içindeki prefab'lardan birkaçını sahneye sürükle (doğma noktasının yakınına).
+   *Mermer Büst 12 kg'dır: 10 kg'lık çantaya sığmadığını görmek için koyun.*
+4. NetworkManager → *Network Prefabs Lists* → `DefaultNetworkPrefabs` içinde yeni eşya prefab'larının
+   olduğunu kontrol et (genelde kendiliğinden eklenir). Yoksa **Add** ile ekle; yoksa "Bırak" çalışmaz.
+5. Sahneyi kaydet (Ctrl+S) ve `Assets/Items`, `Assets/Resources`, sahne ve Player prefab'ını commit'le.
+
+### Kontroller
+- **E**: baktığın eşyayı çantaya al
+- **Tab**: çantayı aç/kapat (panelde her eşyanın yanında **Drop** butonu)
+- **Esc**: çanta açıksa önce çantayı kapatır
+- Sağ altta her zaman kilo göstergesi durur.
+
+### Yeni eşya eklemek
+1. Project penceresinde sağ tık → **Create → Sahte Şaheser → Item**; id, isim, tür, kilo, değer gir.
+2. Sahnede görünmesi için bir prefab yap: obje + `NetworkObject` + `NetworkTransform` +
+   `Rigidbody` + `NetworkRigidbody` + `WorldItem` (Item alanına tanımı sürükle). Prefab'ı tanımın
+   *World Prefab* alanına koy. (En kolayı: hazır bir örnek prefab'ı kopyalayıp düzenlemek.)
+3. **Tools → Sahte Şaheser → Rebuild Item Database** çalıştır.
+4. İsmin çevirisi için `Loc.cs`'ye `{ "item.<id>", new[] { "English", "Türkçe" } }` ekle.
+
+> ⚠️ Eşya listesi ağda **sıra numarasıyla** gönderilir. İki oyuncunun `ItemDatabase`'i aynı olmalı:
+> yeni eşya ekleyen commit'lesin, diğeri çeksin. Farklı olursa çantada yanlış eşyalar görünür.

@@ -14,6 +14,7 @@ public class SessionMenuUI : MonoBehaviour
     [Tooltip("Menüdeyken sahneyi gösteren kamera. Oyuncu doğunca kapatılır.")]
     [SerializeField] private GameObject menuCamera;
 
+    [Tooltip("Oyunun adı (menü başlığı). Çevrilmez.")]
     [SerializeField] private string gameTitle = "SAHTE ŞAHESER";
 
     /// <summary>Esc menüsü açık mı? (Sohbet bu sırada açılmaz.)</summary>
@@ -82,6 +83,12 @@ public class SessionMenuUI : MonoBehaviour
 
         if (Keyboard.current.escapeKey.wasPressedThisFrame)
         {
+            // Çanta açıksa Esc önce çantayı kapatır.
+            if (PlayerInventory.IsPanelOpen)
+            {
+                PlayerInventory.ClosePanel();
+                return;
+            }
             SetPaused(!IsPaused);
         }
     }
@@ -120,20 +127,20 @@ public class SessionMenuUI : MonoBehaviour
 
         if (nm.IsHost)
         {
-            pingText = "Host • 0 ms";
+            pingText = Loc.T("ping.host");
             pingColor = new Color(0.55f, 0.9f, 0.55f);
             return;
         }
 
         if (!nm.IsConnectedClient)
         {
-            pingText = "Bağlanıyor...";
+            pingText = Loc.T("hud.connecting");
             pingColor = Color.white;
             return;
         }
 
         ulong rtt = nm.NetworkConfig.NetworkTransport.GetCurrentRtt(NetworkManager.ServerClientId);
-        pingText = $"Ping: {rtt} ms";
+        pingText = Loc.T("ping.value", rtt);
         pingColor = rtt < 80 ? new Color(0.55f, 0.9f, 0.55f)
                   : rtt < 150 ? new Color(1f, 0.85f, 0.35f)
                   : new Color(1f, 0.45f, 0.4f);
@@ -158,7 +165,7 @@ public class SessionMenuUI : MonoBehaviour
 
         if (!localPlayerSpawned)
         {
-            DrawCenteredMessage("Bağlanılıyor...");
+            DrawCenteredMessage(Loc.T("hud.connecting"));
         }
         else if (IsPaused)
         {
@@ -174,7 +181,7 @@ public class SessionMenuUI : MonoBehaviour
 
     private void DrawMainMenu(SessionManager sm)
     {
-        Rect panel = CenteredRect(400f, 500f);
+        Rect panel = CenteredRect(400f, 560f);
         GUI.Box(panel, GUIContent.none, boxStyle);
 
         GUILayout.BeginArea(new Rect(panel.x + 24f, panel.y + 20f, panel.width - 48f, panel.height - 40f));
@@ -184,7 +191,7 @@ public class SessionMenuUI : MonoBehaviour
 
         GUI.enabled = !sm.IsBusy;
 
-        GUILayout.Label("Adın:", labelStyle);
+        GUILayout.Label(Loc.T("menu.name"), labelStyle);
         string newName = GUILayout.TextField(nameInput ?? "", 20, fieldStyle, GUILayout.Height(38f));
         if (newName != nameInput)
         {
@@ -193,26 +200,26 @@ public class SessionMenuUI : MonoBehaviour
         }
 
         GUILayout.Space(8f);
-        GUILayout.Label("Rengin:", labelStyle);
+        GUILayout.Label(Loc.T("menu.color"), labelStyle);
         int picked = DrawColorPicker(PlayerNetworkSetup.SavedColorIndex);
         if (picked != PlayerNetworkSetup.SavedColorIndex) PlayerNetworkSetup.SavedColorIndex = picked;
 
         GUILayout.Space(14f);
 
-        if (GUILayout.Button("Oda Kur", buttonStyle, GUILayout.Height(44f)))
+        if (GUILayout.Button(Loc.T("menu.create"), buttonStyle, GUILayout.Height(44f)))
         {
             _ = sm.CreateRoomAsync();
         }
 
         GUILayout.Space(14f);
-        GUILayout.Label("Arkadaşının oda kodu:", labelStyle);
+        GUILayout.Label(Loc.T("menu.joincode"), labelStyle);
         joinCode = GUILayout.TextField(joinCode, 12, fieldStyle, GUILayout.Height(38f)).ToUpperInvariant();
 
         GUILayout.Space(6f);
         bool enterPressed = Event.current.type == EventType.KeyDown &&
                             (Event.current.keyCode == KeyCode.Return || Event.current.keyCode == KeyCode.KeypadEnter);
 
-        if (GUILayout.Button("Katıl", buttonStyle, GUILayout.Height(44f)) || (enterPressed && joinCode.Length > 0))
+        if (GUILayout.Button(Loc.T("menu.join"), buttonStyle, GUILayout.Height(44f)) || (enterPressed && joinCode.Length > 0))
         {
             _ = sm.JoinRoomAsync(joinCode);
         }
@@ -225,6 +232,12 @@ public class SessionMenuUI : MonoBehaviour
             GUILayout.Label(sm.Status, statusStyle);
         }
 
+        GUILayout.FlexibleSpace();
+        GUILayout.BeginHorizontal();
+        GUILayout.Label(Loc.T("menu.language"), labelStyle, GUILayout.Width(90f), GUILayout.Height(28f));
+        DrawLanguagePicker();
+        GUILayout.EndHorizontal();
+
         GUILayout.EndArea();
     }
 
@@ -236,9 +249,9 @@ public class SessionMenuUI : MonoBehaviour
 
         Rect r = new Rect(12f, 12f, 270f, 64f);
         GUI.Box(r, GUIContent.none, boxStyle);
-        GUI.Label(new Rect(r.x + 12f, r.y + 6f, r.width, 28f), $"Oda Kodu: {code}", codeStyle);
+        GUI.Label(new Rect(r.x + 12f, r.y + 6f, r.width, 28f), Loc.T("hud.code", code), codeStyle);
         GUI.Label(new Rect(r.x + 12f, r.y + 36f, r.width, 22f),
-            $"Oyuncular: {count}/{sm.MaxPlayers}  •  [Esc] Menü", labelStyle);
+            Loc.T("hud.players", count, sm.MaxPlayers), labelStyle);
 
         if (!string.IsNullOrEmpty(pingText))
         {
@@ -251,21 +264,21 @@ public class SessionMenuUI : MonoBehaviour
 
     private void DrawPauseMenu(SessionManager sm)
     {
-        Rect panel = CenteredRect(440f, 600f);
+        Rect panel = CenteredRect(440f, 660f);
         GUI.Box(panel, GUIContent.none, boxStyle);
 
         GUILayout.BeginArea(new Rect(panel.x + 24f, panel.y + 16f, panel.width - 48f, panel.height - 32f));
-        GUILayout.Label("Duraklatıldı", titleStyle);
+        GUILayout.Label(Loc.T("pause.title"), titleStyle);
         GUILayout.Space(6f);
 
-        if (GUILayout.Button("Devam Et", buttonStyle, GUILayout.Height(38f)))
+        if (GUILayout.Button(Loc.T("pause.resume"), buttonStyle, GUILayout.Height(38f)))
         {
             SetPaused(false);
         }
 
         // --- Oyuncular ---
         GUILayout.Space(10f);
-        GUILayout.Label($"OYUNCULAR ({PlayerNetworkSetup.All.Count}/{sm.MaxPlayers})", sectionStyle);
+        GUILayout.Label(Loc.T("pause.players", PlayerNetworkSetup.All.Count, sm.MaxPlayers), sectionStyle);
 
         foreach (PlayerNetworkSetup p in PlayerNetworkSetup.All)
         {
@@ -279,15 +292,15 @@ public class SessionMenuUI : MonoBehaviour
             GUILayout.Space(8f);
 
             string tags = "";
-            if (p.IsHostPlayer) tags += "  (Host)";
-            if (p.IsOwner) tags += "  (Sen)";
+            if (p.IsHostPlayer) tags += "  " + Loc.T("pause.tag.host");
+            if (p.IsOwner) tags += "  " + Loc.T("pause.tag.you");
             GUILayout.Label(p.PlayerName + tags, labelStyle, GUILayout.Height(28f));
 
             GUILayout.FlexibleSpace();
 
             if (IsHost && !p.IsHostPlayer)
             {
-                if (GUILayout.Button("At", smallButtonStyle, GUILayout.Width(56f), GUILayout.Height(24f)))
+                if (GUILayout.Button(Loc.T("pause.kick"), smallButtonStyle, GUILayout.Width(56f), GUILayout.Height(24f)))
                 {
                     pendingKick = p.OwnerClientId;
                 }
@@ -298,35 +311,41 @@ public class SessionMenuUI : MonoBehaviour
 
         // --- Renk ---
         GUILayout.Space(10f);
-        GUILayout.Label("RENGİN", sectionStyle);
+        GUILayout.Label(Loc.T("pause.color"), sectionStyle);
         int current = PlayerNetworkSetup.SavedColorIndex;
         int picked = DrawColorPicker(current);
         if (picked != current && localPlayer != null) localPlayer.SetColor(picked);
 
         // --- Ayarlar ---
         GUILayout.Space(10f);
-        GUILayout.Label("AYARLAR", sectionStyle);
+        GUILayout.Label(Loc.T("pause.settings"), sectionStyle);
 
-        GUILayout.Label($"Ses: %{Mathf.RoundToInt(GameSettings.MasterVolume * 100f)}", smallStyle);
+        GUILayout.Label(Loc.T("pause.volume", Mathf.RoundToInt(GameSettings.MasterVolume * 100f)), smallStyle);
         float vol = GUILayout.HorizontalSlider(GameSettings.MasterVolume, 0f, 1f);
         if (!Mathf.Approximately(vol, GameSettings.MasterVolume)) GameSettings.MasterVolume = vol;
 
         GUILayout.Space(6f);
-        GUILayout.Label($"Fare hassasiyeti: {GameSettings.MouseSensitivity:0.0}x", smallStyle);
+        GUILayout.Label(Loc.T("pause.sensitivity", GameSettings.MouseSensitivity.ToString("0.0")), smallStyle);
         float sens = GUILayout.HorizontalSlider(GameSettings.MouseSensitivity,
             GameSettings.MinSensitivity, GameSettings.MaxSensitivity);
         if (!Mathf.Approximately(sens, GameSettings.MouseSensitivity)) GameSettings.MouseSensitivity = sens;
 
+        GUILayout.Space(10f);
+        GUILayout.Label(Loc.T("pause.language"), sectionStyle);
+        GUILayout.BeginHorizontal();
+        DrawLanguagePicker();
+        GUILayout.EndHorizontal();
+
         GUILayout.FlexibleSpace();
 
         GUILayout.BeginHorizontal();
-        if (GUILayout.Button($"Kodu Kopyala ({sm.ActiveSession.Code})", smallButtonStyle, GUILayout.Height(36f)))
+        if (GUILayout.Button(Loc.T("pause.copycode", sm.ActiveSession.Code), smallButtonStyle, GUILayout.Height(36f)))
         {
             GUIUtility.systemCopyBuffer = sm.ActiveSession.Code;
         }
 
         GUI.enabled = !sm.IsBusy;
-        if (GUILayout.Button(IsHost ? "Odayı Kapat" : "Odadan Ayrıl", smallButtonStyle, GUILayout.Height(36f)))
+        if (GUILayout.Button(IsHost ? Loc.T("pause.close") : Loc.T("pause.leave"), smallButtonStyle, GUILayout.Height(36f)))
         {
             GameSettings.Save();
             _ = sm.LeaveRoomAsync();
@@ -335,6 +354,22 @@ public class SessionMenuUI : MonoBehaviour
         GUILayout.EndHorizontal();
 
         GUILayout.EndArea();
+    }
+
+    /// <summary>Dil butonları (seçili olan vurgulu).</summary>
+    private void DrawLanguagePicker()
+    {
+        for (int i = 0; i < Loc.LanguageNames.Length; i++)
+        {
+            bool selected = (int)Loc.Current == i;
+            Color old = GUI.backgroundColor;
+            if (selected) GUI.backgroundColor = new Color(1f, 0.8f, 0.3f);
+            if (GUILayout.Button(Loc.LanguageNames[i], smallButtonStyle, GUILayout.Height(28f)) && !selected)
+            {
+                Loc.Current = (Language)i;
+            }
+            GUI.backgroundColor = old;
+        }
     }
 
     /// <summary>Renk kutucukları çizer, tıklanan rengin numarasını döner.</summary>
@@ -369,14 +404,14 @@ public class SessionMenuUI : MonoBehaviour
         NetworkManager nm = NetworkManager.Singleton;
         if (nm == null || !nm.IsServer || clientId == NetworkManager.ServerClientId) return;
 
-        string name = $"Oyuncu{clientId}";
+        string name = $"Player{clientId}";
         foreach (PlayerNetworkSetup p in PlayerNetworkSetup.All)
         {
             if (p != null && p.OwnerClientId == clientId) name = p.PlayerName;
         }
 
         if (ChatManager.Instance != null) ChatManager.Instance.ServerAnnounceKick(clientId, name);
-        nm.DisconnectClient(clientId, "Host seni odadan attı.");
+        nm.DisconnectClient(clientId, "status.kicked"); // her oyuncu kendi dilinde görür
     }
 
     private void DrawCenteredMessage(string message)

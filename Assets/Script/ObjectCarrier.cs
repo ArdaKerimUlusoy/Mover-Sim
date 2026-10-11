@@ -239,6 +239,9 @@ public class ObjectCarrier : MonoBehaviour
 
         if (result == null) return null;
 
+        // Eserler/aletler çantaya girer (PlayerInventory), elde taşınmaz.
+        if (result.GetComponentInParent<WorldItem>() != null) return null;
+
         // Online'da başkasına ait objeler bizde kinematic görünür; NetworkPickupable varsa yine hedeflenebilir.
         if (result.isKinematic && result.GetComponent<NetworkPickupable>() == null) return null;
 
@@ -349,7 +352,7 @@ public class ObjectCarrier : MonoBehaviour
 
         if (heldBody != null)
         {
-            text = $"[E] Bırak    [Sol Tık Basılı Tut] Güçlü Fırlat    [R] Döndür    [Ağırlık: {Mathf.RoundToInt(heldBody.mass)} kg]";
+            text = Loc.T("carry.holding", Mathf.RoundToInt(heldBody.mass));
         }
         else if (lookTarget != null)
         {
@@ -360,22 +363,22 @@ public class ObjectCarrier : MonoBehaviour
 
             if (np != null && np.IsHeldByOther)
             {
-                text = $"{objName} (Başka biri taşıyor)";
+                text = Loc.T("carry.heldbyother", objName);
                 textColor = new Color(0.8f, 0.8f, 0.8f);
             }
             else if (lookTarget.mass > maxPickupMass)
             {
-                text = $"Bu çok ağır, tek kaldıramazsın! ({objName} - {Mathf.RoundToInt(lookTarget.mass)} kg)";
+                text = Loc.T("carry.tooheavy", objName, Mathf.RoundToInt(lookTarget.mass));
                 textColor = new Color(1f, 0.35f, 0.35f);
             }
             else if (p != null && !p.CanBePickedUp)
             {
-                text = $"{objName} (Taşınamaz)";
+                text = Loc.T("carry.locked", objName);
                 textColor = new Color(0.8f, 0.8f, 0.8f);
             }
             else
             {
-                text = $"[E] Kaldır: {objName} ({Mathf.RoundToInt(lookTarget.mass)} kg)";
+                text = Loc.T("carry.pickup", objName, Mathf.RoundToInt(lookTarget.mass));
             }
         }
 

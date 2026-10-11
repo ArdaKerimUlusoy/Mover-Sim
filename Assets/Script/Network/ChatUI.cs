@@ -79,7 +79,7 @@ public class ChatUI : MonoBehaviour
             return;
         }
 
-        if (!localPlayerSpawned || SessionMenuUI.IsPaused || ClosedRecently) return;
+        if (!localPlayerSpawned || SessionMenuUI.IsPaused || PlayerInventory.IsPanelOpen || ClosedRecently) return;
 
         if (enter)
         {
@@ -148,7 +148,7 @@ public class ChatUI : MonoBehaviour
             }
 
             string text = line.IsSystem
-                ? $"<color=#FFD166>• {Escape(line.Text)}</color>"
+                ? $"<color=#FFD166>• {Escape(line.Display)}</color>"
                 : $"<b><color=#7FD1FF>{Escape(line.Sender)}:</color></b> {Escape(line.Text)}";
 
             Rect r = new Rect(x, bottom - lineH * (shown + 1), width, lineH);
@@ -166,7 +166,7 @@ public class ChatUI : MonoBehaviour
         if (!IsTyping && !SessionMenuUI.IsPaused)
         {
             GUI.Label(new Rect(x, Screen.height - 12f - 18f - lineH * shown, width, 18f),
-                shown == 0 ? "[Enter] Sohbet" : "", hintStyle);
+                shown == 0 ? Loc.T("chat.hint") : "", hintStyle);
         }
     }
 

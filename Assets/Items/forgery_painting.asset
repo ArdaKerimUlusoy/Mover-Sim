@@ -1,0 +1,24 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: bf373c25ee9a2984fb17dadd385a6c68, type: 3}
+  m_Name: forgery_painting
+  m_EditorClassIdentifier: Assembly-CSharp::ItemDefinition
+  id: forgery_painting
+  displayName: Forged Painting
+  type: 1
+  weightKg: 2
+  baseValue: 0
+  stackable: 0
+  maxStack: 1
+  uiColor: {r: 0.75, g: 0.6, b: 0.4, a: 1}
+  icon: {fileID: 0}
+  worldPrefab: {fileID: 8212444448189886115, guid: 0e578d837bdf4aa43b66b1f8c268d160, type: 3}
