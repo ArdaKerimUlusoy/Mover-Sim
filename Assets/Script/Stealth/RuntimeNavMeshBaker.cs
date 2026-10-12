@@ -10,9 +10,20 @@ using UnityEngine;
 public class RuntimeNavMeshBaker : MonoBehaviour
 {
     public static bool Ready { get; private set; }
+    private static RuntimeNavMeshBaker instance;
+
+    /// <summary>Müze düzeni değişince (MuseumLayout) NavMesh'i yeniden oluşturur. Sadece sunucuda gerekir.</summary>
+    public static void Rebake()
+    {
+        if (instance == null) return;
+        Physics.SyncTransforms();
+        instance.GetComponent<NavMeshSurface>().BuildNavMesh();
+        Ready = true;
+    }
 
     private void Awake()
     {
+        instance = this;
         Ready = false;
         NavMeshSurface surface = GetComponent<NavMeshSurface>();
         surface.BuildNavMesh();
@@ -21,6 +32,7 @@ public class RuntimeNavMeshBaker : MonoBehaviour
 
     private void OnDestroy()
     {
+        if (instance == this) instance = null;
         Ready = false;
     }
 }

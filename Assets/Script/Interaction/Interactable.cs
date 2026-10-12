@@ -46,6 +46,9 @@ public abstract class Interactable : NetworkBehaviour
     /// <summary>Şu an etkileşime açık mı? (İstemcide yazıyı gizlemek, sunucuda doğrulamak için.)</summary>
     public virtual bool CanInteract(GameObject player) => IsSpawned;
 
+    /// <summary>İstemci: oyuncu bu noktada E'ye basılı tutmaya BAŞLADI (ör. hapis kapısı: kurtarma girişimi güvenlikleri uyarır).</summary>
+    public virtual void ClientHoldStarted(PlayerInteractor player) { }
+
     /// <summary>İstemci: etkileşim tamamlandı, sunucuya bildir.</summary>
     public void RequestInteract()
     {

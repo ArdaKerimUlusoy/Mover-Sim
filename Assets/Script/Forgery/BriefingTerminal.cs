@@ -184,7 +184,7 @@ public class BriefingUI : MonoBehaviour
             GUILayout.BeginVertical();
             GUILayout.Label(ms.ArtworkName(d), UIUtil.RowStyle);
             string how = Loc.T(WorkbenchUI.MethodKey(kind));
-            GUILayout.Label(Loc.T("brief.value", d.Artwork.baseValue, d.Artwork.weightKg.ToString("0.#"), how), UIUtil.SmallStyle);
+            GUILayout.Label(Loc.T("brief.value", d.Value, d.Artwork.weightKg.ToString("0.#"), how), UIUtil.SmallStyle);
             if (d.IsSwapped) GUILayout.Label(Loc.T("brief.swapped", d.LeftSimilarity), UIUtil.SmallStyle);
             GUILayout.EndVertical();
             GUILayout.EndHorizontal();

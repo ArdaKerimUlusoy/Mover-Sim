@@ -61,8 +61,19 @@ public class WorkbenchUI : MonoBehaviour
 
     // Yüzük
     private JewelLook jewel;
-    private int jewelStyle, jewelMetal, jewelCount = 1;
-    private readonly int[] jewelStones = new int[JewelLook.MaxStones];
+    // Kuyumcu tezgahı: 0 döküm, 1 taşlar, 2 cila
+    private JewelCraft craft;
+    private int jewelStep;
+    private int heldGem = -1;
+    private bool spilled;
+    private bool rubbing;
+    private Vector2 lastRub;
+    private float previewTimer;
+    private Vector2 ringCenter;
+    private float ringRadius = 150f;
+    private Rect gaugeRect, workRect;
+    private static readonly Dictionary<int, Texture2D> ringTextures = new Dictionary<int, Texture2D>();
+    private static Texture2D dotTexture;
 
     // Büst / yüzük ön izlemesi ve yandaki orijinal
     private GameObject preview, reference;
@@ -155,7 +166,7 @@ public class WorkbenchUI : MonoBehaviour
         {
             case ArtKind.Painting:
                 painting = ArtworkLook.Painting(seed, theme, o.display.name);
-                painter = new CanvasPainter(painting.image, painting.palette);
+                painter = new CanvasPainter(painting);
                 if (cam != null) cam.transform.LookAt(work + Vector3.up * 0.3f);
                 phase = Phase.Canvas;
                 return;
@@ -176,9 +187,10 @@ public class WorkbenchUI : MonoBehaviour
 
             case ArtKind.Jewelry:
                 jewel = ArtworkLook.Jewel(seed, theme, o.display.name);
-                jewelStyle = jewelMetal = 0;
-                jewelCount = 1;
-                for (int i = 0; i < jewelStones.Length; i++) jewelStones[i] = 0;
+                craft = new JewelCraft();
+                jewelStep = 0;
+                heldGem = -1;
+                spilled = false;
                 if (cam != null) cam.transform.LookAt(work + Vector3.up * 0.3f);
                 side = cam != null ? Vector3.ProjectOnPlane(cam.transform.right, Vector3.up).normalized : Vector3.right;
                 previewPos = work - side * 0.3f;
@@ -270,6 +282,7 @@ public class WorkbenchUI : MonoBehaviour
 
             case Phase.Bust:
             case Phase.Jewel:
+                if (phase == Phase.Jewel) TickJewel(kb);
                 if (kb.aKey.isPressed) previewYaw += 90f * Time.deltaTime;
                 if (kb.dKey.isPressed) previewYaw -= 90f * Time.deltaTime;
                 if (previewDirty) RebuildPreview();
@@ -310,12 +323,7 @@ public class WorkbenchUI : MonoBehaviour
 
     private ForgeryData JewelData()
     {
-        var pars = new byte[3 + JewelLook.MaxStones];
-        pars[0] = (byte)jewelStyle;
-        pars[1] = (byte)jewelMetal;
-        pars[2] = (byte)jewelCount;
-        for (int i = 0; i < JewelLook.MaxStones; i++) pars[3 + i] = (byte)jewelStones[i];
-        return new ForgeryData { kind = ArtKind.Jewelry, pars = pars };
+        return new ForgeryData { kind = ArtKind.Jewelry, pars = (craft ?? new JewelCraft()).ToPars() };
     }
 
     /// <summary>Ekranda gösterilen tahmini benzerlik (kesin değeri sunucu hesaplar).</summary>
@@ -327,7 +335,7 @@ public class WorkbenchUI : MonoBehaviour
             {
                 case Phase.Canvas: return painter != null ? painter.Score : 0f;
                 case Phase.Bust: return ForgeryScorer.Bust(bustSliders, bustStone, bustBase, bust);
-                case Phase.Jewel: return ForgeryScorer.Jewel(jewelStyle, jewelMetal, jewelCount, jewelStones, jewel);
+                case Phase.Jewel: return JewelCraft.Score(craft, jewel);
                 case Phase.Sculpt:
                 case Phase.Paint:
                     return ForgeryScorer.VaseShapeWeight * shapeScore + (1f - ForgeryScorer.VaseShapeWeight) * paintScore;
@@ -425,6 +433,7 @@ public class WorkbenchUI : MonoBehaviour
     private void OnGUI()
     {
         EnsureStyles();
+        GUI.depth = -20; // atölye paneli oda kodu / para / çanta kutularının ÜSTÜNDE çizilsin (onlar da atölye açıkken gizlenir)
 
         switch (phase)
         {
@@ -437,9 +446,9 @@ public class WorkbenchUI : MonoBehaviour
             case Phase.Jewel: DrawJewel(); DrawFooter(true); return;
         }
 
-        float w = 400f, h = phase == Phase.Paint ? 330f : 270f;
+        float w = 400f, h = phase == Phase.Paint ? 370f : 270f;
         UIUtil.DrawRect(new Rect(10, 10, w, h), new Color(0.05f, 0.06f, 0.08f, 0.85f));
-        GUILayout.BeginArea(new Rect(22, 18, w - 24, h - 10));
+        GUILayout.BeginArea(new Rect(22, 18, w - 24, h - 22));
         GUILayout.Label(vase.Name, big);
         if (phase == Phase.Sculpt)
         {
@@ -463,6 +472,7 @@ public class WorkbenchUI : MonoBehaviour
             GUILayout.EndHorizontal();
             Bar(Loc.T("bench.shape"), shapeScore, -1f);
             Bar(Loc.T("bench.paintscore"), paintScore, -1f);
+            GUILayout.FlexibleSpace();
             SimilarityLabel();
         }
         GUILayout.EndArea();
@@ -491,15 +501,22 @@ public class WorkbenchUI : MonoBehaviour
         if (picked.HasValue) StartWork(picked.Value);
     }
 
+    private Vector2 bustScroll;
+
+    /// <summary>Büst paneli: ekran yüksekliğine sığar; benzerlik en üstte sabit, seçimler kaydırılabilir listede.</summary>
     private void DrawBust()
     {
-        float w = 400f, h = 520f;
-        UIUtil.DrawRect(new Rect(10, 10, w, h), new Color(0.05f, 0.06f, 0.08f, 0.85f));
-        GUILayout.BeginArea(new Rect(22, 18, w - 24, h - 10));
+        float w = 420f;
+        float h = Mathf.Min(Screen.height - 90f, 640f); // altta Vazgeç / Esc yazısına yer kalsın
+        UIUtil.DrawRect(new Rect(10, 10, w, h), new Color(0.05f, 0.06f, 0.08f, 0.88f));
+        GUILayout.BeginArea(new Rect(22, 18, w - 24, h - 16));
         GUILayout.Label(bust.Name, big);
         GUILayout.Label(Loc.T("bench.moldhelp"), label);
         GUILayout.Space(4f);
 
+        // Kaydırılabilir seçimler; benzerlik kutusu panelin EN ALTINDA sabit durur
+        float scrollH = Mathf.Max(120f, h - 16f - 140f - SimilarityBoxHeight);
+        bustScroll = GUILayout.BeginScrollView(bustScroll, false, true, GUILayout.Height(scrollH));
         for (int i = 0; i < BustLook.SliderCount; i++)
         {
             GUILayout.Label(MuseumTheme.Pick(ArtworkLook.BustSliderNames[i]), label);
@@ -513,51 +530,315 @@ public class WorkbenchUI : MonoBehaviour
         GUILayout.Label(Loc.T("bench.base"), label);
         int b = Swatches(ArtworkLook.BustBases, ArtworkLook.BustBaseNames, bustBase);
         if (b != bustBase) { bustBase = b; previewDirty = true; }
-
-        GUILayout.Space(6f);
+        GUILayout.Space(8f);
+        GUILayout.EndScrollView();
+        GUILayout.FlexibleSpace();
         SimilarityLabel();
         GUILayout.EndArea();
     }
 
-    private void DrawJewel()
+    // ---------------------------------------------------------------
+    // Kuyumcu tezgahı (yüzük): 1) döküm  2) taşları yerleştir  3) cila
+    // ---------------------------------------------------------------
+
+    private static Vector2 GuiMouse()
     {
-        float w = 400f, h = 500f;
-        UIUtil.DrawRect(new Rect(10, 10, w, h), new Color(0.05f, 0.06f, 0.08f, 0.85f));
-        GUILayout.BeginArea(new Rect(22, 18, w - 24, h - 10));
-        GUILayout.Label(jewel.Name, big);
-        GUILayout.Label(Loc.T("bench.jewelhelp"), label);
-        GUILayout.Space(4f);
+        Mouse m = Mouse.current;
+        if (m == null) return new Vector2(-1000f, -1000f);
+        Vector2 p = m.position.ReadValue();
+        return new Vector2(p.x, Screen.height - p.y);
+    }
 
-        GUILayout.Label(Loc.T("bench.body"), label);
-        int style = Choices(ArtworkLook.JewelStyleNames, jewelStyle);
-        if (style != jewelStyle) { jewelStyle = style; previewDirty = true; }
+    private void TickJewel(Keyboard kb)
+    {
+        Mouse m = Mouse.current;
+        if (m == null || craft == null) return;
+        Vector2 gp = GuiMouse();
+        float dt = Time.deltaTime;
 
-        GUILayout.Label(Loc.T("bench.metal"), label);
-        int metal = Swatches(ArtworkLook.JewelMetals, ArtworkLook.JewelMetalNames, jewelMetal);
-        if (metal != jewelMetal) { jewelMetal = metal; previewDirty = true; }
-
-        GUILayout.Label(Loc.T("bench.stonecount"), label);
-        GUILayout.BeginHorizontal();
-        for (int n = 1; n <= JewelLook.MaxStones; n++)
+        switch (jewelStep)
         {
-            if (GUILayout.Button(n == jewelCount ? "[" + n + "]" : n.ToString(), UIUtil.ButtonStyle, GUILayout.Width(60f), GUILayout.Height(30f)) && n != jewelCount)
+            case 0: // Döküm: basılı tut → eriyik metal kalıba akar
             {
-                jewelCount = n;
-                previewDirty = true;
+                bool pour = (m.leftButton.isPressed && gaugeRect.Contains(gp)) || kb.spaceKey.isPressed;
+                if (pour && craft.fill < 1.25f)
+                {
+                    craft.fill += 0.3f * dt;
+                    if (craft.fill > 1f) spilled = true;
+                    MarkPreview();
+                }
+                break;
+            }
+            case 1: // Taşlar: seçili taşı halkanın üstüne tıkla; sağ tık söker
+            {
+                float d = Vector2.Distance(gp, ringCenter);
+                if (m.leftButton.wasPressedThisFrame && heldGem >= 0 && Mathf.Abs(d - ringRadius) < 42f && craft.count < JewelCraft.Max)
+                {
+                    float ang = Mathf.Atan2(-(gp.y - ringCenter.y), gp.x - ringCenter.x) * Mathf.Rad2Deg;
+                    craft.gems[craft.count] = heldGem;
+                    craft.angles[craft.count] = Mathf.Repeat(ang, 360f);
+                    craft.count++;
+                    heldGem = -1;
+                    GameAudio.Play2D(SoundId.UiClick, 0.6f);
+                    MarkPreview();
+                }
+                if (m.rightButton.wasPressedThisFrame)
+                {
+                    int best = -1;
+                    float bestD = 30f;
+                    for (int i = 0; i < craft.count; i++)
+                    {
+                        float dd = Vector2.Distance(gp, GemPos(ringCenter, ringRadius, craft.angles[i]));
+                        if (dd < bestD) { bestD = dd; best = i; }
+                    }
+                    if (best >= 0) RemoveGem(best);
+                    else heldGem = -1;
+                }
+                break;
+            }
+            case 2: // Cila: halkanın üstünde basılı tutup ov
+            {
+                float d = Vector2.Distance(gp, ringCenter);
+                bool onRing = Mathf.Abs(d - ringRadius) < 55f;
+                if (m.leftButton.isPressed && onRing)
+                {
+                    if (rubbing)
+                    {
+                        float moved = Vector2.Distance(gp, lastRub);
+                        craft.polish = Mathf.Clamp01(craft.polish + moved / (2f * Mathf.PI * ringRadius * 5f));
+                        if (moved > 0.5f) MarkPreview();
+                    }
+                    rubbing = true;
+                    lastRub = gp;
+                }
+                else rubbing = false;
+                break;
             }
         }
-        GUILayout.EndHorizontal();
 
-        for (int i = 0; i < jewelCount; i++)
+        previewTimer -= dt;
+    }
+
+    /// <summary>3B ön izlemeyi en fazla saniyede ~7 kez yenile.</summary>
+    private void MarkPreview()
+    {
+        if (previewTimer > 0f) return;
+        previewTimer = 0.15f;
+        previewDirty = true;
+    }
+
+    private void RemoveGem(int index)
+    {
+        for (int i = index; i < craft.count - 1; i++)
         {
-            GUILayout.Label(Loc.T("bench.gem", i + 1), label);
-            int gem = Swatches(ArtworkLook.JewelGems, ArtworkLook.JewelGemNames, jewelStones[i]);
-            if (gem != jewelStones[i]) { jewelStones[i] = gem; previewDirty = true; }
+            craft.gems[i] = craft.gems[i + 1];
+            craft.angles[i] = craft.angles[i + 1];
         }
+        craft.count = Mathf.Max(0, craft.count - 1);
+        previewDirty = true;
+    }
 
+    private static Vector2 GemPos(Vector2 center, float radius, float angleDeg)
+    {
+        float r = angleDeg * Mathf.Deg2Rad;
+        return center + new Vector2(Mathf.Cos(r), -Mathf.Sin(r)) * radius;
+    }
+
+    private void DrawJewel()
+    {
+        if (craft == null) return;
+        float w = 420f;
+        float h = Mathf.Min(Screen.height - 90f, 640f);
+        UIUtil.DrawRect(new Rect(10, 10, w, h), new Color(0.05f, 0.06f, 0.08f, 0.88f));
+        GUILayout.BeginArea(new Rect(22, 18, w - 24, h - 16));
+        GUILayout.Label(jewel.Name, big);
+
+        // Adım sekmeleri (istediğin zaman geri dönebilirsin)
+        GUILayout.BeginHorizontal();
+        string[] steps = { Loc.T("ring.step.cast"), Loc.T("ring.step.stones"), Loc.T("ring.step.polish") };
+        for (int i = 0; i < steps.Length; i++)
+        {
+            string t = (i + 1) + ". " + steps[i];
+            if (GUILayout.Button(i == jewelStep ? "[" + t + "]" : t, UIUtil.ButtonStyle, GUILayout.Height(32f))) { jewelStep = i; heldGem = -1; }
+        }
+        GUILayout.EndHorizontal();
         GUILayout.Space(6f);
+
+        switch (jewelStep)
+        {
+            case 0:
+            {
+                GUILayout.Label(Loc.T("ring.cast.help"), label);
+                GUILayout.Label(Loc.T("ring.mold"), label);
+                int style = Choices(ArtworkLook.JewelStyleNames, craft.style);
+                if (style != craft.style) { craft.style = style; craft.fill = 0f; spilled = false; previewDirty = true; }
+                GUILayout.Label(Loc.T("bench.metal"), label);
+                int metal = Swatches(ArtworkLook.JewelMetals, ArtworkLook.JewelMetalNames, craft.metal);
+                if (metal != craft.metal) { craft.metal = metal; previewDirty = true; }
+                GUILayout.Space(6f);
+                GUILayout.Label(Loc.T("ring.fill", Mathf.RoundToInt(Mathf.Min(craft.fill, 1f) * 100f)), label);
+                if (spilled) GUILayout.Label(Loc.T("ring.spilled"), label);
+                if (GUILayout.Button(Loc.T("ring.emptymold"), UIUtil.ButtonStyle, GUILayout.Height(30f))) { craft.fill = 0f; spilled = false; previewDirty = true; }
+                GUILayout.Space(6f);
+                if (GUILayout.Button(Loc.T("ring.next.stones"), UIUtil.ButtonStyle, GUILayout.Height(34f))) jewelStep = 1;
+                break;
+            }
+            case 1:
+            {
+                GUILayout.Label(Loc.T("ring.stones.help"), label);
+                GUILayout.Label(Loc.T("ring.stonecount", craft.count, JewelCraft.Max), label);
+                GUILayout.BeginHorizontal();
+                for (int i = 0; i < ArtworkLook.JewelGems.Length; i++)
+                {
+                    Color prev = GUI.backgroundColor;
+                    GUI.backgroundColor = ArtworkLook.JewelGems[i];
+                    string text = MuseumTheme.Pick(ArtworkLook.JewelGemNames[i]);
+                    if (GUILayout.Button(i == heldGem ? "[" + text + "]" : text, GUILayout.Height(34f))) heldGem = i == heldGem ? -1 : i;
+                    GUI.backgroundColor = prev;
+                }
+                GUILayout.EndHorizontal();
+                if (GUILayout.Button(Loc.T("ring.removeall"), UIUtil.ButtonStyle, GUILayout.Height(30f))) { craft.count = 0; previewDirty = true; }
+                GUILayout.Space(6f);
+                if (GUILayout.Button(Loc.T("ring.next.polish"), UIUtil.ButtonStyle, GUILayout.Height(34f))) { jewelStep = 2; heldGem = -1; }
+                break;
+            }
+            default:
+            {
+                GUILayout.Label(Loc.T("ring.polish.help"), label);
+                Bar(Loc.T("ring.shine"), craft.polish, 0.9f);
+                break;
+            }
+        }
+        GUILayout.FlexibleSpace();
         SimilarityLabel();
         GUILayout.EndArea();
+
+        DrawJewelWorkspace();
+    }
+
+    /// <summary>Sağdaki çalışma alanı: döküm kalıbı ya da büyük halka + sağ üstte orijinalin şeması.</summary>
+    private void DrawJewelWorkspace()
+    {
+        float x0 = 450f;
+        workRect = new Rect(x0, 10f, Mathf.Max(300f, Screen.width - x0 - 10f), Screen.height - 80f);
+        UIUtil.DrawRect(workRect, new Color(0.03f, 0.04f, 0.06f, 0.72f));
+        ringRadius = Mathf.Clamp(Mathf.Min(workRect.width * 0.24f, workRect.height * 0.28f), 70f, 190f);
+        ringCenter = new Vector2(workRect.x + workRect.width * 0.42f, workRect.y + workRect.height * 0.52f);
+        Color metalC = ArtworkLook.JewelMetals[Mathf.Clamp(craft.metal, 0, ArtworkLook.JewelMetals.Length - 1)];
+
+        // Orijinalin şeması (sağ üst)
+        Vector2 refC = new Vector2(workRect.xMax - 120f, workRect.y + 130f);
+        GUI.Label(new Rect(refC.x - 90f, refC.y - 118f, 180f, 24f), Loc.T("bench.original"), big);
+        JewelCraft orig = JewelCraft.FromLook(jewel);
+        DrawRingDiagram(refC, 70f, orig, 1f);
+
+        if (jewelStep == 0)
+        {
+            // Kalıp: alttan dolar; beyaz çizgi bu kalıbın doğru doluluk seviyesi
+            gaugeRect = new Rect(ringCenter.x - 70f, ringCenter.y - 170f, 140f, 340f);
+            UIUtil.DrawRect(new Rect(gaugeRect.x - 6f, gaugeRect.y - 6f, gaugeRect.width + 12f, gaugeRect.height + 12f), new Color(0.35f, 0.3f, 0.28f));
+            UIUtil.DrawRect(gaugeRect, new Color(0.08f, 0.08f, 0.09f));
+            float f = Mathf.Clamp01(craft.fill);
+            Color molten = Color.Lerp(new Color(1f, 0.55f, 0.15f), metalC, 0.45f);
+            UIUtil.DrawRect(new Rect(gaugeRect.x, gaugeRect.yMax - gaugeRect.height * f, gaugeRect.width, gaugeRect.height * f), molten);
+            float ty = gaugeRect.yMax - gaugeRect.height * JewelCraft.TargetFill(craft.style);
+            UIUtil.DrawRect(new Rect(gaugeRect.x - 14f, ty - 1.5f, gaugeRect.width + 28f, 3f), Color.white);
+            if (spilled)
+                for (int i = 0; i < 4; i++)
+                    UIUtil.DrawRect(new Rect(gaugeRect.x + 10f + i * 34f, gaugeRect.yMax + 8f, 10f, 14f + (i % 2) * 10f), molten);
+            UIUtil.DrawPrompt(Loc.T("ring.pour"), gaugeRect.yMax + 40f - Screen.height * 0f, new Color(1f, 0.85f, 0.5f), 16);
+            return;
+        }
+
+        DrawRingDiagram(ringCenter, ringRadius, craft, jewelStep == 2 ? craft.polish : 1f);
+
+        if (jewelStep == 1)
+        {
+            Vector2 gp = GuiMouse();
+            if (heldGem >= 0) DrawDot(gp, 22f, ArtworkLook.JewelGems[heldGem]);
+            UIUtil.DrawPrompt(Loc.T("ring.place"), ringCenter.y + ringRadius + 50f, new Color(1f, 0.85f, 0.5f), 16);
+        }
+        else if (jewelStep == 2)
+        {
+            // Parladıkça yıldızlar
+            if (craft.polish > 0.5f)
+            {
+                float t = Time.unscaledTime;
+                for (int i = 0; i < 6; i++)
+                {
+                    float a = t * 0.7f + i * 1.05f;
+                    Vector2 p = ringCenter + new Vector2(Mathf.Cos(a), Mathf.Sin(a * 1.3f)) * ringRadius;
+                    float s = 6f + 6f * Mathf.Abs(Mathf.Sin(t * 3f + i)) * craft.polish;
+                    DrawDot(p, s, new Color(1f, 1f, 1f, 0.8f * craft.polish));
+                }
+            }
+            UIUtil.DrawPrompt(Loc.T("ring.rub"), ringCenter.y + ringRadius + 50f, new Color(1f, 0.85f, 0.5f), 16);
+        }
+    }
+
+    /// <summary>Halkayı (kalınlık = döküm), mühür tablasını ve taşları 2B çizer. shine: 0 mat/donuk … 1 parlak.</summary>
+    private static void DrawRingDiagram(Vector2 c, float r, JewelCraft j, float shine)
+    {
+        int style = Mathf.Clamp(j.style, 0, 2);
+        float thick = r * (style == 1 ? 0.24f : style == 2 ? 0.18f : 0.12f) * Mathf.Clamp(j.fill / JewelCraft.TargetFill(style), 0.15f, 1.7f);
+        if (j.fill <= 0.01f) thick = r * 0.02f;
+        Color metalC = ArtworkLook.JewelMetals[Mathf.Clamp(j.metal, 0, ArtworkLook.JewelMetals.Length - 1)];
+        Color col = Color.Lerp(metalC * 0.55f, metalC, Mathf.Clamp01(shine));
+        col.a = 1f;
+
+        float outer = r + thick * 0.5f, inner = Mathf.Max(1f, r - thick * 0.5f);
+        Texture2D ring = RingTexture(inner / outer);
+        Color old = GUI.color;
+        GUI.color = col;
+        GUI.DrawTexture(new Rect(c.x - outer, c.y - outer, outer * 2f, outer * 2f), ring);
+        if (style == 2) UIUtil.DrawRect(new Rect(c.x - r * 0.42f, c.y - outer - r * 0.12f, r * 0.84f, r * 0.16f), col * 0.92f);
+        GUI.color = old;
+
+        for (int i = 0; i < j.count; i++)
+        {
+            int gem = Mathf.Clamp(j.gems[i], 0, ArtworkLook.JewelGems.Length - 1);
+            DrawDot(GemPos(c, outer + r * 0.06f, j.angles[i]), Mathf.Max(10f, r * 0.16f), ArtworkLook.JewelGems[gem]);
+        }
+    }
+
+    private static void DrawDot(Vector2 p, float size, Color c)
+    {
+        if (dotTexture == null) dotTexture = MakeRingTexture(0f);
+        Color old = GUI.color;
+        GUI.color = new Color(0f, 0f, 0f, 0.5f * c.a);
+        GUI.DrawTexture(new Rect(p.x - size * 0.5f - 2f, p.y - size * 0.5f - 2f, size + 4f, size + 4f), dotTexture);
+        GUI.color = c;
+        GUI.DrawTexture(new Rect(p.x - size * 0.5f, p.y - size * 0.5f, size, size), dotTexture);
+        GUI.color = old;
+    }
+
+    private static Texture2D RingTexture(float innerRatio)
+    {
+        int key = Mathf.RoundToInt(Mathf.Clamp01(innerRatio) * 50f);
+        if (ringTextures.TryGetValue(key, out Texture2D t) && t != null) return t;
+        t = MakeRingTexture(key / 50f);
+        ringTextures[key] = t;
+        return t;
+    }
+
+    /// <summary>Beyaz halka dokusu (innerRatio = 0 ise dolu daire), kenarları yumuşak.</summary>
+    private static Texture2D MakeRingTexture(float innerRatio)
+    {
+        const int N = 128;
+        var tex = new Texture2D(N, N, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp, name = "RingUI" };
+        var px = new Color[N * N];
+        float half = N * 0.5f;
+        float innerPx = innerRatio * half;
+        for (int y = 0; y < N; y++)
+            for (int x = 0; x < N; x++)
+            {
+                float d = Vector2.Distance(new Vector2(x + 0.5f, y + 0.5f), new Vector2(half, half));
+                float a = Mathf.Clamp01(half - d) * (innerRatio > 0f ? Mathf.Clamp01(d - innerPx) : 1f);
+                px[y * N + x] = new Color(1f, 1f, 1f, a);
+            }
+        tex.SetPixels(px);
+        tex.Apply();
+        return tex;
     }
 
     /// <summary>Renkli seçim düğmeleri; seçilen indeksi döner.</summary>
@@ -588,10 +869,20 @@ public class WorkbenchUI : MonoBehaviour
         return selected;
     }
 
+    private const float SimilarityBoxHeight = 64f;
+
+    /// <summary>Benzerlik kutusu: sol panelin altında, renkli şeritle (kırmızı → sarı → yeşil) belirgin şekilde.</summary>
     private void SimilarityLabel()
     {
         byte s = (byte)Mathf.Clamp(Mathf.RoundToInt(Similarity * 100f), 0, 100);
-        GUILayout.Label(Loc.T("bench.similarity", s, ItemDefinition.GradeName(s)), big);
+        Rect r = GUILayoutUtility.GetRect(300f, SimilarityBoxHeight, GUILayout.ExpandWidth(true), GUILayout.Height(SimilarityBoxHeight));
+        Color tone = s >= 85 ? new Color(0.3f, 0.85f, 0.4f) : s >= 60 ? new Color(0.95f, 0.75f, 0.25f) : new Color(0.95f, 0.4f, 0.3f);
+        UIUtil.DrawRect(r, new Color(0f, 0f, 0f, 0.55f));
+        UIUtil.DrawRect(new Rect(r.x, r.y, 5f, r.height), tone);
+        GUI.Label(new Rect(r.x + 14f, r.y + 6f, r.width - 20f, 30f), Loc.T("bench.similarity", s, ItemDefinition.GradeName(s)), big);
+        Rect bar = new Rect(r.x + 14f, r.y + 42f, r.width - 28f, 10f);
+        UIUtil.DrawRect(bar, new Color(1f, 1f, 1f, 0.12f));
+        UIUtil.DrawRect(new Rect(bar.x, bar.y, bar.width * (s / 100f), bar.height), tone);
     }
 
     /// <summary>Alt bilgi: Vazgeç düğmesi + ESC'nin ne yapacağı.</summary>

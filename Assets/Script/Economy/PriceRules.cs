@@ -29,6 +29,20 @@ public static class PriceRules
         return Mathf.Max(1, Mathf.RoundToInt(def.baseValue * SimilarityMultiplier(similarity)));
     }
 
+    /// <summary>Çantadaki eşyanın satış fiyatı: eserin geldiği kaidenin değer çarpanı dahil (Staff Only eseri daha pahalı).</summary>
+    public static int SalePrice(ItemDefinition def, InventorySlot slot)
+    {
+        int price = SalePrice(def, slot.Similarity);
+        return Mathf.RoundToInt(price * DisplayMultiplier(slot.LookKey));
+    }
+
+    /// <summary>Eserin geldiği kaidenin değer çarpanı (yoksa 1).</summary>
+    public static float DisplayMultiplier(int lookKey)
+    {
+        ArtworkDisplay d = lookKey != 0 ? ArtworkDisplay.FindByKey(lookKey) : null;
+        return d != null ? d.ValueMultiplier : 1f;
+    }
+
     public static void Split(int price, bool hasTeamBank, out int team, out int personal)
     {
         if (!hasTeamBank)

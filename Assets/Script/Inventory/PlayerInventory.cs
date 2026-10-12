@@ -31,7 +31,7 @@ public class PlayerInventory : NetworkBehaviour
     [Header("Fırlatma (Q)")]
     [SerializeField] private float throwForce = 9f;
     [Tooltip("Fırlatılan bozuk para kaç saniye sonra yerden silinsin (sürekli para atılmasın diye).")]
-    [SerializeField] private float thrownCoinLifetime = 12f;
+    [SerializeField] private float coinVanishSeconds = 6f; // eski adı thrownCoinLifetime (12 sn) — yeni ad, prefab'daki eski değer kullanılmasın diye
 
     [Header("Çalma")]
     [SerializeField] private float stealRange = 2.5f;
@@ -94,6 +94,9 @@ public class PlayerInventory : NetworkBehaviour
     // İstemci: sunucudan parça parça gelen sahte verileri
     private readonly Dictionary<ushort, byte[]> incomingForgeries = new Dictionary<ushort, byte[]>();
     private readonly Dictionary<ushort, int> incomingReceived = new Dictionary<ushort, int>();
+    // Sunucunun herkese yolladığı (istenmeden gelen) sahte verileri — istek cevaplarıyla karışmasın diye ayrı
+    private readonly Dictionary<ushort, byte[]> pushedForgeries = new Dictionary<ushort, byte[]>();
+    private readonly Dictionary<ushort, int> pushedReceived = new Dictionary<ushort, int>();
 
     private GUIStyle titleStyle, rowStyle, smallStyle, hintStyle, buttonStyle, boxStyle, hudStyle, cardTitleStyle, moneyStyle;
 
@@ -504,7 +507,7 @@ public class PlayerInventory : NetworkBehaviour
         Vector3 spawnPos = origin + direction * 0.6f;
         if (ServerSpawnFromSlot(slotIndex, spawnPos, direction * throwForce + Vector3.up * 1.5f, out WorldItem coin))
         {
-            if (coin != null) coin.ServerExpireAfter(thrownCoinLifetime); // atılan para geri toplanamadan kaybolur
+            if (coin != null) coin.ServerExpireAfter(coinVanishSeconds); // atılan para geri toplanamadan kaybolur
             ServerPlaySound(SoundId.CoinThrow, origin);
         }
     }
@@ -552,6 +555,45 @@ public class PlayerInventory : NetworkBehaviour
         ServerRemoveAt(slotIndex, 1);
         spawned = wi;
         return true;
+    }
+
+    // ---------------- Çöp kutusu (kamyon) ----------------
+
+    /// <summary>Sahibi: çantadaki bir sahteyi kamyondaki çöp kutusuna at.</summary>
+    public void RequestTrash(int slotIndex, InventorySlot expected) => TrashRpc(slotIndex, expected);
+
+    /// <summary>Sahibi: çantadaki bütün sahteleri çöpe at.</summary>
+    public void RequestTrashAllForgeries() => TrashAllRpc();
+
+    [Rpc(SendTo.Server)]
+    private void TrashRpc(int slotIndex, InventorySlot expected, RpcParams rpcParams = default)
+    {
+        if (rpcParams.Receive.SenderClientId != OwnerClientId) return;
+        if (TrashBin.Nearest(transform.position, TrashBin.UseRange + 1.5f) == null) return;
+        if (slotIndex < 0 || slotIndex >= slots.Count || !slots[slotIndex].SameItem(expected)) return;
+        ItemDefinition def = Def(slots[slotIndex]);
+        if (def == null || def.type != ItemType.Forgery) return;
+        ServerRemoveAt(slotIndex, slots[slotIndex].Count);
+        ServerNotify("trash.done", def);
+        ServerPlaySound(SoundId.Drop, transform.position);
+    }
+
+    [Rpc(SendTo.Server)]
+    private void TrashAllRpc(RpcParams rpcParams = default)
+    {
+        if (rpcParams.Receive.SenderClientId != OwnerClientId) return;
+        if (TrashBin.Nearest(transform.position, TrashBin.UseRange + 1.5f) == null) return;
+        int n = 0;
+        for (int i = slots.Count - 1; i >= 0; i--) // sondan başa: silindikçe indeksler kaymasın
+        {
+            ItemDefinition def = Def(slots[i]);
+            if (def == null || def.type != ItemType.Forgery) continue;
+            n += slots[i].Count;
+            ServerRemoveAt(i, slots[i].Count);
+        }
+        if (n == 0) return;
+        ServerNotify("trash.doneall", n.ToString());
+        ServerPlaySound(SoundId.Drop, transform.position);
     }
 
     [Rpc(SendTo.Server)]
@@ -869,6 +911,47 @@ public class PlayerInventory : NetworkBehaviour
         ForgeryRegistry.Store(id, buffer);
     }
 
+    /// <summary>
+    /// Sunucu: yeni yapılan sahtenin verisini HERKESE hemen yollar (bu oyuncunun objesi üzerinden).
+    /// Böylece diğer oyuncular vazoyu / tabloyu elde, yerde ve kaidede yapanın gördüğü şekliyle görür;
+    /// istemcinin ayrıca istemesine gerek kalmaz (istek yolu sonradan katılanlar için duruyor).
+    /// </summary>
+    public void ServerBroadcastForgery(ushort id, byte[] blob)
+    {
+        if (!IsServer || !IsSpawned || id == 0 || blob == null || blob.Length == 0 || blob.Length > ForgeryData.MaxBlobBytes) return;
+        ForgeryPushBeginRpc(id, blob.Length);
+        for (int offset = 0; offset < blob.Length; offset += ForgeryChunkSize)
+        {
+            byte[] chunk = new byte[Mathf.Min(ForgeryChunkSize, blob.Length - offset)];
+            System.Array.Copy(blob, offset, chunk, 0, chunk.Length);
+            ForgeryPushChunkRpc(id, chunk);
+        }
+    }
+
+    [Rpc(SendTo.NotServer)]
+    private void ForgeryPushBeginRpc(ushort id, int totalBytes)
+    {
+        if (totalBytes <= 0 || totalBytes > ForgeryData.MaxBlobBytes) return;
+        pushedForgeries[id] = new byte[totalBytes];
+        pushedReceived[id] = 0;
+    }
+
+    [Rpc(SendTo.NotServer)]
+    private void ForgeryPushChunkRpc(ushort id, byte[] chunk)
+    {
+        if (chunk == null || !pushedForgeries.TryGetValue(id, out byte[] buffer)) return;
+        int got = pushedReceived[id];
+        if (got + chunk.Length > buffer.Length) { pushedForgeries.Remove(id); pushedReceived.Remove(id); return; }
+        System.Array.Copy(chunk, 0, buffer, got, chunk.Length);
+        got += chunk.Length;
+        pushedReceived[id] = got;
+        if (got < buffer.Length) return;
+
+        pushedForgeries.Remove(id);
+        pushedReceived.Remove(id);
+        ForgeryRegistry.Store(id, buffer);
+    }
+
     /// <summary>Sunucu: yakalanınca çantadaki orijinal eserlere el konur. Kaç adet gittiğini döner.</summary>
     public int ServerConfiscateOriginals(List<int> returnedLookKeys = null)
     {
@@ -973,8 +1056,11 @@ public class PlayerInventory : NetworkBehaviour
         if (!IsOwner || !IsSpawned) return;
         EnsureStyles();
 
-        DrawWeightHud();
-        DrawMoneyHud();
+        if (!WorkbenchUI.IsOpen) // atölyede sol üst / sağ üst / sağ alt kutular atölye arayüzüyle çakışmasın
+        {
+            DrawWeightHud();
+            DrawMoneyHud();
+        }
 
         if (!string.IsNullOrEmpty(toastText) && Time.unscaledTime < toastUntil)
         {
@@ -1176,7 +1262,7 @@ public class PlayerInventory : NetworkBehaviour
 
         GUILayout.Label(Loc.T("card.weight", (def.weightKg * s.Count).ToString("0.#")), rowStyle);
         if (s.Count > 1) GUILayout.Label(Loc.T("card.count", s.Count), rowStyle);
-        if (def.baseValue > 0) GUILayout.Label(Loc.T("card.value", (def.baseValue * s.Count).ToString("N0")), rowStyle);
+        if (def.baseValue > 0) GUILayout.Label(Loc.T("card.value", Mathf.RoundToInt(def.baseValue * PriceRules.DisplayMultiplier(s.LookKey) * s.Count).ToString("N0")), rowStyle);
 
         if (s.HasSimilarity)
         {
@@ -1193,7 +1279,7 @@ public class PlayerInventory : NetworkBehaviour
 
         if (def.type == ItemType.Original)
         {
-            GUILayout.Label(Loc.T("card.price", PriceRules.SalePrice(def, s.Similarity).ToString("N0")), rowStyle);
+            GUILayout.Label(Loc.T("card.price", PriceRules.SalePrice(def, s).ToString("N0")), rowStyle);
         }
         if (def.type == ItemType.Forgery && def.forgeryOf != null)
         {

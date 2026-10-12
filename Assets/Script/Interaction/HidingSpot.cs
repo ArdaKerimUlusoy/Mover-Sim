@@ -17,6 +17,27 @@ public class HidingSpot : Interactable
 
     private readonly NetworkVariable<ulong> occupant = new NetworkVariable<ulong>(Nobody);
 
+    public static readonly System.Collections.Generic.List<HidingSpot> All = new System.Collections.Generic.List<HidingSpot>();
+    private void OnEnable() { if (!All.Contains(this)) All.Add(this); }
+    private void OnDisable() => All.Remove(this);
+
+    /// <summary>Sunucu: içinde bu oyuncu varsa dolabı açıp onu dışarı çıkarır (güvenlik saklandığını gördü). Çıkardıysa true.</summary>
+    public bool ServerEvict(PlayerStealth stealth)
+    {
+        if (!IsServer || stealth == null || occupant.Value != stealth.OwnerClientId) return false;
+        ServerExit(stealth, stealth.OwnerClientId, stealth.NetworkObject);
+        return true;
+    }
+
+    /// <summary>Sunucu: bu oyuncunun saklandığı yer (yoksa null).</summary>
+    public static HidingSpot FindOccupiedBy(PlayerStealth stealth)
+    {
+        if (stealth == null) return null;
+        foreach (HidingSpot h in All)
+            if (h != null && h.IsSpawned && h.occupant.Value == stealth.OwnerClientId) return h;
+        return null;
+    }
+
     public bool IsOccupied => occupant.Value != Nobody;
 
     public override void OnNetworkSpawn()

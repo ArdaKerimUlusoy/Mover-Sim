@@ -18,6 +18,10 @@ public class JailCell : Interactable
     [Tooltip("Kimse kurtarmazsa kaç saniye sonra serbest kalır.")]
     [SerializeField] private float jailSeconds = 30f;
     [SerializeField] private float rescueHoldSeconds = 2.5f;
+    [Tooltip("Kurtarma girişimi güvenlikleri en fazla bu sıklıkla uyarır (saniye).")]
+    [SerializeField] private float attemptAlertCooldown = 4f;
+
+    private float nextAttemptAlert;
 
     private void OnEnable() => Instance = this;
     private void OnDisable() { if (Instance == this) Instance = null; }
@@ -48,19 +52,48 @@ public class JailCell : Interactable
         return IsJailed(player != null ? player.gameObject : null) ? Loc.T("jail.inside") : Loc.T("jail.rescue");
     }
 
+    // ---------------- Kurtarma ----------------
+
+    /// <summary>Arkadaşın kapıda E'ye basılı tutmaya başladı: kilidi kurcalıyor → güvenlikler hapse koşar.</summary>
+    public override void ClientHoldStarted(PlayerInteractor player)
+    {
+        if (IsSpawned && CanInteract(player != null ? player.gameObject : null)) RescueAttemptRpc();
+    }
+
+    [Rpc(SendTo.Server)]
+    private void RescueAttemptRpc(RpcParams rpcParams = default)
+    {
+        if (!AnyPrisoner() || Time.time < nextAttemptAlert) return;
+        if (!TryGetNearbyPlayer(rpcParams.Receive.SenderClientId, out NetworkObject playerObj, 2f)) return;
+        nextAttemptAlert = Time.time + attemptAlertCooldown;
+
+        PlayerStealth rescuer = playerObj.GetComponent<PlayerStealth>();
+        if (SecurityManager.Instance != null) SecurityManager.Instance.ServerReportJailbreakAttempt(transform.position, rescuer);
+        PlayerNetworkSetup ps = playerObj.GetComponent<PlayerNetworkSetup>();
+        if (ChatManager.Instance != null) ChatManager.Instance.ServerSystemMessage("jail.attempt", ps != null ? ps.PlayerName : "", "");
+    }
+
     protected override void ServerInteract(ulong clientId, NetworkObject player)
     {
         string rescuer = "";
         PlayerNetworkSetup ps = player.GetComponent<PlayerNetworkSetup>();
         if (ps != null) rescuer = ps.PlayerName;
+        PlayerStealth rescuerStealth = player.GetComponent<PlayerStealth>();
 
-        foreach (PlayerStealth p in PlayerStealth.All)
+        float wantedFor = SecurityManager.Instance != null ? SecurityManager.Instance.AlarmSeconds : 15f;
+        foreach (PlayerStealth p in PlayerStealth.All.ToArray())
         {
             if (p == null || !p.IsSpawned || !p.IsJailed) continue;
             PlayerNetworkSetup freed = p.GetComponent<PlayerNetworkSetup>();
             if (ChatManager.Instance != null) ChatManager.Instance.ServerSystemMessage("chat.rescued", rescuer, freed != null ? freed.PlayerName : "");
             ServerRelease(p);
+            p.ServerMarkWanted(Time.time + wantedFor); // kaçan mahkum da aranıyor
+            p.ServerMarkOffender();
         }
+
+        // Hapisten kaçırma: alarm yeniden çalar, kurtaran da aranır
+        if (rescuerStealth != null) rescuerStealth.ServerMarkOffender();
+        if (SecurityManager.Instance != null) SecurityManager.Instance.ServerTriggerAlarm(transform.position, "alarm.jailbreak", rescuerStealth);
     }
 
     // ---------------- Sunucu ----------------
@@ -78,13 +111,17 @@ public class JailCell : Interactable
 
         prisoner.ServerSetJailed(NetworkManager.ServerTime.Time + jailSeconds);
         prisoner.ServerTeleport(pos, transform.eulerAngles.y);
+
+        // Suçlu içeride: alarm susar, güvenlikler devriyeye döner (kurtarmaya gelen olursa yeniden tetiklenir)
+        if (SecurityManager.Instance != null) SecurityManager.Instance.ServerStopAlarm("alarm.jailed");
     }
 
     /// <summary>Sunucu: oyuncuyu hücrenin önüne bırakır.</summary>
-    public void ServerRelease(PlayerStealth prisoner)
+    public void ServerRelease(PlayerStealth prisoner, bool remember = true)
     {
         if (!IsServer || prisoner == null || !prisoner.IsJailed) return;
         prisoner.ServerSetJailed(0);
+        if (remember) prisoner.ServerMarkOffender(); // güvenlikler yüzünü tanıyor
         prisoner.ServerTeleport(ReleasePos + Vector3.up * 0.1f, transform.eulerAngles.y);
         if (prisoner.TryGetComponent(out PlayerInventory inv)) inv.ServerPlaySound(SoundId.DoorOpen, transform.position);
     }
@@ -94,7 +131,7 @@ public class JailCell : Interactable
     {
         if (Instance == null || !Instance.IsServer) return;
         foreach (PlayerStealth p in PlayerStealth.All)
-            if (p != null && p.IsSpawned && p.IsJailed) Instance.ServerRelease(p);
+            if (p != null && p.IsSpawned && p.IsJailed) Instance.ServerRelease(p, false);
     }
 
     private void Update()

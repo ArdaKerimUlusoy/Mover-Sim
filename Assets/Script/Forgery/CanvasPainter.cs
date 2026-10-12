@@ -17,11 +17,15 @@ public class CanvasPainter
     public const int W = 256, H = 192;
 
     public float Score { get; private set; }
+    /// <summary>Bitmiş önemli bölge sayısı / toplam (gökyüzü, deniz, tekne, bulut...).</summary>
+    public int RegionsDone { get; private set; }
+    public int RegionsTotal { get; private set; }
     public bool ShowGuide = true;
     public int BrushSize = 5;
     public int PaletteIndex { get; private set; }
 
     private readonly Texture2D reference;
+    private readonly PaintingLook look;
     private readonly Texture2D canvas;
     private readonly Texture2D guide;
     private readonly Color[] px;
@@ -35,10 +39,11 @@ public class CanvasPainter
 
     public static readonly Color CanvasBase = new Color(0.96f, 0.93f, 0.85f);
 
-    public CanvasPainter(Texture2D reference, Color[] palette)
+    public CanvasPainter(PaintingLook look)
     {
-        this.reference = reference;
-        this.palette = palette;
+        this.look = look;
+        this.reference = look.image;
+        this.palette = look.palette;
 
         canvas = new Texture2D(W, H, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear, name = "SahteTuval" };
         px = new Color[W * H];
@@ -196,26 +201,14 @@ public class CanvasPainter
         dirty = true;
     }
 
+    /// <summary>Sunucuyla aynı bölge bölge hesap (ForgeryScorer.Painting → PaintingRegions).</summary>
     float ComputeScore()
     {
-        const int NX = 32, NY = 24;
-        float total = 0f;
-        for (int y = 0; y < NY; y++)
-        {
-            float v = (y + 0.5f) / NY;
-            int py = Mathf.Min(H - 1, (int)(v * H));
-            for (int x = 0; x < NX; x++)
-            {
-                float u = (x + 0.5f) / NX;
-                int pxl = Mathf.Min(W - 1, (int)(u * W));
-                Color a = px[py * W + pxl];
-                Color b = reference.GetPixelBilinear(u, v);
-                float d = Mathf.Sqrt((a.r - b.r) * (a.r - b.r) + (a.g - b.g) * (a.g - b.g) + (a.b - b.b) * (a.b - b.b)) / 1.732f;
-                total += d;
-            }
-        }
-        float mean = total / (NX * NY);
-        return Mathf.Clamp01(1f - mean / 0.25f);
+        float score = PaintingRegions.Score((u, v) => px[Mathf.Min(H - 1, (int)(v * H)) * W + Mathf.Min(W - 1, (int)(u * W))],
+                                            look, out int done, out int total);
+        RegionsDone = done;
+        RegionsTotal = total;
+        return score;
     }
 
     public Texture2D Bake()
@@ -276,6 +269,7 @@ public class CanvasPainter
         // Puan
         float sy = by + 2 * (bs + 8) + 12;
         GUI.Label(new Rect(refRect.x, sy, refRect.width, 24), Loc.T("bench.similarity", Mathf.RoundToInt(Score * 100), ItemDefinition.GradeName((byte)Mathf.RoundToInt(Score * 100))), titleStyle);
+        GUI.Label(new Rect(refRect.x, sy + 50, refRect.width, 22), Loc.T("bench.regions", RegionsDone, RegionsTotal), labelStyle);
         Rect bar = new Rect(refRect.x, sy + 30, refRect.width, 12);
         GUI.DrawTexture(bar, Texture2D.whiteTexture, ScaleMode.StretchToFill, false, 0, new Color(1, 1, 1, 0.15f), 0, 4);
         Color fill = Score >= 0.75f ? new Color(0.35f, 0.95f, 0.45f) : (Score >= 0.5f ? new Color(1f, 0.75f, 0.25f) : new Color(1f, 0.4f, 0.3f));

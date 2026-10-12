@@ -435,3 +435,110 @@ Galeri masalarında durur, E ile çantaya alınır; sahtesi gerekmez, karaborsad
 - **Brifing:** obje + `NetworkObject` + `BriefingTerminal`.
 - **Görev:** NetworkObject'li bir sahne objesine (ör. ChatManager) `MuseumSession`.
 - Vazo/tablo kaidesi olarak görünmesi için eserin id'sinde `vase` ya da `painting` geçmeli.
+
+---
+
+## Ek 9: Değişen müze, oda kameraları, hapis alarmı, daha akıllı güvenlik, yeni görünümler
+
+Sahneyi yeniden kurmaya GEREK YOK: hepsi oyun başında koddan kurulur (ağ nesnelerinin kimlikleri değişmez).
+Sadece kodu commit'leyin, arkadaşınız pull etsin; ikinizde de aynı kod olmalı.
+
+### Her haritada farklı müze (MuseumLayout)
+Görev tohumu değişince (yeni harita / N ile sonraki görev) herkeste aynı şekilde:
+- **İçeride:** eser kaidelerinin yerleri, ara bölmeler, banklar / saksılar / heykeller / halılar / hol sütunları,
+  güvenliklerin devriye yolları değişir. NavMesh sunucuda yeniden oluşturulur.
+- **Her odada bir güvenlik kamerası** (hol, tablo galerisi, vazo galerisi, hazine, başyapıt salonu) — yeri
+  haritadan haritaya değişir; ileri seviyelerde hol / vazo / hazine odasına ikinci kamera gelir.
+  Sahnedeki eski sabit Camera_* objeleri gizlenir ve çalışmaz.
+- **Dışarıda:** temaya göre cephe (Paris sütunları, Londra tuğlası, Amsterdam basamaklı çatısı, Floransa kemerleri,
+  Madrid bayrakları, İstanbul kubbe + minareler, Kahire pilonları + dikilitaşlar, Tokyo torii kapısı),
+  sokakta ağaçlar / banklar / park etmiş arabalar, yer rengi, günün saati (gece / akşam / gündüz + sis).
+  Giriş tabelasında müzenin adı yazar.
+- Sabit kalanlar: kapılar, dolaplar / perdeler, ganimet masaları, Staff Only köşesi, hapis.
+
+### Alarm ve hapis
+- Alarm artık **15 sn**.
+- Biri hapse atılınca **alarm susar**.
+- Arkadaşın kapıda **E'ye basılı tutmaya başlayınca** güvenlikler hapse koşar (kilidi kurcalamak da suç sayılır).
+- Kurtarınca **alarm yeniden çalar**; kurtaran ve kaçan aranır.
+
+### Daha akıllı güvenlik
+- Hapisten çıkan / kaçırılan / kovalamadan kaçan oyuncuyu **60 sn tanırlar**: görünce hemen şüphelenirler.
+- Kovalarken birbirlerine telsizle yer bildirirler, kaçtığın yöne önden keserler.
+- Gözlerinin önünde dolaba / perdeye girersen gelip **açarlar ve yakalarlar**.
+- Alarm bitse bile seni hâlâ görüyorlarsa bırakmazlar (alarmı yeniden çaldırırlar); kaybedince
+  son görüldüğün yerin çevresini ~14 sn ararlar.
+
+### Diğer
+- Tablo benzerliği artık **bölge bölge**: gökyüzü + deniz tek başına yetmez; tekne, yelken, bulutlar da ayrı sayılır.
+  Atölyede "Tamamlanan şekiller: 4/6" yazar.
+- Yapılan sahte (vazo / tablo) verisi sunucudan herkese hemen gönderilir; gelmezse 3 sn'de bir yeniden istenir.
+  Hâlâ silindir görünürse Console'daki `[Forgery]` satırlarını gönderin.
+- Atılan bozuk para 6 sn'de kaybolur.
+- Oyuncuların kolları gövdenin dışında, eldivenli; güvenlikler kapsül yerine üniformalı, şapkalı, fenerli bekçi.
+
+## Ek 10: Değişen oda planı, çatı, gerçekçi dış cepheler, ziyaretçiler, kamera odası, yeni yüzük
+
+**Sahne yeniden kurmaya gerek yok.** Her şey kodla ve harita tohumuna göre oluşur; aynı tohum herkeste aynı müzeyi üretir.
+Kodu (yeni `.cs` dosyaları ve `.meta` dosyaları dahil) commitleyin, arkadaşınız pull etsin.
+İki tarafta da kod **birebir aynı** olmalı.
+
+### Müze içi
+- Her haritada oda planı baştan çizilir: lobi (girişte), 6–10 galeri, Staff Only odası ve güvenlik (kamera) odası.
+- Kapılar ve hapsin hangi köşede olduğu da değişir.
+- Tüm müzelerin **çatısı** ve tavan lambaları var.
+- Tablolar artık **ışıklı duvar panolarına** asılır; her tablonun üstünde bir tablo lambası ve spot ışık bulunur.
+
+### Dış cephe (harita temasına göre)
+- Louvre: cam piramit ve havuzlar, mansard çatılı saray.
+- British Museum: sütunlar ve alınlık.
+- Rijksmuseum: tuğla, iki kule.
+- Uffizi: revaklar ve Duomo kubbesi.
+- Prado: tuğla cephe ve Dor sütunlu giriş.
+- Topkapı: kuleli kapı, Ayasofya kubbesi ve minareler.
+- Mısır Müzesi: pembe cephe, obelisk, sfenks.
+- Tokyo: büyük kırma çatı ve torii.
+
+### Ziyaretçiler
+- Her biri farklı görünen 5–10 ziyaretçi müzeyi gezer.
+- Bir şey çaldığını, kilit kurcaladığını veya konsolu kullandığını görürlerse en yakın güvenliğe koşup haber verirler. Güvenlik onlar gidene kadar alarm çalmaz; haber gelince alarm başlar.
+- Kafalarındaki "!" işareti ihbara gittiklerini gösterir.
+
+### Kamera odası
+- Masadaki konsolda **E basılı tut**: tüm kameralar 4 sn kapanır.
+- Konsol sonra 20 sn bekleme süresine girer.
+- Bir güvenlik seni bu odada görürse **anında alarm** çalar.
+
+### Staff Only eseri
+- Staff Only odasındaki tablo her zaman **×2,5 değerlidir**.
+- Brifing ekranında ve karaborsada bu fiyat gösterilir.
+
+### Yüzük (kuyumcu tezgahı)
+1. **Döküm:** Kalıp ve metali seç, ardından basılı tutup döküm yap. Göstergeyi çizgide bırak; taşarsa kalıbı boşaltıp yeniden başlarsın.
+2. **Taşlar:** Tepsiden bir taş seç, sonra referanstaki açıya göre halkanın üstüne tıkla. Sağ tık taşı kaldırır.
+3. **Cila:** Fareyi halkanın üstünde gezdirerek cilala.
+
+Benzerlik oranı döküm %35, taşlar %45, cila %20 üzerinden hesaplanır.
+
+### Diğer
+- Büst ekranı kaydırılabilir; benzerlik oranı en üstte görünür.
+- Oyuncular ve güvenlikler daha uzun gövdeli: kollar, dirsekler, eller ve bacaklar ayrı ayrı görünür.
+
+## Ek 11: Polis görünüşü, yeni Louvre, atölye arayüzü, kamyonda çöp kutusu
+
+Yine sadece kod değişti, sahneye dokunmaya gerek yok. Kodu (yeni `TrashBin.cs` ve `.meta` dosyası dahil) commitleyin, arkadaşınız pull etsin.
+
+- **Polisler:** Ziyaretçilerle aynı oranlarda yapıldı. Açık mavi kısa kollu gömlek, lacivert pantolon ve kravat, polis şapkası, rozet ve fener var.
+  - Sahnedeki güvenlik objesi ölçeklenmişse görünüş otomatik olarak 1:1'e düzeltilir. Console'da `[GuardLook]` satırı çıkarsa bu düzeltme yapılmış demektir.
+- **Louvre (Paris):** Cour Napoléon avlusu olarak yeniden yapıldı.
+  - Arkada 3 katlı Sully kanadı ve saatli orta köşk var.
+  - İki yanda öne uzanan Richelieu ve Denon kanatları, uçlarında da kare kubbeli köşkler var.
+  - Cephede rustik kemerler, pilastrlar ve alınlıklı pencereler; çatıda mansart çatı pencereleri bulunur.
+  - Ortada çelik baklava örgülü büyük cam piramit, iki küçük piramit, fıskiyeli üçgen havuzlar ve taş döşeme var.
+  - Gece piramit ve cephe aydınlanır.
+- **Atölye arayüzü:**
+  - Atölye açıkken oda kodu, para ve çanta kutuları gizlenir; atölye paneli her şeyin üstünde çizilir.
+  - Benzerlik oranı sol panelin en altında, renkli çubuklu bir kutuda gösterilir (vazo, büst, yüzük).
+- **Çöp kutusu:** Kamyonun içinde, atölye tezgahının yanında (batı duvarının dibinde) duruyor.
+  - Bakıp **E**'ye basınca çantadaki sahteler listelenir. Her birinin yanında "Çöpe at" düğmesi, altta "Bütün sahteleri at" düğmesi var.
+  - Atılan sahte geri gelmez.

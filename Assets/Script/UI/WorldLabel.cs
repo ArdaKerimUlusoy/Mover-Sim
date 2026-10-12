@@ -37,9 +37,14 @@ public class WorldLabel : MonoBehaviour
         }
 
         string text = item != null ? Loc.T(key, item.DisplayName) : Loc.T(key);
+        // Müze girişinde bu haritanın müzesinin adı yazsın
+        if (key == "label.museum" && MuseumSession.Instance != null && MuseumSession.Instance.Ready)
+            text = MuseumSession.Instance.Theme.name + "\n" + text;
         float alpha = Mathf.Clamp01((maxDistance - screen.z) / 3f);
 
-        Rect r = new Rect(screen.x - 150f, Screen.height - screen.y - 12f, 300f, 24f);
+        bool twoLines = text.IndexOf('\n') >= 0;
+        Rect r = twoLines ? new Rect(screen.x - 200f, Screen.height - screen.y - 24f, 400f, 48f)
+                          : new Rect(screen.x - 150f, Screen.height - screen.y - 12f, 300f, 24f);
         Color old = GUI.color;
         GUI.color = new Color(1f, 1f, 1f, alpha);
         GUI.Label(new Rect(r.x + 1f, r.y + 1f, r.width, r.height), text, shadow);

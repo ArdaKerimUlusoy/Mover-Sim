@@ -249,6 +249,7 @@ public class SessionMenuUI : MonoBehaviour
 
     private void DrawHud(SessionManager sm)
     {
+        if (WorkbenchUI.IsOpen) return; // atölye panelinin üstüne binmesin
         string code = sm.ActiveSession.Code;
         int count = PlayerNetworkSetup.All.Count > 0 ? PlayerNetworkSetup.All.Count
                   : (sm.ActiveSession.Players != null ? sm.ActiveSession.Players.Count : 1);

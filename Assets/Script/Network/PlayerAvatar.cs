@@ -68,13 +68,17 @@ public class PlayerAvatar : MonoBehaviour
         // Gövde: çizgili kazak hissi için koyu kuşak
         torso = new GameObject("TorsoGroup").transform;
         torso.SetParent(body, false);
-        Part(torso, "Torso", PrimitiveType.Sphere, new Vector3(0f, 0.72f, 0f), new Vector3(0.74f, 0.80f, 0.64f), mainMat);
-        Part(torso, "Belt", PrimitiveType.Cylinder, new Vector3(0f, 0.60f, 0f), new Vector3(0.70f, 0.035f, 0.61f), darkMat);
+        // Daha uzun, net uzuvlu gövde: göğüs + kuşak + boyun (kollar ve bacaklar gövdeden ayrı görünür)
+        Part(torso, "Torso", PrimitiveType.Sphere, new Vector3(0f, 1.12f, 0f), new Vector3(0.58f, 0.70f, 0.44f), mainMat);
+        Part(torso, "Belt", PrimitiveType.Cylinder, new Vector3(0f, 0.86f, 0f), new Vector3(0.52f, 0.035f, 0.40f), darkMat);
+        Part(torso, "Hips", PrimitiveType.Sphere, new Vector3(0f, 0.84f, 0f), new Vector3(0.48f, 0.22f, 0.36f), darkMat);
+        Part(body, "Neck", PrimitiveType.Cylinder, new Vector3(0f, 1.48f, 0f), new Vector3(0.16f, 0.06f, 0.16f), skinMat);
 
-        // Kafa
+        // Kafa (biraz küçültüldü: gövdeyle orantılı)
         head = new GameObject("Head").transform;
         head.SetParent(body, false);
-        head.localPosition = new Vector3(0f, 1.22f, 0f);
+        head.localPosition = new Vector3(0f, 1.5f, 0f);
+        head.localScale = Vector3.one * 0.84f;
         Part(head, "Face", PrimitiveType.Sphere, new Vector3(0f, 0.16f, 0f), new Vector3(0.60f, 0.56f, 0.58f), skinMat);
         // Yüz seçenekleri: 0 göz maskesi, 1 bandana (ağzı kapatır), 2 açık
         faces = new GameObject[PlayerNetworkSetup.FaceCount];
@@ -107,21 +111,20 @@ public class PlayerAvatar : MonoBehaviour
         Part(hats[3].transform, "Hair", PrimitiveType.Sphere, new Vector3(0f, 0.30f, -0.04f), new Vector3(0.58f, 0.34f, 0.56f), darkMat);
         SetOutfit(0, 0, 0);
 
-        // Kollar (omuz pivotlu) ve eldivenler
-        armL = Limb(body, "ArmL", new Vector3(-0.40f, 1.02f, 0f), new Vector3(0.17f, 0.24f, 0.17f), 0.24f, mainMat, darkMat, 0.11f);
-        armR = Limb(body, "ArmR", new Vector3(0.40f, 1.02f, 0f), new Vector3(0.17f, 0.24f, 0.17f), 0.24f, mainMat, darkMat, 0.11f);
+        // Kollar: omuz gövdenin üst kenarında, kollar hafifçe dışa açık durur (gövdenin içine gömülmesin),
+        // kazak kolu + manşet + eldiven (başparmaklı). Eller artık gövdenin dışında net görünür.
+        armL = Arm(body, "ArmL", -1f);
+        armR = Arm(body, "ArmR", 1f);
 
         // Bacaklar (kalça pivotlu) ve ayakkabılar — gövdenin değil kökün çocuğu (zıplamada yerde kalsınlar)
-        legL = Limb(root, "LegL", new Vector3(-0.17f, 0.42f, 0f), new Vector3(0.21f, 0.20f, 0.21f), 0.20f, darkMat, darkMat, 0f);
-        legR = Limb(root, "LegR", new Vector3(0.17f, 0.42f, 0f), new Vector3(0.21f, 0.20f, 0.21f), 0.20f, darkMat, darkMat, 0f);
-        Part(legL, "Shoe", PrimitiveType.Sphere, new Vector3(0f, -0.37f, 0.06f), new Vector3(0.22f, 0.12f, 0.32f), whiteMat);
-        Part(legR, "Shoe", PrimitiveType.Sphere, new Vector3(0f, -0.37f, 0.06f), new Vector3(0.22f, 0.12f, 0.32f), whiteMat);
+        legL = Leg(root, "LegL", -0.13f);
+        legR = Leg(root, "LegR", 0.13f);
 
         // Sırttaki ganimet çuvalı
         sack = new GameObject("Sack").transform;
         sack.SetParent(body, false);
-        sack.localPosition = new Vector3(0f, 0.86f, -0.38f);
-        Part(sack, "Bag", PrimitiveType.Sphere, Vector3.zero, new Vector3(0.50f, 0.56f, 0.44f), sackMat);
+        sack.localPosition = new Vector3(0f, 1.16f, -0.32f);
+        Part(sack, "Bag", PrimitiveType.Sphere, Vector3.zero, new Vector3(0.44f, 0.5f, 0.38f), sackMat);
         Part(sack, "Knot", PrimitiveType.Sphere, new Vector3(0f, 0.30f, 0f), new Vector3(0.16f, 0.14f, 0.16f), sackMat);
         Part(sack, "Rope", PrimitiveType.Cylinder, new Vector3(0f, 0.24f, 0f), new Vector3(0.2f, 0.015f, 0.2f), darkMat);
     }
@@ -144,8 +147,42 @@ public class PlayerAvatar : MonoBehaviour
         build = Mathf.Clamp(bodyBuild, 0, PlayerNetworkSetup.BuildCount - 1);
         float w = build == 1 ? 0.8f : build == 2 ? 1.18f : 1f;
         torso.localScale = new Vector3(w, build == 2 ? 1.06f : 1f, w);
-        if (armL != null) armL.localPosition = new Vector3(-0.40f * w, 1.02f, 0f);
-        if (armR != null) armR.localPosition = new Vector3(0.40f * w, 1.02f, 0f);
+        if (armL != null) armL.localPosition = ShoulderPos(-1f, w);
+        if (armR != null) armR.localPosition = ShoulderPos(1f, w);
+        shoulderWidth = w;
+    }
+
+    private float shoulderWidth = 1f;
+
+    private static Vector3 ShoulderPos(float side, float w) => new Vector3(side * (0.26f * w + 0.09f), 1.38f, 0f);
+
+    /// <summary>Omuz pivotlu kol: omuz, üst kol, dirsek, ön kol, manşet, eldiven + başparmak (hepsi ayrı görünür).</summary>
+    private Transform Arm(Transform parent, string name, float side)
+    {
+        Transform t = new GameObject(name).transform;
+        t.SetParent(parent, false);
+        t.localPosition = ShoulderPos(side, 1f);
+        Part(t, "Shoulder", PrimitiveType.Sphere, Vector3.zero, new Vector3(0.17f, 0.17f, 0.17f), mainMat);
+        Part(t, "UpperArm", PrimitiveType.Capsule, new Vector3(0f, -0.17f, 0f), new Vector3(0.15f, 0.16f, 0.15f), mainMat);
+        Part(t, "Elbow", PrimitiveType.Sphere, new Vector3(0f, -0.33f, 0f), new Vector3(0.14f, 0.14f, 0.14f), mainMat);
+        Part(t, "Forearm", PrimitiveType.Capsule, new Vector3(0f, -0.46f, 0f), new Vector3(0.13f, 0.14f, 0.13f), mainMat);
+        Part(t, "Cuff", PrimitiveType.Cylinder, new Vector3(0f, -0.58f, 0f), new Vector3(0.15f, 0.025f, 0.15f), darkMat);
+        Part(t, "Hand", PrimitiveType.Sphere, new Vector3(0f, -0.66f, 0.01f), new Vector3(0.15f, 0.15f, 0.13f), darkMat);
+        Part(t, "Thumb", PrimitiveType.Sphere, new Vector3(-side * 0.06f, -0.63f, 0.06f), new Vector3(0.06f, 0.08f, 0.06f), darkMat);
+        return t;
+    }
+
+    /// <summary>Kalça pivotlu bacak: uyluk, diz, baldır, ayakkabı.</summary>
+    private Transform Leg(Transform parent, string name, float x)
+    {
+        Transform t = new GameObject(name).transform;
+        t.SetParent(parent, false);
+        t.localPosition = new Vector3(x, 0.82f, 0f);
+        Part(t, "Thigh", PrimitiveType.Capsule, new Vector3(0f, -0.2f, 0f), new Vector3(0.2f, 0.21f, 0.2f), darkMat);
+        Part(t, "Knee", PrimitiveType.Sphere, new Vector3(0f, -0.4f, 0.01f), new Vector3(0.17f, 0.17f, 0.17f), darkMat);
+        Part(t, "Shin", PrimitiveType.Capsule, new Vector3(0f, -0.56f, 0f), new Vector3(0.16f, 0.17f, 0.16f), darkMat);
+        Part(t, "Shoe", PrimitiveType.Sphere, new Vector3(0f, -0.76f, 0.06f), new Vector3(0.2f, 0.12f, 0.32f), whiteMat);
+        return t;
     }
 
     private Transform Limb(Transform parent, string name, Vector3 pivot, Vector3 scale, float halfLength, Material mat, Material tipMat, float tipSize)
@@ -242,8 +279,9 @@ public class PlayerAvatar : MonoBehaviour
 
         // Gövde: yürürken zıplar, hızlanınca öne eğilir, eğilince çöker
         float bob = Mathf.Abs(Mathf.Sin(phase)) * 0.05f * move + Mathf.Sin(Time.time * 1.8f) * 0.008f;
-        float squash = 1f - crouchSmooth * 0.38f - landSquash * 0.12f;
-        body.localPosition = new Vector3(0f, bob - crouchSmooth * 0.12f, 0f);
+        float squash = 1f - landSquash * 0.1f;
+        float drop = crouchSmooth * 0.32f; // eğilince gövde aşağı iner, bacaklar kısalır (ayaklar yerde kalır)
+        body.localPosition = new Vector3(0f, bob - drop, 0f);
         body.localScale = new Vector3(1f + (1f - squash) * 0.35f, squash, 1f + (1f - squash) * 0.35f);
         body.localRotation = Quaternion.Euler(move * 7f + crouchSmooth * 14f, 0f, Mathf.Sin(phase) * 2.5f * move);
 
@@ -252,14 +290,19 @@ public class PlayerAvatar : MonoBehaviour
         head.localRotation = Quaternion.Euler(Mathf.Clamp(pitch, -40f, 40f) * 0.7f, 0f, 0f);
 
         // Kollar: yürürken ters fazda sallanır; elinde eser varsa öne uzanır
+        // Dışa açıklık: gövde genişledikçe biraz artar; eser tutarken kollar öne uzanıp eller önde birleşir
         float reach = -72f * holdSmooth;
-        armL.localRotation = Quaternion.Euler(Mathf.Lerp(swing, reach, holdSmooth), 0f, -10f - holdSmooth * 12f);
-        armR.localRotation = Quaternion.Euler(Mathf.Lerp(-swing, reach, holdSmooth), 0f, 10f + holdSmooth * 12f);
+        float splay = Mathf.Lerp(9f + shoulderWidth * 5f, 5f, holdSmooth) + crouchSmooth * 6f;
+        float inward = holdSmooth * 14f; // eller öne doğru birbirine yaklaşır
+        armL.localRotation = Quaternion.Euler(Mathf.Lerp(swing, reach, holdSmooth), inward, -splay);
+        armR.localRotation = Quaternion.Euler(Mathf.Lerp(-swing, reach, holdSmooth), -inward, splay);
 
         legL.localRotation = Quaternion.Euler(-swing, 0f, 0f);
         legR.localRotation = Quaternion.Euler(swing, 0f, 0f);
-        float legScale = 1f - crouchSmooth * 0.45f;
-        legL.localScale = legR.localScale = new Vector3(1f, legScale, 1f);
+        float hip = 0.82f - drop;
+        legL.localPosition = new Vector3(legL.localPosition.x, hip, 0f);
+        legR.localPosition = new Vector3(legR.localPosition.x, hip, 0f);
+        legL.localScale = legR.localScale = new Vector3(1f, hip / 0.82f, 1f);
 
         // Çuval çanta doldukça şişer
         float load = inventory != null && inventory.IsSpawned ? inventory.LoadRatio : 0f;

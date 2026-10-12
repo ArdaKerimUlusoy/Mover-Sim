@@ -15,7 +15,7 @@ public class PlayerInteractor : MonoBehaviour
     [SerializeField] private float stealHoldDuration = 1.5f;
     [SerializeField] private LayerMask mask = ~0;
 
-    private enum TargetKind { None, Item, Interactable, Player }
+    private enum TargetKind { None, Item, Interactable, Player, Trash }
 
     private PlayerNetworkSetup netSetup;
     private PlayerStealth stealth;
@@ -28,6 +28,7 @@ public class PlayerInteractor : MonoBehaviour
     private WorldItem targetItem;
     private Interactable targetInteractable;
     private PlayerInventory targetPlayer;
+    private TrashBin targetTrash;
 
     private Object holdTarget;
     private float holdTime;
@@ -107,6 +108,15 @@ public class PlayerInteractor : MonoBehaviour
                 }
                 break;
 
+            case TargetKind.Trash:
+                CancelHold();
+                if (kb.eKey.wasPressedThisFrame && inventory != null)
+                {
+                    targetTrash.PeekOpen();
+                    inventory.OpenExternal(targetTrash);
+                }
+                break;
+
             case TargetKind.Player:
                 if (inventory == null || !inventory.CanStealFrom(targetPlayer)) { CancelHold(); break; }
                 if (UpdateHold(kb, targetPlayer, stealHoldDuration))
@@ -141,6 +151,7 @@ public class PlayerInteractor : MonoBehaviour
 
         if (waitForRelease) return false;
 
+        if (holdTime <= 0f && target is Interactable started) started.ClientHoldStarted(this);
         holdTime += Time.deltaTime;
         if (holdTime >= duration)
         {
@@ -157,7 +168,8 @@ public class PlayerInteractor : MonoBehaviour
         if (stealth == null) return;
         bool crime = holdTime > 0f && holdTarget != null &&
                      ((kind == TargetKind.Player && holdTarget == targetPlayer) ||
-                      (kind == TargetKind.Interactable && holdTarget == targetInteractable && targetInteractable is ArtworkDisplay));
+                      (kind == TargetKind.Interactable && holdTarget == targetInteractable &&
+                       (targetInteractable is ArtworkDisplay || targetInteractable is JailCell || targetInteractable is SecurityCamera))); // kilit / konsol kurcalamak da suç
         stealth.SetDoingCrime(crime);
     }
 
@@ -173,6 +185,7 @@ public class PlayerInteractor : MonoBehaviour
         targetItem = null;
         targetInteractable = null;
         targetPlayer = null;
+        targetTrash = null;
     }
 
     private void FindTarget()
@@ -208,6 +221,14 @@ public class PlayerInteractor : MonoBehaviour
         {
             kind = TargetKind.Item;
             targetItem = wi;
+            return;
+        }
+
+        TrashBin bin = best.GetComponentInParent<TrashBin>();
+        if (bin != null && closest <= TrashBin.UseRange)
+        {
+            kind = TargetKind.Trash;
+            targetTrash = bin;
             return;
         }
 
@@ -272,6 +293,10 @@ public class PlayerInteractor : MonoBehaviour
                 }
                 break;
             }
+
+            case TargetKind.Trash:
+                UIUtil.DrawPrompt(Loc.T("trash.prompt"), y, Color.white);
+                break;
 
             case TargetKind.Player:
             {

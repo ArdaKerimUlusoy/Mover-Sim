@@ -60,7 +60,24 @@ public class MuseumSession : NetworkBehaviour
         }
     }
 
-    private void Awake() { Instance = this; }
+    private void Awake()
+    {
+        Instance = this;
+        if (GetComponent<VisitorManager>() == null) gameObject.AddComponent<VisitorManager>(); // müzeyi gezen ziyaretçiler
+    }
+
+    // ---------------- Ziyaretçiler (VisitorManager konumları bu objenin RPC'siyle gönderir) ----------------
+
+    public void ServerSendVisitors(byte[] data)
+    {
+        if (IsServer && IsSpawned && data != null) VisitorSnapshotRpc(data);
+    }
+
+    [Rpc(SendTo.NotServer, Delivery = RpcDelivery.Unreliable)]
+    private void VisitorSnapshotRpc(byte[] data)
+    {
+        if (VisitorManager.Instance != null) VisitorManager.Instance.ClientApply(data);
+    }
 
     public override void OnDestroy()
     {
@@ -138,7 +155,7 @@ public class MuseumSession : NetworkBehaviour
         {
             if (d == null || d.Artwork == null || !IsDisplayActive(d)) continue;
             if (d.Kind == ArtKind.None) continue; // ana hedefler: sahtesi yapılabilen eserler
-            sum += d.Artwork.baseValue;
+            sum += d.Value;
         }
         int q = Mathf.RoundToInt(sum * quotaFactor) + quotaExtra;
         return Mathf.Max(50, Mathf.CeilToInt(q / 50f) * 50);
@@ -208,6 +225,14 @@ public class MuseumSession : NetworkBehaviour
         // Müze yapısını boya. MaterialPropertyBlock: malzeme kopyası üretmez, paylaşılan asset'ler değişmez.
         // Kamyon, sokak ve garaj farklı adlar kullandığı için (TruckWall_, Ground_, GarageWall_) temadan etkilenmez.
         GameObject root = GameObject.Find(museumRootName);
+
+        // Her haritada müzenin içi (kaideler, bölmeler, dekor, kameralar, devriye) ve dışı (cephe, sokak, ışık) değişir
+        bool layoutChanged = MuseumLayout.Apply(root, Seed, ThemeIndex);
+        if (layoutChanged && IsServer)
+        {
+            RuntimeNavMeshBaker.Rebake(); // güvenlikler yeni bölmelerin etrafından dolaşsın
+            foreach (GuardAI g in SecurityManager.Guards) if (g != null) g.ServerResetForLayout();
+        }
         if (root != null)
         {
             if (themeBlock == null) themeBlock = new MaterialPropertyBlock();

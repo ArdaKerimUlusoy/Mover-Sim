@@ -158,6 +158,8 @@ public class ForgeryWorkbench : Interactable
             inv.ServerNotify("inv.full");
             return;
         }
+        // Herkes bu sahteyi yapanın gördüğü şekliyle görsün (silindir/hazır şekil yerine): veriyi hemen yolla
+        inv.ServerBroadcastForgery(forgeryId, up.buffer);
 
         inv.ServerNotify("bench.done", sim.ToString(), forgery);
         inv.ServerPlaySound(SoundId.HoldComplete, transform.position);

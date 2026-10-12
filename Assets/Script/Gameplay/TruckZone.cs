@@ -16,6 +16,7 @@ public class TruckZone : MonoBehaviour
     {
         box = GetComponent<BoxCollider>();
         box.isTrigger = true;
+        TrashBin.CreateFor(this); // kötü sahteleri atmak için çöp kutusu (her bilgisayarda aynı yerde)
     }
 
     private void OnEnable() => Instance = this;

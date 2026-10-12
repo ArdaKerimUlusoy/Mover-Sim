@@ -50,7 +50,7 @@ public class BlackMarket : Interactable, IInventoryPanel
             ItemDefinition def = db != null ? db.Get(s.ItemIndex) : null;
             if (def == null || def.type != ItemType.Original) continue;
 
-            int price = PriceRules.SalePrice(def, s.Similarity);
+            int price = PriceRules.SalePrice(def, s);
             total += price;
             count++;
 
@@ -138,7 +138,7 @@ public class BlackMarket : Interactable, IInventoryPanel
         def = ItemDatabase.Instance != null ? ItemDatabase.Instance.Get(s.ItemIndex) : null;
         if (def == null || def.type != ItemType.Original) return 0;
 
-        int price = PriceRules.SalePrice(def, s.Similarity) * s.Count;
+        int price = PriceRules.SalePrice(def, s) * s.Count;
         inv.ServerRemoveAt(slotIndex, s.Count);
 
         TeamBank bank = TeamBank.Instance;

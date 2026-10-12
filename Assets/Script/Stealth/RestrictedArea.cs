@@ -12,10 +12,21 @@ public class RestrictedArea : MonoBehaviour
 
     private BoxCollider box;
 
+    [Tooltip("Burada bir güvenliğe görünen oyuncu yüzünden ANINDA alarm çalar (güvenlik odası).")]
+    public bool instantAlarm;
+
+    /// <summary>Anında alarm veren bir alanın (güvenlik odası) içinde mi?</summary>
+    public static bool IsInsideInstant(Vector3 worldPos)
+    {
+        foreach (RestrictedArea a in All)
+            if (a != null && a.instantAlarm && a.Contains(worldPos)) return true;
+        return false;
+    }
+
     private void Awake()
     {
         box = GetComponent<BoxCollider>();
-        box.isTrigger = true;
+        if (box != null) box.isTrigger = true;
     }
 
     private void OnEnable() => All.Add(this);
@@ -23,6 +34,8 @@ public class RestrictedArea : MonoBehaviour
 
     public bool Contains(Vector3 worldPos)
     {
+        if (box == null) box = GetComponent<BoxCollider>();
+        if (box == null) return false;
         Vector3 local = transform.InverseTransformPoint(worldPos) - box.center;
         Vector3 half = box.size * 0.5f;
         return Mathf.Abs(local.x) <= half.x && Mathf.Abs(local.y) <= half.y + 1f && Mathf.Abs(local.z) <= half.z;

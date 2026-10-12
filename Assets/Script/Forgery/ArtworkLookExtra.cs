@@ -16,11 +16,13 @@ public sealed class BustLook
 /// <summary>Atölyede kopyalanacak bir yüzüğün görünümü (kuyumcu tezgahı, GDD Bölüm 3).</summary>
 public sealed class JewelLook
 {
-    public const int MaxStones = 3;
+    public const int MaxStones = 4;
 
     public string[] name;
     public int style, metal, stoneCount;
     public int[] stones = new int[MaxStones];
+    /// <summary>Taşların halka üzerindeki açıları (derece; 90 = tepe).</summary>
+    public float[] angles = new float[MaxStones];
 
     public string Name => MuseumTheme.Pick(name);
 }
@@ -128,6 +130,16 @@ public static partial class ArtworkLook
             stoneCount = rng.Next(1, JewelLook.MaxStones + 1),
         };
         for (int i = 0; i < JewelLook.MaxStones; i++) j.stones[i] = rng.Next(JewelGems.Length);
+
+        // Taş açıları: tepe yayında (40°–140°), aralarında en az 22°
+        float span = 100f, gap = 22f;
+        float free = span - gap * Mathf.Max(0, j.stoneCount - 1);
+        var offs = new float[j.stoneCount];
+        for (int i = 0; i < offs.Length; i++) offs[i] = (float)rng.NextDouble() * free;
+        System.Array.Sort(offs);
+        for (int i = 0; i < JewelLook.MaxStones; i++)
+            j.angles[i] = i < j.stoneCount ? 140f - (offs[i] + gap * i) : 90f;
+        if (j.stoneCount == 1) j.angles[0] = 90f + ((float)rng.NextDouble() - 0.5f) * 40f;
         jewelCache[ck] = j;
         return j;
     }
@@ -161,15 +173,20 @@ public static partial class ArtworkLook
 
     public static GameObject BuildBustVisual(BustLook look) => BuildBustVisual(look.sliders, look.stone, look.baseColor);
 
-    public static GameObject BuildJewelVisual(int style, int metal, int stoneCount, int[] stones)
+    /// <summary>Yüzük görseli: kalınlık dökümdeki doluluktan, parlaklık cilâdan, taşlar açılarından gelir.</summary>
+    public static GameObject BuildJewelVisual(JewelCraft c)
     {
         var root = new GameObject("Ring");
-        Material metalMat = MakeLit(JewelMetals[Mathf.Clamp(metal, 0, JewelMetals.Length - 1)]);
-        if (metalMat.HasProperty("_Metallic")) metalMat.SetFloat("_Metallic", 0.85f);
-        if (metalMat.HasProperty("_Smoothness")) metalMat.SetFloat("_Smoothness", 0.75f);
+        Color metalC = JewelMetals[Mathf.Clamp(c.metal, 0, JewelMetals.Length - 1)];
+        float pol = Mathf.Clamp01(c.polish);
+        Material metalMat = MakeLit(Color.Lerp(metalC * 0.7f, metalC, pol));
+        if (metalMat.HasProperty("_Metallic")) metalMat.SetFloat("_Metallic", Mathf.Lerp(0.4f, 0.9f, pol));
+        if (metalMat.HasProperty("_Smoothness")) metalMat.SetFloat("_Smoothness", Mathf.Lerp(0.15f, 0.85f, pol));
 
         const float R = 0.09f;
-        float r = style == 1 ? 0.022f : style == 2 ? 0.016f : 0.011f;
+        int style = Mathf.Clamp(c.style, 0, 2);
+        float baseR = style == 1 ? 0.022f : style == 2 ? 0.016f : 0.011f;
+        float r = baseR * Mathf.Clamp(c.fill / JewelCraft.TargetFill(style), 0.45f, 1.7f);
         Vector3 center = new Vector3(0f, R + r, 0f);
 
         var band = new GameObject("Band");
@@ -185,23 +202,21 @@ public static partial class ArtworkLook
             top += 0.014f;
         }
 
-        stoneCount = Mathf.Clamp(stoneCount, 0, JewelLook.MaxStones);
-        for (int i = 0; i < stoneCount; i++)
+        int n = Mathf.Clamp(c.count, 0, JewelLook.MaxStones);
+        for (int i = 0; i < n; i++)
         {
-            // Ortadaki taş tepede, diğerleri iki yanında
-            float angle = stoneCount == 1 ? 90f : stoneCount == 2 ? (i == 0 ? 105f : 75f) : 90f + (1 - i) * 26f;
-            float rad = angle * Mathf.Deg2Rad;
-            float size = (stoneCount == 3 && i != 1) ? 0.034f : 0.046f;
+            float rad = c.angles[i] * Mathf.Deg2Rad;
             Vector3 dir = new Vector3(Mathf.Cos(rad), Mathf.Sin(rad), 0f);
-            int gem = stones != null && i < stones.Length ? Mathf.Clamp(stones[i], 0, JewelGems.Length - 1) : 0;
+            int gem = Mathf.Clamp(c.gems[i], 0, JewelGems.Length - 1);
             Material gemMat = MakeLit(JewelGems[gem]);
             if (gemMat.HasProperty("_Smoothness")) gemMat.SetFloat("_Smoothness", 0.9f);
-            Part(root, PrimitiveType.Sphere, center + dir * (top + size * 0.25f), Vector3.one * size, gemMat);
+            float rr = Mathf.Abs(c.angles[i] - 90f) < 30f && style == 2 ? top : R + r;
+            Part(root, PrimitiveType.Sphere, center + dir * (rr + 0.012f), Vector3.one * 0.038f, gemMat);
         }
         return root;
     }
 
-    public static GameObject BuildJewelVisual(JewelLook look) => BuildJewelVisual(look.style, look.metal, look.stoneCount, look.stones);
+    public static GameObject BuildJewelVisual(JewelLook look) => BuildJewelVisual(JewelCraft.FromLook(look));
 
     static void Part(GameObject parent, PrimitiveType type, Vector3 pos, Vector3 scale, Material m)
     {
@@ -308,10 +323,8 @@ public static partial class ArtworkLook
 
             case ArtKind.Jewelry:
             {
-                if (d.pars.Length < 3 + JewelLook.MaxStones) return null;
-                var stones = new int[JewelLook.MaxStones];
-                for (int i = 0; i < stones.Length; i++) stones[i] = d.pars[3 + i];
-                go = BuildJewelVisual(d.pars[0], d.pars[1], d.pars[2], stones);
+                if (!JewelCraft.TryFromPars(d.pars, out JewelCraft jc)) return null;
+                go = BuildJewelVisual(jc);
                 break;
             }
         }
@@ -346,7 +359,7 @@ public static partial class ArtworkLook
             case ArtKind.Vase: t = VaseIcon(Vase(seed, theme, key), IconSize); break;
             case ArtKind.Painting: t = Painting(seed, theme, key).image; break;
             case ArtKind.Bust: { BustLook b = Bust(seed, theme, key); t = BustIcon(b.sliders, b.stone, b.baseColor); break; }
-            case ArtKind.Jewelry: { JewelLook j = Jewel(seed, theme, key); t = JewelIcon(j.style, j.metal, j.stoneCount, j.stones); break; }
+            case ArtKind.Jewelry: t = JewelIcon(JewelCraft.FromLook(Jewel(seed, theme, key))); break;
             default: return null;
         }
         originalIcons[ck] = t;
@@ -421,29 +434,24 @@ public static partial class ArtworkLook
     }
 
     /// <summary>Yüzüğün önden görünüşü (BuildJewelVisual ile aynı düzen).</summary>
-    public static Texture2D JewelIcon(int style, int metal, int stoneCount, int[] stones)
+    public static Texture2D JewelIcon(JewelCraft c)
     {
         Color[] px = NewIcon();
-        Color m = JewelMetals[Mathf.Clamp(metal, 0, JewelMetals.Length - 1)];
+        Color m = JewelMetals[Mathf.Clamp(c.metal, 0, JewelMetals.Length - 1)];
+        int style = Mathf.Clamp(c.style, 0, 2);
         float cx = IconSize * 0.5f, cy = 40f, R = 28f;
-        float thick = style == 1 ? 8f : style == 2 ? 6f : 4f;
+        float thick = (style == 1 ? 8f : style == 2 ? 6f : 4f) * Mathf.Clamp(c.fill / JewelCraft.TargetFill(style), 0.45f, 1.7f);
 
         Ellipse(px, cx, cy, R + thick * 0.5f, R + thick * 0.5f, m, (R - thick * 0.5f) / (R + thick * 0.5f));
         float top = R + thick * 0.5f;
-        if (style == 2)
-        {
-            Block(px, cx, cy + top + 2f, 26f, 7f, m * 0.9f);
-            top += 5f;
-        }
+        if (style == 2) Block(px, cx, cy + top + 2f, 26f, 7f, m * 0.9f);
 
-        stoneCount = Mathf.Clamp(stoneCount, 0, JewelLook.MaxStones);
-        for (int i = 0; i < stoneCount; i++)
+        int n = Mathf.Clamp(c.count, 0, JewelLook.MaxStones);
+        for (int i = 0; i < n; i++)
         {
-            float angle = stoneCount == 1 ? 90f : stoneCount == 2 ? (i == 0 ? 105f : 75f) : 90f + (1 - i) * 26f;
-            float rad = angle * Mathf.Deg2Rad;
-            float size = (stoneCount == 3 && i != 1) ? 5.5f : 7.5f;
-            int gem = stones != null && i < stones.Length ? Mathf.Clamp(stones[i], 0, JewelGems.Length - 1) : 0;
-            Ellipse(px, cx + Mathf.Cos(rad) * (top + size * 0.4f), cy + Mathf.Sin(rad) * (top + size * 0.4f), size, size, JewelGems[gem]);
+            float rad = c.angles[i] * Mathf.Deg2Rad;
+            int gem = Mathf.Clamp(c.gems[i], 0, JewelGems.Length - 1);
+            Ellipse(px, cx + Mathf.Cos(rad) * (top + 3f), cy + Mathf.Sin(rad) * (top + 3f), 6.5f, 6.5f, JewelGems[gem]);
         }
         return FinishIcon(px, "RingIcon");
     }
@@ -459,12 +467,7 @@ public static partial class ArtworkLook
             for (int i = 0; i < s.Length; i++) s[i] = d.pars[i] / 255f;
             return BustIcon(s, d.pars[BustLook.SliderCount], d.pars[BustLook.SliderCount + 1]);
         }
-        if (d.kind == ArtKind.Jewelry && d.pars.Length >= 3 + JewelLook.MaxStones)
-        {
-            var stones = new int[JewelLook.MaxStones];
-            for (int i = 0; i < stones.Length; i++) stones[i] = d.pars[3 + i];
-            return JewelIcon(d.pars[0], d.pars[1], d.pars[2], stones);
-        }
+        if (d.kind == ArtKind.Jewelry && JewelCraft.TryFromPars(d.pars, out JewelCraft jc)) return JewelIcon(jc);
         if (d.kind != ArtKind.Vase || d.VaseRows < 1 || d.VaseRadial < 3) return null;
 
         const int size = IconSize;
@@ -578,10 +581,8 @@ public static class ForgeryScorer
             }
             case ArtKind.Jewelry:
             {
-                if (d.pars.Length < 3 + JewelLook.MaxStones) return 0;
-                var st = new int[JewelLook.MaxStones];
-                for (int i = 0; i < st.Length; i++) st[i] = d.pars[3 + i];
-                s = Jewel(d.pars[0], d.pars[1], d.pars[2], st, ArtworkLook.Jewel(seed, theme, displayName));
+                if (!JewelCraft.TryFromPars(d.pars, out JewelCraft jc)) return 0;
+                s = JewelCraft.Score(jc, ArtworkLook.Jewel(seed, theme, displayName));
                 break;
             }
             default: return 0;
@@ -589,7 +590,14 @@ public static class ForgeryScorer
         return (byte)Mathf.Clamp(Mathf.RoundToInt(s * 100f), 0, 100);
     }
 
-    public static float Painting(ForgeryData d, PaintingLook look) => Pixels(d, look.image, 32, 24, 0.25f);
+    /// <summary>Tablo: BÖLGE BÖLGE karşılaştırma (PaintingRegions). Sadece büyük alanları (gökyüzü, deniz) boyamak yetmez;
+    /// tekne, bulut, güneş gibi küçük şekillerin her biri ayrı ayrı sayılır.</summary>
+    public static float Painting(ForgeryData d, PaintingLook look)
+    {
+        if (d == null || look == null || d.width <= 0 || d.height <= 0) return 0f;
+        return PaintingRegions.Score((u, v) => d.PixelColor(Mathf.Min(d.width - 1, (int)(u * d.width)), Mathf.Min(d.height - 1, (int)(v * d.height))),
+                                     look, out _, out _);
+    }
 
     /// <summary>Sahtenin pikselleri referansla nx×ny örnekte karşılaştırılır.</summary>
     static float Pixels(ForgeryData d, Texture2D reference, int nx, int ny, float tolerance)
@@ -645,5 +653,166 @@ public static class ForgeryScorer
             if (i < stoneCount && stones[i] == target.stones[i]) match++;
         s += 0.3f * match / Mathf.Max(1, target.stoneCount);
         return Mathf.Clamp01(s);
+    }
+}
+
+/// <summary>
+/// Tablo benzerliği için referans resmin BÖLGELERİ: aynı renkteki bitişik alanlar (gökyüzü, deniz, tekne gövdesi,
+/// yelken, her bir bulut...). Her bölgenin ne kadarının doğru renkle boyandığı ayrı ölçülür.
+///   - Bölgenin ağırlığı alanının 0.4. kuvveti: büyük alan yine daha önemli ama küçük şekiller de ciddi pay alır
+///     (ör. tekneli resimde gökyüzü + deniz tek başına ~%60, tekne/yelken/bulutlar olmadan "İyi"ye çıkamaz).
+///   - Önemli bölgelerin (%1'den büyük) hepsi bitmeden puan ayrıca kırpılır.
+///   - Renk eşleşmesi tablonun paletine göre yapılır: boş tuval rengi beyaz yelkeni "boyanmış" saymaz.
+/// Atölyedeki canlı gösterge ve sunucudaki gerçek puan aynı hesabı kullanır.
+/// </summary>
+public sealed class PaintingRegions
+{
+    public const int GW = 64, GH = 48;
+    private const float MinSignificantShare = 0.01f;
+    private const float WeightPower = 0.4f;
+
+    public int Count;
+    private int[] label;          // hücre → bölge (-1 = çok küçük kırıntı, sayılmaz)
+    private int[] regionPalette;  // bölge → paletteki renk
+    private int[] regionSize;
+    private float[] weight;
+    private bool[] significant;
+    private Color[] palette;      // tablonun paleti + boş tuval rengi (en sonda)
+
+    private static readonly Dictionary<Texture2D, PaintingRegions> cache = new Dictionary<Texture2D, PaintingRegions>();
+
+    public static PaintingRegions For(PaintingLook look)
+    {
+        if (look == null || look.image == null) return null;
+        if (cache.TryGetValue(look.image, out PaintingRegions r) && r != null) return r;
+        r = Build(look);
+        cache[look.image] = r;
+        return r;
+    }
+
+    private static PaintingRegions Build(PaintingLook look)
+    {
+        Texture2D tex = look.image;
+        Color[] src = tex.GetPixels();
+        int tw = tex.width, th = tex.height;
+
+        var pal = new List<Color>();
+        if (look.palette != null) pal.AddRange(look.palette);
+        pal.Add(CanvasPainter.CanvasBase);
+
+        var r = new PaintingRegions { palette = pal.ToArray(), label = new int[GW * GH] };
+        var cellPal = new int[GW * GH];
+        for (int y = 0; y < GH; y++)
+            for (int x = 0; x < GW; x++)
+            {
+                int sx = Mathf.Min(tw - 1, (int)((x + 0.5f) / GW * tw));
+                int sy = Mathf.Min(th - 1, (int)((y + 0.5f) / GH * th));
+                cellPal[y * GW + x] = Nearest(r.palette, r.palette.Length - 1, src[sy * tw + sx]); // referansı boş tuvale eşleme
+                r.label[y * GW + x] = -2;
+            }
+
+        // Aynı renkteki bitişik hücreleri tek bölge yap (4 komşu)
+        var sizes = new List<int>();
+        var pals = new List<int>();
+        var stack = new Stack<int>();
+        var members = new List<int>();
+        for (int start = 0; start < cellPal.Length; start++)
+        {
+            if (r.label[start] != -2) continue;
+            int p = cellPal[start];
+            members.Clear();
+            stack.Push(start);
+            r.label[start] = -3;
+            while (stack.Count > 0)
+            {
+                int i = stack.Pop();
+                members.Add(i);
+                int cx = i % GW, cy = i / GW;
+                TryPush(r.label, cellPal, p, cx - 1, cy, stack);
+                TryPush(r.label, cellPal, p, cx + 1, cy, stack);
+                TryPush(r.label, cellPal, p, cx, cy - 1, stack);
+                TryPush(r.label, cellPal, p, cx, cy + 1, stack);
+            }
+
+            int id = members.Count >= 3 ? sizes.Count : -1; // 1-2 hücrelik kırıntılar (kenar pürüzü) sayılmaz
+            foreach (int i in members) r.label[i] = id;
+            if (id >= 0) { sizes.Add(members.Count); pals.Add(p); }
+        }
+
+        r.Count = sizes.Count;
+        r.regionSize = sizes.ToArray();
+        r.regionPalette = pals.ToArray();
+        r.weight = new float[r.Count];
+        r.significant = new bool[r.Count];
+        int cells = GW * GH;
+        for (int i = 0; i < r.Count; i++)
+        {
+            r.weight[i] = Mathf.Pow(r.regionSize[i], WeightPower);
+            r.significant[i] = r.regionSize[i] >= cells * MinSignificantShare;
+        }
+        return r;
+    }
+
+    private static void TryPush(int[] label, int[] cellPal, int p, int x, int y, Stack<int> stack)
+    {
+        if (x < 0 || y < 0 || x >= GW || y >= GH) return;
+        int i = y * GW + x;
+        if (label[i] != -2 || cellPal[i] != p) return;
+        label[i] = -3;
+        stack.Push(i);
+    }
+
+    /// <summary>Paletteki en yakın renk. skip: bu sıradaki renk aday sayılmaz (-1 = hepsi aday).</summary>
+    private static int Nearest(Color[] pal, int skip, Color c)
+    {
+        int best = 0;
+        float bestD = float.MaxValue;
+        for (int i = 0; i < pal.Length; i++)
+        {
+            if (i == skip) continue;
+            float dr = pal[i].r - c.r, dg = pal[i].g - c.g, db = pal[i].b - c.b;
+            float d = dr * dr + dg * dg + db * db;
+            if (d < bestD) { bestD = d; best = i; }
+        }
+        return best;
+    }
+
+    /// <summary>
+    /// 0..1 benzerlik. sample(u, v): sahte tablonun o noktadaki rengi (u, v 0..1, sol alt köşe 0,0).
+    /// done / total: bitmiş önemli bölge sayısı / toplam önemli bölge (ekranda gösterilir).
+    /// </summary>
+    public static float Score(System.Func<float, float, Color> sample, PaintingLook look, out int done, out int total)
+    {
+        done = 0;
+        total = 0;
+        PaintingRegions r = For(look);
+        if (r == null || r.Count == 0 || sample == null) return 0f;
+
+        var hit = new int[r.Count];
+        for (int y = 0; y < GH; y++)
+            for (int x = 0; x < GW; x++)
+            {
+                int id = r.label[y * GW + x];
+                if (id < 0) continue;
+                Color c = sample((x + 0.5f) / GW, (y + 0.5f) / GH);
+                if (Nearest(r.palette, -1, c) == r.regionPalette[id]) hit[id]++;
+            }
+
+        float sum = 0f, wsum = 0f;
+        for (int i = 0; i < r.Count; i++)
+        {
+            float acc = hit[i] / (float)r.regionSize[i];
+            float credit = Mathf.Clamp01((acc - 0.15f) / 0.75f); // %90 doğru boyanan bölge tam puan
+            sum += r.weight[i] * credit;
+            wsum += r.weight[i];
+            if (r.significant[i])
+            {
+                total++;
+                if (acc >= 0.8f) done++;
+            }
+        }
+        float score = wsum > 0f ? sum / wsum : 0f;
+        float completeness = total > 0 ? done / (float)total : 1f;
+        return Mathf.Clamp01(score * Mathf.Lerp(0.75f, 1f, completeness));
     }
 }

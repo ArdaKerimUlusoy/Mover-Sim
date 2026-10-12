@@ -36,6 +36,9 @@ public class PlayerStealth : NetworkBehaviour
     // Sunucu
     private float lastSeenTime = -10f;
     private float wantedUntil = -1f;
+    private float offenderUntil = -1f;
+    [Tooltip("Hapisten çıkan / kaçan oyuncuyu güvenlikler bu kadar saniye tanır (görünce hemen şüphelenir).")]
+    [SerializeField] private float offenderMemorySeconds = 60f;
 
     // Sahibi: içinde saklandığı dolap
     public HidingSpot CurrentHidingSpot { get; private set; }
@@ -46,6 +49,8 @@ public class PlayerStealth : NetworkBehaviour
     public bool IsCrouching => crouching.Value;
     public bool IsDoingCrime => doingCrime.Value;
     public bool IsWanted => IsServer && Time.time < wantedUntil;
+    /// <summary>Sunucu: güvenliklerin tanıdığı (yakalanıp kaçmış / kaçırılmış) oyuncu mu?</summary>
+    public bool IsKnownOffender => IsServer && Time.time < offenderUntil;
     public bool IsJailed => jailedUntil.Value > 0;
     public double JailedUntil => jailedUntil.Value;
 
@@ -120,6 +125,7 @@ public class PlayerStealth : NetworkBehaviour
             if (IsHoldingArtwork()) level += 1f;
             if (RestrictedArea.IsInside(transform.position)) level += 1f;
             if (IsWanted) level += 1.5f;
+            if (IsKnownOffender) level += 1f; // yakalanıp kaçan oyuncuyu güvenlikler tanır
             return level;
         }
     }
@@ -154,6 +160,12 @@ public class PlayerStealth : NetworkBehaviour
     public void ServerMarkWanted(float until)
     {
         if (IsServer) wantedUntil = Mathf.Max(wantedUntil, until);
+    }
+
+    /// <summary>Sunucu: güvenlikler bu oyuncuyu bir süre tanısın (hapisten çıktı / kaçırıldı / kovalamadan kaçtı).</summary>
+    public void ServerMarkOffender()
+    {
+        if (IsServer) offenderUntil = Mathf.Max(offenderUntil, Time.time + offenderMemorySeconds);
     }
 
     private void ServerTick()

@@ -39,6 +39,11 @@ public class GuardAI : NetworkBehaviour
     [SerializeField] private float lookAroundSeconds = 3f;
     [SerializeField] private VisionConeVisual cone;
 
+    [Header("Kovalama zekası")]
+    [Tooltip("Kovaladığı kişiyi kaybedince etrafı ne kadar süre arar.")]
+    [SerializeField] private float searchSeconds = 14f;
+    [SerializeField] private float searchRadius = 7f;
+
     [Header("Görev (MuseumSession)")]
     [Tooltip("Bu güvenlik hangi görev seviyesinden itibaren görevde? (GDD: seviye arttıkça güvenlik sayısı artar)")]
     [SerializeField, Min(1)] private int requiredLevel = 1;
@@ -69,6 +74,14 @@ public class GuardAI : NetworkBehaviour
     private float nextFakeCheck;
     private readonly HashSet<ArtworkDisplay> inspected = new HashSet<ArtworkDisplay>();
 
+    // Kovalama / arama
+    private float searchUntil = -1f;        // > şimdi: kaybettiği kişiyi arıyor (Investigate durumunda)
+    private HidingSpot huntSpot;            // kovaladığı kişinin saklandığı dolap (gördüyse)
+    private Vector3 focusVelocity;
+    private Vector3 focusPrevPos;
+    private float focusPrevTime = -1f;
+    private float nextRealarm;
+
     public State CurrentState => state.Value;
 
     private Vector3 Eye => transform.position + Vector3.up * eyeHeight;
@@ -78,6 +91,7 @@ public class GuardAI : NetworkBehaviour
         agent = GetComponent<NavMeshAgent>();
         agent.enabled = false; // NavMesh hazır olana kadar
         if (cone == null) cone = GetComponentInChildren<VisionConeVisual>();
+        if (GetComponent<GuardLook>() == null) gameObject.AddComponent<GuardLook>(); // kapsül yerine üniformalı bekçi
     }
 
     public override void OnNetworkSpawn()
@@ -107,6 +121,7 @@ public class GuardAI : NetworkBehaviour
     public void ServerInvestigate(Vector3 pos, bool isFake, ArtworkDisplay display = null)
     {
         if (!IsServer || !Online || state.Value == State.Chase) return;
+        searchUntil = -1f;
         investigatePoint = pos;
         investigateIsFake = isFake;
         investigateDisplay = display;
@@ -128,6 +143,7 @@ public class GuardAI : NetworkBehaviour
         }
 
         alert.Value = 100;
+        searchUntil = -1f;
         SetState(State.Chase);
         MoveTo(pos, chaseSpeed);
     }
@@ -135,9 +151,108 @@ public class GuardAI : NetworkBehaviour
     public void ServerOnAlarmEnded()
     {
         if (!IsServer || !Online) return;
+
+        if (state.Value == State.Chase)
+        {
+            // Hâlâ gözünün önündeyse bırakmaz; az önce kaybettiyse son görüldüğü yeri arar
+            if (focus != null && !focus.IsJailed && Time.time - lastFocusSeen < 2.5f) return;
+            focus = null;
+            BeginSearch(lastKnownPos);
+            return;
+        }
         focus = null;
         SetState(State.Patrol);
         GoToWaypoint();
+    }
+
+    /// <summary>Sunucu: biri hapis kilidini kurcalıyor → koşarak hapse gider, orada kimi görürse şüphelenir.</summary>
+    public void ServerRespondToJailbreak(Vector3 jailPos, PlayerStealth rescuer)
+    {
+        if (!IsServer || !Online) return;
+        if (state.Value == State.Chase) { lastKnownPos = jailPos; return; }
+
+        investigatePoint = jailPos;
+        investigateIsFake = false;
+        investigateDisplay = null;
+        lookAroundUntil = -1f;
+        searchUntil = Time.time + searchSeconds * 0.6f;
+        lastKnownPos = jailPos;
+        SetState(State.Investigate);
+        alert.Value = 80;
+        MoveTo(jailPos, investigateSpeed * 1.5f);
+        PlaySoundRpc(SoundId.GuardHuh, transform.position);
+    }
+
+    /// <summary>MuseumLayout: haritanın kat planına göre yeni devriye yolu.</summary>
+    public void SetWaypoints(Transform[] points)
+    {
+        if (points == null || points.Length == 0) return;
+        waypoints = points;
+        waypointIndex = 0;
+    }
+
+    /// <summary>Sunucu: müze düzeni değişti (yeni harita) → ilk devriye noktasına ışınlan, devriyeye başla.</summary>
+    public void ServerResetForLayout()
+    {
+        if (!IsServer) return;
+        focus = null;
+        huntSpot = null;
+        searchUntil = -1f;
+        lookAroundUntil = -1f;
+        waypointIndex = 0;
+        state.Value = State.Patrol;
+        alert.Value = 0;
+        if (agent.enabled && agent.isOnNavMesh && waypoints != null && waypoints.Length > 0 && waypoints[0] != null &&
+            NavMesh.SamplePosition(waypoints[0].position, out NavMeshHit hit, 3f, NavMesh.AllAreas))
+        {
+            agent.Warp(hit.position);
+        }
+        GoToWaypoint();
+    }
+
+    /// <summary>Kaybettiği kişiyi aramaya başlar: önce gittiği yöne doğru, sonra etrafta birkaç noktaya bakar.</summary>
+    private void BeginSearch(Vector3 from)
+    {
+        Vector3 guess = from + Vector3.ClampMagnitude(focusVelocity * 1.5f, 5f);
+        investigatePoint = guess;
+        investigateIsFake = false;
+        investigateDisplay = null;
+        lookAroundUntil = -1f;
+        searchUntil = Time.time + searchSeconds;
+        lastKnownPos = from;
+        SetState(State.Investigate);
+        alert.Value = 70;
+        MoveTo(guess, investigateSpeed * 1.25f);
+    }
+
+    /// <summary>Telsiz: kovalayan bir güvenlik hedefi görünce diğer kovalayanlara yerini söyler.</summary>
+    private void ShareSighting(PlayerStealth target, Vector3 pos)
+    {
+        foreach (GuardAI g in SecurityManager.Guards)
+        {
+            if (g == null || g == this || !g.Online || g.state.Value != State.Chase) continue;
+            if (g.focus != null && g.focus != target && Time.time - g.lastFocusSeen < 1f) continue; // kendi hedefini görüyor
+            g.focus = target;
+            g.lastKnownPos = pos;
+            g.lastFocusSeen = Mathf.Max(g.lastFocusSeen, Time.time - 1.5f); // birkaç saniye o yöne koşar
+        }
+    }
+
+    private void UpdateFocusVelocity()
+    {
+        if (focus == null) return;
+        Vector3 p = focus.transform.position;
+        if (focusPrevTime > 0f && Time.time - focusPrevTime > 0.05f)
+        {
+            Vector3 v = (p - focusPrevPos) / (Time.time - focusPrevTime);
+            v.y = 0f;
+            if (v.sqrMagnitude < 100f) focusVelocity = Vector3.Lerp(focusVelocity, v, 0.5f);
+        }
+        if (focusPrevTime < 0f || Time.time - focusPrevTime > 0.05f)
+        {
+            focusPrevPos = p;
+            focusPrevTime = Time.time;
+        }
     }
 
     // ---------------- Ana döngü ----------------
@@ -165,6 +280,18 @@ public class GuardAI : NetworkBehaviour
         PlayerStealth seen = LookForPlayers();
         CheckForFakes();
 
+        // Alarm çalarken aranan / tanınan birini görürse doğrudan kovalar
+        SecurityManager sm = SecurityManager.Instance;
+        if (seen != null && state.Value != State.Chase && sm != null && sm.AlarmActive && (seen.IsWanted || seen.IsKnownOffender))
+        {
+            focus = seen;
+            lastFocusSeen = Time.time;
+            focusPrevTime = -1f;
+            searchUntil = -1f;
+            alert.Value = 100;
+            SetState(State.Chase);
+        }
+
         switch (state.Value)
         {
             case State.Patrol: TickPatrol(seen); break;
@@ -186,6 +313,13 @@ public class GuardAI : NetworkBehaviour
 
             float range = viewRange * (p.IsCrouching ? 0.75f : 1f);
             if (!Vision.CanSee(Eye, transform.forward, range, viewAngle, p)) continue;
+
+            // Güvenlik odasına girmiş birini görürse: anında alarm
+            if (RestrictedArea.IsInsideInstant(p.transform.position) && !p.IsJailed && SecurityManager.Instance != null && !SecurityManager.Instance.AlarmActive)
+            {
+                PlaySoundRpc(SoundId.GuardAlert, transform.position);
+                SecurityManager.Instance.ServerTriggerAlarm(p.transform.position, "alarm.secroom", p);
+            }
 
             float dist = Vector3.Distance(transform.position, p.transform.position);
             float proximity = Mathf.Lerp(1.6f, 0.4f, dist / Mathf.Max(range, 0.01f));
@@ -263,7 +397,7 @@ public class GuardAI : NetworkBehaviour
             if (!agent.pathPending && agent.remainingDistance <= (investigateIsFake ? 1.8f : 0.8f))
             {
                 agent.ResetPath();
-                lookAroundUntil = Time.time + lookAroundSeconds;
+                lookAroundUntil = Time.time + (searchUntil > Time.time ? lookAroundSeconds * 0.5f : lookAroundSeconds);
 
                 if (investigateIsFake && SecurityManager.Instance != null)
                 {
@@ -276,10 +410,18 @@ public class GuardAI : NetworkBehaviour
         else
         {
             // Etrafa bakın
-            transform.Rotate(0f, 90f * Time.deltaTime, 0f);
+            transform.Rotate(0f, (searchUntil > Time.time ? 140f : 90f) * Time.deltaTime, 0f);
             if (Time.time >= lookAroundUntil)
             {
                 lookAroundUntil = -1f;
+                if (searchUntil > Time.time && TryPickSearchPoint(out Vector3 next))
+                {
+                    // Arama sürüyor: kaybettiği yerin çevresinde başka bir noktaya bak
+                    investigatePoint = next;
+                    MoveTo(next, investigateSpeed * 1.15f);
+                    return;
+                }
+                searchUntil = -1f;
                 SetState(State.Patrol);
                 GoToWaypoint();
             }
@@ -290,17 +432,58 @@ public class GuardAI : NetworkBehaviour
     {
         agent.speed = chaseSpeed;
 
-        // Hedef: görülen aranan/şüpheli oyuncu
-        if (seen != null && (seen.IsWanted || seen.Suspicion > 0.5f))
+        // Hedef: görülen aranan / tanınan / çok şüpheli oyuncu
+        if (seen != null && (seen.IsWanted || seen.IsKnownOffender || seen.Suspicion > 0.5f))
         {
+            if (focus != seen) focusPrevTime = -1f;
             focus = seen;
             lastFocusSeen = Time.time;
+        }
+        if (focus != null && (!focus.IsSpawned || focus.IsJailed)) { focus = null; huntSpot = null; }
+
+        // Gözünün önünde dolaba / perdeye saklandıysa: oraya gider, açar ve yakalar
+        if (focus != null && focus.IsHidden)
+        {
+            if (huntSpot == null && Time.time - lastFocusSeen < 2f) huntSpot = HidingSpot.FindOccupiedBy(focus);
+            if (huntSpot != null)
+            {
+                MoveTo(huntSpot.transform.position, chaseSpeed);
+                if (Vector3.Distance(transform.position, huntSpot.transform.position) <= 2.1f)
+                {
+                    PlaySoundRpc(SoundId.GuardAlert, transform.position);
+                    if (huntSpot.ServerEvict(focus)) focus.ServerCatch();
+                    huntSpot = null;
+                    focus = null;
+                }
+                return;
+            }
         }
 
         if (focus != null && !focus.IsHidden && Time.time - lastFocusSeen < 3f)
         {
+            UpdateFocusVelocity();
             lastKnownPos = focus.transform.position;
-            agent.SetDestination(lastKnownPos);
+            bool seenNow = Time.time - lastFocusSeen < 0.05f;
+
+            if (seenNow)
+            {
+                ShareSighting(focus, lastKnownPos);
+                focus.ServerMarkWanted(Time.time + 6f);
+
+                // Alarm sustuysa ama hâlâ kaçıyorsa yeniden çaldır (kovalamayı bırakmaz)
+                SecurityManager sm = SecurityManager.Instance;
+                if (sm != null && !sm.AlarmActive && Time.time >= nextRealarm)
+                {
+                    nextRealarm = Time.time + 6f;
+                    sm.ServerTriggerAlarm(lastKnownPos, "alarm.spotted", focus);
+                }
+            }
+
+            // Kaçtığı yöne biraz önden kes
+            float dist = Vector3.Distance(transform.position, lastKnownPos);
+            Vector3 lead = lastKnownPos + focusVelocity * Mathf.Clamp(dist / Mathf.Max(chaseSpeed, 0.1f), 0f, 0.8f);
+            if (NavMesh.SamplePosition(lead, out NavMeshHit lh, 1.5f, NavMesh.AllAreas)) agent.SetDestination(lh.position);
+            else agent.SetDestination(lastKnownPos);
 
             if (Vector3.Distance(transform.position, focus.transform.position) <= catchDistance)
             {
@@ -311,14 +494,33 @@ public class GuardAI : NetworkBehaviour
         }
         else
         {
+            // Kaybetti: kişiyi tanır, son görüldüğü yerden gittiği yöne doğru arar
+            if (focus != null) focus.ServerMarkOffender();
             focus = null;
+            huntSpot = null;
             if (!agent.pathPending && agent.remainingDistance <= 0.8f)
             {
-                // Son bilinen yerde değilse rastgele yakın bir noktayı ara
-                Vector3 random = lastKnownPos + new Vector3(Random.Range(-6f, 6f), 0f, Random.Range(-6f, 6f));
-                if (NavMesh.SamplePosition(random, out NavMeshHit hit, 3f, NavMesh.AllAreas)) agent.SetDestination(hit.position);
+                if (TryPickSearchPoint(out Vector3 next)) agent.SetDestination(next);
             }
         }
+    }
+
+    /// <summary>Son görüldüğü yerin çevresinde (gittiği yöne ağırlıklı) yürünebilir rastgele bir nokta.</summary>
+    private bool TryPickSearchPoint(out Vector3 point)
+    {
+        Vector3 bias = Vector3.ClampMagnitude(focusVelocity, 3f);
+        for (int i = 0; i < 6; i++)
+        {
+            Vector2 r = Random.insideUnitCircle * searchRadius;
+            Vector3 p = lastKnownPos + bias + new Vector3(r.x, 0f, r.y);
+            if (NavMesh.SamplePosition(p, out NavMeshHit hit, 2.5f, NavMesh.AllAreas))
+            {
+                point = hit.position;
+                return true;
+            }
+        }
+        point = lastKnownPos;
+        return false;
     }
 
     /// <summary>Görüş alanındaki değiştirilmiş eserlere bir kez bakar; kötü sahteyi fark edebilir (GDD Bölüm 4 tablosu).</summary>

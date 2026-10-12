@@ -217,7 +217,9 @@ public static class ForgeryRegistry
     private static readonly Dictionary<ushort, byte[]> blobs = new Dictionary<ushort, byte[]>();
     private static readonly Dictionary<ushort, ForgeryData> decoded = new Dictionary<ushort, ForgeryData>();
     private static readonly Dictionary<ushort, Texture2D> icons = new Dictionary<ushort, Texture2D>();
-    private static readonly HashSet<ushort> requested = new HashSet<ushort>();
+    // İstenen ama henüz gelmeyen veriler: ne zaman istendi (cevap kaybolursa birkaç saniye sonra yeniden istenir)
+    private static readonly Dictionary<ushort, float> requested = new Dictionary<ushort, float>();
+    private const float RetryAfterSeconds = 3f;
     private static ushort nextId = 1;
 
     /// <summary>Bir sahtenin verisi bu bilgisayara ulaştı (görseller yenilensin).</summary>
@@ -248,7 +250,14 @@ public static class ForgeryRegistry
     /// <summary>İstemci: sunucudan gelen veriyi kaydet.</summary>
     public static void Store(ushort id, byte[] blob)
     {
-        if (id == 0 || !ForgeryData.TryDecode(blob, out ForgeryData d)) return;
+        if (id == 0) return;
+        if (decoded.ContainsKey(id)) { requested.Remove(id); return; } // zaten var (sunucu herkese yollamış olabilir)
+        if (!ForgeryData.TryDecode(blob, out ForgeryData d))
+        {
+            Debug.LogWarning($"[Forgery] Sahte #{id} verisi çözülemedi ({(blob != null ? blob.Length : 0)} bayt). Yeniden istenecek.");
+            requested.Remove(id);
+            return;
+        }
         blobs[id] = blob;
         decoded[id] = d;
         requested.Remove(id);
@@ -261,11 +270,18 @@ public static class ForgeryRegistry
         data = null;
         if (id == 0) return false;
         if (decoded.TryGetValue(id, out data)) return true;
-        if (requested.Add(id))
+
+        float now = Time.unscaledTime;
+        if (requested.TryGetValue(id, out float askedAt) && now - askedAt < RetryAfterSeconds) return false;
+
+        PlayerInventory local = PlayerInventory.Local;
+        if (local != null && local.IsSpawned)
         {
-            if (PlayerInventory.Local != null) PlayerInventory.Local.RequestForgeryData(id);
-            else requested.Remove(id); // oyuncumuz hazır olunca tekrar denenir
+            if (requested.ContainsKey(id)) Debug.Log($"[Forgery] Sahte #{id} verisi gelmedi, yeniden isteniyor.");
+            requested[id] = now;
+            local.RequestForgeryData(id);
         }
+        // oyuncumuz henüz hazır değilse bir sonraki denemede istenir
         return false;
     }
 

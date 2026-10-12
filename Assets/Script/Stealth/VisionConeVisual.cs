@@ -36,8 +36,12 @@ public class VisionConeVisual : MonoBehaviour
         color = newColor;
     }
 
-    private void Awake()
+    private void Awake() => Init();
+
+    /// <summary>Mesh / malzeme hazırlığı. Awake çalışmadan LateUpdate gelirse (sahne yeniden yüklenirken vb.) burada yapılır.</summary>
+    private void Init()
     {
+        if (mesh != null && mpb != null && meshRenderer != null && vertices != null) return;
         mesh = new Mesh { name = "VisionCone" };
         mesh.MarkDynamic();
         GetComponent<MeshFilter>().sharedMesh = mesh;
@@ -60,6 +64,8 @@ public class VisionConeVisual : MonoBehaviour
 
     private void LateUpdate()
     {
+        if (mesh == null || mpb == null || meshRenderer == null || vertices == null || vertices.Length != segments + 2) { mesh = null; Init(); }
+        if (meshRenderer == null) return;
         Vector3 origin = transform.position;
 
         // Zemin yüksekliğini bir kez bul (kamera tavanda olsa bile koni yerde çizilsin)

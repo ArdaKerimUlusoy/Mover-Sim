@@ -37,6 +37,14 @@ public class ArtworkDisplay : Interactable
     private bool visualPending;
 
     public int RequiredLevel => requiredLevel;
+
+    /// <summary>MuseumLayout: tablo duvara asılı (obje ince bir arka pano, ön yüzü transform.forward).</summary>
+    public bool WallMounted { get; set; }
+
+    /// <summary>Staff Only odasındaki eser her haritada diğerlerinden daha değerli.</summary>
+    public bool IsStaffOnlyPiece => name == "Display_Painting4";
+    public float ValueMultiplier => IsStaffOnlyPiece ? 2.5f : 1f;
+    public int Value => artwork != null ? Mathf.RoundToInt(artwork.baseValue * ValueMultiplier) : 0;
     /// <summary>Bu görevde aktif mi? (Seviyesi gelmemiş kaideler boş durur, etkileşime kapalıdır.)</summary>
     public bool IsActiveForMission => MuseumSession.IsDisplayActive(this);
 
@@ -233,6 +241,21 @@ public class ArtworkDisplay : Interactable
             visual = ItemVisuals.Build(def.worldPrefab, visualMaxSize, true);
         }
         if (visual == null) return;
+
+        if (WallMounted)
+        {
+            // Duvara asılı: resmin ön yüzü (görselde -z) odaya (transform.forward) baksın, panonun önünde ortalansın
+            visual.transform.rotation = Quaternion.LookRotation(-transform.forward, Vector3.up);
+            visual.transform.position = transform.position;
+            if (ItemVisuals.TryGetBounds(visual, out Bounds wb))
+            {
+                visual.transform.position += transform.position - wb.center;
+                Vector3 f = transform.forward;
+                float depth = Mathf.Abs(f.x) * wb.extents.x + Mathf.Abs(f.y) * wb.extents.y + Mathf.Abs(f.z) * wb.extents.z;
+                visual.transform.position += f * (transform.lossyScale.z * 0.5f + depth + 0.005f);
+            }
+            return;
+        }
 
         // Kaidenin üst yüzeyine oturt (kaidenin ölçeği bozmasın diye çocuk yapmıyoruz)
         Collider c = GetComponentInChildren<Collider>();

@@ -13,14 +13,34 @@ public class SecurityManager : NetworkBehaviour
     public static SecurityManager Instance { get; private set; }
     public static readonly List<GuardAI> Guards = new List<GuardAI>();
 
-    [SerializeField] private float alarmDuration = 25f;
+    [Tooltip("Alarm kaç saniye çalar. (Eski adı alarmDuration = 25; sahnedeki eski değer kullanılmasın diye yeni ad.)")]
+    [SerializeField] private float alarmSeconds = 15f;
 
     private readonly NetworkVariable<bool> alarmActive = new NetworkVariable<bool>(false);
     private readonly NetworkVariable<double> alarmEndsAt = new NetworkVariable<double>(0);
+    // Güvenlik odasındaki konsol: kameralar şu ana kadar kapalı / konsol şu andan sonra tekrar kullanılabilir
+    private readonly NetworkVariable<double> camerasOffUntil = new NetworkVariable<double>(0);
+    private readonly NetworkVariable<double> consoleReadyAt = new NetworkVariable<double>(0);
+
+    private double Now => IsSpawned ? NetworkManager.ServerTime.Time : 0;
+    public bool CamerasDisabled => IsSpawned && Now < camerasOffUntil.Value;
+    public float CamerasOffRemaining => Mathf.Max(0f, (float)(camerasOffUntil.Value - Now));
+    public bool CanDisableCameras => IsSpawned && Now >= consoleReadyAt.Value;
+    public float ConsoleCooldownRemaining => Mathf.Max(0f, (float)(consoleReadyAt.Value - Now));
+
+    /// <summary>Sunucu: bütün oda kameralarını birkaç saniye kapatır.</summary>
+    public void ServerDisableCameras(float seconds, float cooldown, string who)
+    {
+        if (!IsServer || !CanDisableCameras) return;
+        camerasOffUntil.Value = Now + seconds;
+        consoleReadyAt.Value = Now + seconds + cooldown;
+        if (ChatManager.Instance != null) ChatManager.Instance.ServerSystemMessage("console.used", who, Mathf.RoundToInt(seconds).ToString());
+    }
 
     private float nextSirenTime;
 
     public bool AlarmActive => alarmActive.Value;
+    public float AlarmSeconds => alarmSeconds;
     public Vector3 AlarmPosition { get; private set; }
 
     private double ServerNow => NetworkManager != null ? NetworkManager.ServerTime.Time : 0;
@@ -46,9 +66,9 @@ public class SecurityManager : NetworkBehaviour
         AlarmPosition = position;
         bool wasActive = alarmActive.Value;
         alarmActive.Value = true;
-        alarmEndsAt.Value = ServerNow + alarmDuration;
+        alarmEndsAt.Value = ServerNow + alarmSeconds;
 
-        if (culprit != null) culprit.ServerMarkWanted(Time.time + alarmDuration);
+        if (culprit != null) culprit.ServerMarkWanted(Time.time + alarmSeconds);
 
         if (!wasActive)
         {
@@ -64,6 +84,28 @@ public class SecurityManager : NetworkBehaviour
         foreach (GuardAI g in Guards)
         {
             if (g != null) g.ServerOnAlarm(position, culprit);
+        }
+    }
+
+    /// <summary>Sunucu: alarmı hemen susturur (ör. aranan kişi hapse girdi). Güvenlikler devriyeye döner.</summary>
+    public void ServerStopAlarm(string reasonKey = "alarm.ended")
+    {
+        if (!IsServer || !alarmActive.Value) return;
+        alarmActive.Value = false;
+        foreach (GuardAI g in Guards)
+        {
+            if (g != null) g.ServerOnAlarmEnded();
+        }
+        if (ChatManager.Instance != null && !string.IsNullOrEmpty(reasonKey)) ChatManager.Instance.ServerSystemMessage(reasonKey, "", "");
+    }
+
+    /// <summary>Sunucu: biri hapisten kaçırılmaya çalışılıyor → bütün güvenlikler hapse koşar.</summary>
+    public void ServerReportJailbreakAttempt(Vector3 jailPos, PlayerStealth rescuer)
+    {
+        if (!IsServer) return;
+        foreach (GuardAI g in Guards)
+        {
+            if (g != null) g.ServerRespondToJailbreak(jailPos, rescuer);
         }
     }
 
@@ -94,15 +136,7 @@ public class SecurityManager : NetworkBehaviour
                 GameAudio.Play2D(SoundId.Alarm, 0.35f, 0f);
             }
 
-            if (IsServer && ServerNow >= alarmEndsAt.Value)
-            {
-                alarmActive.Value = false;
-                foreach (GuardAI g in Guards)
-                {
-                    if (g != null) g.ServerOnAlarmEnded();
-                }
-                if (ChatManager.Instance != null) ChatManager.Instance.ServerSystemMessage("alarm.ended", "", "");
-            }
+            if (IsServer && ServerNow >= alarmEndsAt.Value) ServerStopAlarm();
         }
     }
 
@@ -110,6 +144,12 @@ public class SecurityManager : NetworkBehaviour
 
     private void OnGUI()
     {
+        if (CamerasDisabled)
+        {
+            Rect cr = new Rect((Screen.width - 300f) / 2f, 100f, 300f, 28f);
+            UIUtil.DrawRect(cr, new Color(0.1f, 0.3f, 0.6f, 0.75f));
+            UIUtil.DrawPrompt(Loc.T("console.banner", Mathf.CeilToInt(CamerasOffRemaining)), cr.y + 1f, Color.white, 17);
+        }
         if (!alarmActive.Value || !IsSpawned) return;
 
         double remaining = alarmEndsAt.Value - NetworkManager.ServerTime.Time;
