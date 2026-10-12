@@ -176,7 +176,6 @@ public partial class MuseumLayout
                 Beam(f, "Facade_PyramidLattice", sp, a * (1f - u) + apex * u, 0.045f, steel);
             }
         }
-        Decor(f, "Facade_PyramidDoor", PrimitiveType.Cube, new Vector3(-20.45f, 1.1f, 0f), 0f, new Vector3(0.1f, 2.2f, 2.2f), steel);
         foreach (float z in new[] { -10f, 10f })
         {
             Vector3 sc = new Vector3(-14.5f, 0.03f, z);
@@ -339,11 +338,12 @@ public partial class MuseumLayout
     private void TriPool(Transform f, Vector2 a, Vector2 b, Vector2 c)
     {
         Vector2 m = (a + b + c) / 3f;
-        MeshPart(f, "Facade_PoolRim", TriPrismMesh(a, b, c, 0.3f), new Vector3(0f, 0f, 0f), Mat(new Color(0.42f, 0.42f, 0.45f)));
-        Vector2 Shrink(Vector2 pt) => m + (pt - m) * 0.86f;
-        MeshPart(f, "Facade_PoolWater", TriPrismMesh(Shrink(a), Shrink(b), Shrink(c), 0.01f), new Vector3(0f, 0.302f, 0f), Glass(new Color(0.16f, 0.32f, 0.48f, 0.9f)));
-        Decor(f, "Facade_FountainJet", PrimitiveType.Cylinder, new Vector3(m.x, 0.85f, m.y), 0f, new Vector3(0.09f, 0.55f, 0.09f), new Color(0.85f, 0.92f, 1f));
-        Decor(f, "Facade_FountainSpray", PrimitiveType.Sphere, new Vector3(m.x, 1.42f, m.y), 0f, new Vector3(0.35f, 0.18f, 0.35f), new Color(0.85f, 0.92f, 1f));
+        // Alçak, açık renk granit kenar; içinde parlak su; ortada ince, yarı saydam su fıskiyesi
+        MeshPart(f, "Facade_PoolRim", TriPrismMesh(a, b, c, 0.16f), new Vector3(0f, 0f, 0f), Mat(new Color(0.66f, 0.65f, 0.63f)));
+        Vector2 Shrink(Vector2 pt) => m + (pt - m) * 0.9f;
+        MeshPart(f, "Facade_PoolWater", TriPrismMesh(Shrink(a), Shrink(b), Shrink(c), 0.01f), new Vector3(0f, 0.162f, 0f), Glass(new Color(0.22f, 0.45f, 0.62f, 0.85f)));
+        Transform jet = MeshPart(f, "Facade_FountainJet", ConeMesh(0.12f, 1.1f, 8), new Vector3(m.x, 0.17f, m.y), Glass(new Color(0.85f, 0.93f, 1f, 0.45f)));
+        jet.localScale = Vector3.one;
     }
 
     /// <summary>Tabanı (x, z) üçgeni olan dik prizma.</summary>

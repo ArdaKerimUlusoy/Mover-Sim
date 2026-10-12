@@ -30,7 +30,7 @@ public class VoiceChat : MonoBehaviour
 
     // ---------------- Ayarlar ----------------
 
-    private const string KeyOpenMic = "SS_Voice_OpenMic", KeyVolume = "SS_Voice_Volume", KeyGain = "SS_Voice_Gain",
+    private const string KeyOpenMic = "SS_Voice_OpenMic", KeyVolume = "SS_Voice_Volume", KeyGain = "SS_Voice_Gain2",
                          KeyGate = "SS_Voice_Gate", KeyDevice = "SS_Voice_Device";
 
     /// <summary>true: sürekli açık mikrofon, false: bas-konuş (V).</summary>
@@ -50,7 +50,7 @@ public class VoiceChat : MonoBehaviour
     /// <summary>Mikrofon yükseltme (0.5–4).</summary>
     public static float MicGain
     {
-        get => Mathf.Clamp(PlayerPrefs.GetFloat(KeyGain, 1.5f), 0.5f, 4f);
+        get => Mathf.Clamp(PlayerPrefs.GetFloat(KeyGain, 1f), 0.5f, 4f);
         set => PlayerPrefs.SetFloat(KeyGain, Mathf.Clamp(value, 0.5f, 4f));
     }
 
@@ -93,7 +93,9 @@ public class VoiceChat : MonoBehaviour
     private bool micRunning;
     private float[] micRead = new float[4096];
     private double resT = -1.0;
-    private float lastIn, lp1, lp2;
+    private float lastIn, limGain = 1f;
+    private float[] fir, firHist;
+    private int firPos, firRate;
     private readonly float[] frame = new float[FrameSamples];
     private int frameFill;
     private float gateHold, pttHold;
@@ -238,7 +240,9 @@ public class VoiceChat : MonoBehaviour
         micRate = micClip.frequency;
         lastMicPos = 0;
         resT = -1.0;
-        lastIn = lp1 = lp2 = 0f;
+        lastIn = 0f;
+        limGain = 1f;
+        fir = null;
         frameFill = 0;
         micRunning = true;
     }
@@ -280,15 +284,23 @@ public class VoiceChat : MonoBehaviour
     private void Resample(float[] x, int n)
     {
         double step = micRate / (double)Rate;
-        bool filter = step > 1.2;
-        float alpha = filter ? 1f - Mathf.Exp(-2f * Mathf.PI * 6500f / micRate) : 1f;
-        if (filter)
+        if (step > 1.2)
         {
+            // Örnekleme düşürmeden önce keskin alçak geçiren FIR (7 kHz): yüksek frekanslar sese "cızırtı" olarak katlanmasın
+            if (fir == null || firRate != micRate) BuildFir();
+            int taps = fir.Length;
             for (int i = 0; i < n; i++)
             {
-                lp1 += alpha * (x[i] - lp1);
-                lp2 += alpha * (lp1 - lp2);
-                x[i] = lp2;
+                firHist[firPos] = x[i];
+                float acc = 0f;
+                int k = firPos;
+                for (int t = 0; t < taps; t++)
+                {
+                    acc += fir[t] * firHist[k];
+                    k = k == 0 ? taps - 1 : k - 1;
+                }
+                firPos = (firPos + 1) % taps;
+                x[i] = acc;
             }
         }
 
@@ -305,6 +317,27 @@ public class VoiceChat : MonoBehaviour
         lastIn = x[n - 1];
     }
 
+    /// <summary>Blackman pencereli sinc alçak geçiren süzgeç (kesim 7 kHz, 47 katsayı).</summary>
+    private void BuildFir()
+    {
+        const int taps = 47;
+        fir = new float[taps];
+        firHist = new float[taps];
+        firPos = 0;
+        firRate = micRate;
+        double fc = 7000.0 / micRate, sum = 0;
+        int m = taps - 1;
+        for (int i = 0; i < taps; i++)
+        {
+            double x = i - m / 2.0;
+            double sinc = System.Math.Abs(x) < 1e-9 ? 2 * fc : System.Math.Sin(2 * System.Math.PI * fc * x) / (System.Math.PI * x);
+            double w = 0.42 - 0.5 * System.Math.Cos(2 * System.Math.PI * i / m) + 0.08 * System.Math.Cos(4 * System.Math.PI * i / m);
+            fir[i] = (float)(sinc * w);
+            sum += fir[i];
+        }
+        for (int i = 0; i < taps; i++) fir[i] = (float)(fir[i] / sum);
+    }
+
     private void PushSample(float s)
     {
         frame[frameFill++] = s;
@@ -315,11 +348,18 @@ public class VoiceChat : MonoBehaviour
 
     private void ProcessFrame()
     {
+        // Yükseltme + yumuşak sınırlayıcı: bağırınca ses kırpılıp cızırdamasın (kazanç paket boyunca kayarak değişir)
         float gain = MicGain;
+        float peak = 0f;
+        for (int i = 0; i < FrameSamples; i++) peak = Mathf.Max(peak, Mathf.Abs(frame[i] * gain));
+        float targetLim = peak > 0.85f ? 0.85f / peak : 1f;
+        float fromLim = limGain;
+        limGain = targetLim < limGain ? targetLim : Mathf.Lerp(limGain, targetLim, 0.15f); // hızlı kıs, yavaş aç
         double sum = 0;
         for (int i = 0; i < FrameSamples; i++)
         {
-            float v = Mathf.Clamp(frame[i] * gain, -1f, 1f);
+            float lg = Mathf.Lerp(fromLim, limGain, i / (float)FrameSamples);
+            float v = Mathf.Clamp(frame[i] * gain * lg, -1f, 1f);
             frame[i] = v;
             sum += v * v;
         }

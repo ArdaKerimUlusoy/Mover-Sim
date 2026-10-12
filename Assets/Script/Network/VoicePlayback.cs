@@ -26,7 +26,7 @@ public class VoicePlayback : MonoBehaviour
     private int readPos, writePos, count;
     private double frac;
     private bool buffering = true;
-    private float env, lastSample;
+    private float env, lastSample, lp1, lp2, lpAlpha;
     private double baseStep;
     private AudioSource src;
 
@@ -35,6 +35,8 @@ public class VoicePlayback : MonoBehaviour
         int outRate = AudioSettings.outputSampleRate;
         if (outRate <= 0) outRate = 48000;
         baseStep = Rate / (double)outRate;
+        // 16 kHz → çıkış hızına yükseltirken oluşan tiz yansımaları (cızırtı) süz: ~7 kHz alçak geçiren
+        lpAlpha = 1f - Mathf.Exp(-2f * Mathf.PI * 7000f / outRate);
 
         src = gameObject.AddComponent<AudioSource>();
         src.spatialBlend = 0f; // takım sohbeti: her yerden duyulur
@@ -114,7 +116,9 @@ public class VoicePlayback : MonoBehaviour
                     env *= 0.995f; // son örnekten yumuşakça sessizliğe
                 }
 
-                float o = lastSample * env * g;
+                lp1 += lpAlpha * (lastSample - lp1);
+                lp2 += lpAlpha * (lp1 - lp2);
+                float o = lp2 * env * g;
                 if (o > 1f) o = 1f; else if (o < -1f) o = -1f;
                 int baseIdx = f * channels;
                 for (int c = 0; c < channels; c++) data[baseIdx + c] = o;
