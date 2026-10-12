@@ -57,7 +57,7 @@ public class VoiceChat : MonoBehaviour
     /// <summary>Sürekli açık modda bu seviyenin altındaki sesler gönderilmez (0–0.1, RMS).</summary>
     public static float Gate
     {
-        get => Mathf.Clamp(PlayerPrefs.GetFloat(KeyGate, 0.02f), 0f, 0.1f);
+        get => Mathf.Clamp(PlayerPrefs.GetFloat(KeyGate, 0.012f), 0f, 0.1f);
         set => PlayerPrefs.SetFloat(KeyGate, Mathf.Clamp(value, 0f, 0.1f));
     }
 
@@ -96,7 +96,10 @@ public class VoiceChat : MonoBehaviour
     private float lastIn, lp1, lp2;
     private readonly float[] frame = new float[FrameSamples];
     private int frameFill;
-    private float gateHold;
+    private float gateHold, pttHold;
+    private bool wasTx, hasPrevFrame;
+    private readonly float[] prevFrame = new float[FrameSamples];
+    private readonly float[] swapFrame = new float[FrameSamples];
     private bool pttHeld;
     private int restartMicTimer;
 
@@ -324,14 +327,22 @@ public class VoiceChat : MonoBehaviour
         InputLevel = Mathf.Clamp01(Mathf.Sqrt(rms) * 2.2f);
 
         bool allowed = LocalPlayer() != null;
+        float frameSec = FrameSamples / (float)Rate;
         bool tx;
         if (OpenMic)
         {
-            if (rms > Gate) gateHold = 0.4f;
-            else gateHold -= FrameSamples / (float)Rate;
+            // Eşik geçilince 0.7 sn açık kalır: kelime araları / sessiz heceler kesilmez
+            if (rms > Gate) gateHold = 0.7f;
+            else gateHold -= frameSec;
             tx = allowed && !OpenMicMuted && gateHold > 0f;
         }
-        else tx = allowed && pttHeld;
+        else
+        {
+            // V bırakıldıktan sonra 0.25 sn daha gönder: son hece yarım kalmasın
+            if (pttHeld) pttHold = 0.25f;
+            else pttHold -= frameSec;
+            tx = allowed && pttHold > 0f;
+        }
         Transmitting = tx;
 
         // Arayüz geçmişi
@@ -339,7 +350,21 @@ public class VoiceChat : MonoBehaviour
         historyTx[historyHead] = tx;
         historyHead = (historyHead + 1) % HistoryBars;
 
-        if (tx) SendFrame();
+        if (tx)
+        {
+            // Konuşma yeni başladıysa bir önceki 40 ms'yi de gönder: ilk hece kesilmez
+            if (!wasTx && hasPrevFrame)
+            {
+                System.Array.Copy(frame, swapFrame, FrameSamples);
+                System.Array.Copy(prevFrame, frame, FrameSamples);
+                SendFrame();
+                System.Array.Copy(swapFrame, frame, FrameSamples);
+            }
+            SendFrame();
+        }
+        wasTx = tx;
+        System.Array.Copy(frame, prevFrame, FrameSamples);
+        hasPrevFrame = true;
     }
 
     // =====================================================================
@@ -534,33 +559,21 @@ public class VoiceChat : MonoBehaviour
         public float Level;
 
         private readonly GameObject go;
-        private readonly AudioSource src;
-        private readonly float[] ring = new float[Rate];
-        private readonly object sync = new object();
-        private int readPos, writePos, count;
-        private bool buffering = true;
-        private volatile float gain = 1f;
+        private readonly VoicePlayback playback;
 
         public Remote(ulong id, Transform parent)
         {
             Id = id;
             go = new GameObject("Voice_" + id);
             go.transform.SetParent(parent, false);
-            src = go.AddComponent<AudioSource>();
-            src.spatialBlend = 0f;   // takım sohbeti: herkes her yerden duyar
-            src.playOnAwake = false;
-            src.loop = true;
-            src.priority = 32;
-            src.clip = AudioClip.Create("voice_" + id, Rate, 1, Rate, true, OnRead);
-            src.Play();
+            playback = go.AddComponent<VoicePlayback>();
         }
 
         public bool Speaking => Time.unscaledTime - LastHeard < 0.25f;
 
         public void SetVolume(float v)
         {
-            gain = v;
-            if (src != null) src.volume = 1f;
+            if (playback != null) playback.Gain = v;
         }
 
         public void Push(float[] samples, int n)
@@ -570,52 +583,11 @@ public class VoiceChat : MonoBehaviour
             float rms = (float)System.Math.Sqrt(sum / n);
             Level = Mathf.Clamp01(Mathf.Sqrt(rms) * 2.2f);
             LastHeard = Time.unscaledTime;
-
-            lock (sync)
-            {
-                // Gecikme birikmesin: tampon 350 ms'yi geçerse en eski kısmı at
-                int max = Rate * 35 / 100;
-                if (count + n > max)
-                {
-                    int drop = count + n - Rate * 12 / 100;
-                    drop = Mathf.Min(drop, count);
-                    readPos = (readPos + drop) % ring.Length;
-                    count -= drop;
-                }
-                for (int i = 0; i < n; i++)
-                {
-                    ring[writePos] = samples[i];
-                    writePos = (writePos + 1) % ring.Length;
-                }
-                count += n;
-            }
-        }
-
-        /// <summary>Ses iş parçacığında çağrılır (Unity API kullanılmaz).</summary>
-        private void OnRead(float[] data)
-        {
-            float g = gain;
-            lock (sync)
-            {
-                if (buffering && count >= Rate * 8 / 100) buffering = false; // ~80 ms birikince çalmaya başla
-                for (int i = 0; i < data.Length; i++)
-                {
-                    if (buffering || count == 0)
-                    {
-                        data[i] = 0f;
-                        if (count == 0) buffering = true;
-                        continue;
-                    }
-                    data[i] = Mathf.Clamp(ring[readPos] * g, -1f, 1f);
-                    readPos = (readPos + 1) % ring.Length;
-                    count--;
-                }
-            }
+            if (playback != null) playback.Push(samples, n);
         }
 
         public void Dispose()
         {
-            if (src != null) src.Stop();
             if (go != null) Object.Destroy(go);
         }
     }
