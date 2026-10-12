@@ -6,7 +6,7 @@ using UnityEngine.InputSystem;
 /// Basit oda menüsü (OnGUI ile, sahnede Canvas kurmaya gerek yok).
 ///  - Ana menü: isim, renk, [Oda Kur]  /  kod kutusu + [Katıl]
 ///  - Oyun içi: sol üstte oda kodu, sağ üstte ping.
-///  - Esc menüsü: oyuncu listesi (host için [At]), renk, ses ve fare hassasiyeti, ayrıl.
+///  - Esc menüsü: oyuncu listesi (host için [At]), renk, ses ve fare hassasiyeti, dil, sesli sohbet ayarları, ayrıl.
 /// Sahnede herhangi bir objeye (ör. NetworkManager objesine) ekle.
 /// </summary>
 public class SessionMenuUI : MonoBehaviour
@@ -21,6 +21,7 @@ public class SessionMenuUI : MonoBehaviour
     public static bool IsPaused { get; private set; }
 
     private string joinCode = "";
+    private Vector2 pauseScroll;
     private string nameInput;
     private bool localPlayerSpawned;
     private PlayerNetworkSetup localPlayer;
@@ -271,7 +272,7 @@ public class SessionMenuUI : MonoBehaviour
 
     private void DrawPauseMenu(SessionManager sm)
     {
-        Rect panel = CenteredRect(440f, 720f);
+        Rect panel = CenteredRect(440f, Mathf.Min(Screen.height - 40f, 860f));
         GUI.Box(panel, GUIContent.none, boxStyle);
 
         GUILayout.BeginArea(new Rect(panel.x + 24f, panel.y + 16f, panel.width - 48f, panel.height - 32f));
@@ -282,6 +283,9 @@ public class SessionMenuUI : MonoBehaviour
         {
             SetPaused(false);
         }
+
+        // Liste uzun: ekrana sığmazsa kaydırılır (alttaki Kodu kopyala / Ayrıl düğmeleri sabit kalır)
+        pauseScroll = GUILayout.BeginScrollView(pauseScroll, false, false);
 
         // --- Oyuncular ---
         GUILayout.Space(10f);
@@ -350,7 +354,13 @@ public class SessionMenuUI : MonoBehaviour
         DrawLanguagePicker();
         GUILayout.EndHorizontal();
 
-        GUILayout.FlexibleSpace();
+        // --- Sesli sohbet ---
+        GUILayout.Space(10f);
+        VoiceChat.DrawSettings(sectionStyle, smallStyle, smallButtonStyle);
+        GUILayout.Space(6f);
+
+        GUILayout.EndScrollView();
+        GUILayout.Space(8f);
 
         GUILayout.BeginHorizontal();
         if (GUILayout.Button(Loc.T("pause.copycode", sm.ActiveSession.Code), smallButtonStyle, GUILayout.Height(36f)))

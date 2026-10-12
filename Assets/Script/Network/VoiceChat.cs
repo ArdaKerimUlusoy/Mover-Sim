@@ -1,0 +1,805 @@
+using System.Collections.Generic;
+using Unity.Collections;
+using Unity.Netcode;
+using UnityEngine;
+using UnityEngine.InputSystem;
+
+/// <summary>
+/// Sesli sohbet (ek bir servis / paket gerektirmez; oyunun kendi ağ bağlantısını — Relay / NGO — kullanır).
+///
+///  - Mikrofon 16 kHz'e indirilir, 40 ms'lik paketlere bölünür ve IMA-ADPCM ile ~4 kat sıkıştırılır (~8 KB/sn).
+///  - İstemci paketi sunucuya yollar ("SS_VoiceUp"), sunucu konuşanın numarasıyla diğer herkese dağıtır ("SS_VoiceDown").
+///    Host kendi sesini doğrudan herkese yollar, gelen sesleri de kendisi çalar.
+///  - Her konuşan için kısa bir titreşim tamponu (jitter buffer) + akışlı AudioClip ile çalınır.
+///  - Mod: Bas-konuş (V basılı) ya da sürekli açık (V = sustur / aç). Sürekli açıkta ses eşiği altındaki gürültü gönderilmez.
+///  - Ekranda: altta ortada mikrofon kutusu (durum + canlı ses dalgası), solda konuşanların listesi,
+///    konuşan oyuncunun başının üstünde ses dalgası.
+///  - Ayarlar (Esc menüsü): mod, gelen ses seviyesi, mikrofon yükseltme, ses eşiği, mikrofon seçimi. PlayerPrefs'te saklanır.
+///
+/// Sahneye bir şey eklemeye gerek yok: oyun açılınca kendiliğinden oluşur.
+/// </summary>
+public class VoiceChat : MonoBehaviour
+{
+    public const int Rate = 16000;
+    private const int FrameSamples = 640;                 // 40 ms
+    private const int PacketBytes = 3 + FrameSamples / 2; // durum başlığı (3) + 4 bit/örnek
+    private const string UpMsg = "SS_VoiceUp";
+    private const string DownMsg = "SS_VoiceDown";
+
+    public static VoiceChat Instance { get; private set; }
+
+    // ---------------- Ayarlar ----------------
+
+    private const string KeyOpenMic = "SS_Voice_OpenMic", KeyVolume = "SS_Voice_Volume", KeyGain = "SS_Voice_Gain",
+                         KeyGate = "SS_Voice_Gate", KeyDevice = "SS_Voice_Device";
+
+    /// <summary>true: sürekli açık mikrofon, false: bas-konuş (V).</summary>
+    public static bool OpenMic
+    {
+        get => PlayerPrefs.GetInt(KeyOpenMic, 0) == 1;
+        set => PlayerPrefs.SetInt(KeyOpenMic, value ? 1 : 0);
+    }
+
+    /// <summary>Gelen seslerin seviyesi (0–2).</summary>
+    public static float VoiceVolume
+    {
+        get => Mathf.Clamp(PlayerPrefs.GetFloat(KeyVolume, 1f), 0f, 2f);
+        set => PlayerPrefs.SetFloat(KeyVolume, Mathf.Clamp(value, 0f, 2f));
+    }
+
+    /// <summary>Mikrofon yükseltme (0.5–4).</summary>
+    public static float MicGain
+    {
+        get => Mathf.Clamp(PlayerPrefs.GetFloat(KeyGain, 1.5f), 0.5f, 4f);
+        set => PlayerPrefs.SetFloat(KeyGain, Mathf.Clamp(value, 0.5f, 4f));
+    }
+
+    /// <summary>Sürekli açık modda bu seviyenin altındaki sesler gönderilmez (0–0.1, RMS).</summary>
+    public static float Gate
+    {
+        get => Mathf.Clamp(PlayerPrefs.GetFloat(KeyGate, 0.02f), 0f, 0.1f);
+        set => PlayerPrefs.SetFloat(KeyGate, Mathf.Clamp(value, 0f, 0.1f));
+    }
+
+    /// <summary>Seçili mikrofonun adı ("" = varsayılan).</summary>
+    public static string DeviceName
+    {
+        get => PlayerPrefs.GetString(KeyDevice, "");
+        set => PlayerPrefs.SetString(KeyDevice, value ?? "");
+    }
+
+    // ---------------- Durum ----------------
+
+    /// <summary>Şu an ses gönderiliyor mu?</summary>
+    public bool Transmitting { get; private set; }
+
+    /// <summary>Sürekli açık modda V ile susturuldu mu?</summary>
+    public bool OpenMicMuted { get; private set; }
+
+    /// <summary>Mikrofon girişinin anlık seviyesi (0–1, arayüz için).</summary>
+    public float InputLevel { get; private set; }
+
+    /// <summary>Bilgisayarda mikrofon var mı?</summary>
+    public bool HasMicrophone => Microphone.devices != null && Microphone.devices.Length > 0;
+
+    private NetworkManager regNm;
+    private CustomMessagingManager regCmm;
+
+    // Yakalama
+    private string micDevice;
+    private AudioClip micClip;
+    private int micRate;
+    private int lastMicPos;
+    private bool micRunning;
+    private float[] micRead = new float[4096];
+    private double resT = -1.0;
+    private float lastIn, lp1, lp2;
+    private readonly float[] frame = new float[FrameSamples];
+    private int frameFill;
+    private float gateHold;
+    private bool pttHeld;
+    private int restartMicTimer;
+
+    // Kodlayıcı durumu
+    private int encPred, encIndex;
+    private byte seq;
+    private readonly byte[] packet = new byte[PacketBytes];
+
+    // Arayüz: kendi ses dalgamız
+    private const int HistoryBars = 26;
+    private readonly float[] history = new float[HistoryBars];
+    private readonly bool[] historyTx = new bool[HistoryBars];
+    private int historyHead;
+    private float levelSmooth;
+
+    private readonly Dictionary<ulong, Remote> remotes = new Dictionary<ulong, Remote>();
+    private readonly List<ulong> toRemove = new List<ulong>();
+    private readonly List<ulong> targets = new List<ulong>();
+    private float nextCleanup;
+    private GUIStyle textStyle, smallStyle;
+
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
+    private static void Boot()
+    {
+        if (Instance != null) return;
+        GameObject go = new GameObject("VoiceChat");
+        DontDestroyOnLoad(go);
+        go.AddComponent<VoiceChat>();
+    }
+
+    private void Awake()
+    {
+        if (Instance != null && Instance != this) { Destroy(gameObject); return; }
+        Instance = this;
+    }
+
+    private void OnDestroy()
+    {
+        StopMic();
+        Unregister();
+        if (Instance == this) Instance = null;
+    }
+
+    // =====================================================================
+    //  Döngü
+    // =====================================================================
+
+    private void Update()
+    {
+        NetworkManager nm = NetworkManager.Singleton;
+        bool active = nm != null && nm.IsListening && (nm.IsServer || nm.IsConnectedClient) && nm.CustomMessagingManager != null;
+
+        if (!active)
+        {
+            if (regCmm != null) Unregister();
+            if (micRunning) StopMic();
+            if (remotes.Count > 0) ClearRemotes();
+            Transmitting = false;
+            return;
+        }
+
+        if (regCmm != nm.CustomMessagingManager) Register(nm);
+
+        bool hasLocalPlayer = LocalPlayer() != null;
+        if (hasLocalPlayer && !micRunning && HasMicrophone)
+        {
+            if (restartMicTimer > 0) restartMicTimer--;
+            else StartMic();
+        }
+        if (!hasLocalPlayer && micRunning) StopMic();
+
+        ReadInput();
+        if (micRunning) Capture();
+        else
+        {
+            Transmitting = false;
+            InputLevel = Mathf.MoveTowards(InputLevel, 0f, Time.unscaledDeltaTime * 3f);
+        }
+
+        // Gelen seslerin seviyesi ve eski konuşanların temizlenmesi
+        float vol = VoiceVolume;
+        foreach (Remote r in remotes.Values) r.SetVolume(vol);
+        if (Time.unscaledTime > nextCleanup)
+        {
+            nextCleanup = Time.unscaledTime + 2f;
+            toRemove.Clear();
+            foreach (KeyValuePair<ulong, Remote> kv in remotes)
+                if (Time.unscaledTime - kv.Value.LastHeard > 30f) toRemove.Add(kv.Key);
+            foreach (ulong id in toRemove) { remotes[id].Dispose(); remotes.Remove(id); }
+        }
+    }
+
+    private void ReadInput()
+    {
+        Keyboard kb = Keyboard.current;
+        bool typing = ChatUI.IsTyping;
+        pttHeld = kb != null && !typing && kb.vKey.isPressed;
+        if (OpenMic && kb != null && !typing && kb.vKey.wasPressedThisFrame && LocalPlayer() != null)
+        {
+            OpenMicMuted = !OpenMicMuted;
+            GameAudio.Play2D(SoundId.UiClick, 0.5f);
+        }
+    }
+
+    private static PlayerNetworkSetup LocalPlayer()
+    {
+        foreach (PlayerNetworkSetup p in PlayerNetworkSetup.All)
+            if (p != null && p.IsSpawned && p.IsOwner) return p;
+        return null;
+    }
+
+    // =====================================================================
+    //  Mikrofon
+    // =====================================================================
+
+    /// <summary>Mikrofonu yeniden başlat (ör. ayarlardan başka mikrofon seçilince).</summary>
+    public void RestartMic()
+    {
+        StopMic();
+        restartMicTimer = 2;
+    }
+
+    private void StartMic()
+    {
+        string[] devs = Microphone.devices;
+        if (devs == null || devs.Length == 0) return;
+        string wanted = DeviceName;
+        micDevice = null;
+        foreach (string d in devs) if (d == wanted) { micDevice = d; break; }
+        if (micDevice == null) micDevice = devs[0];
+
+        Microphone.GetDeviceCaps(micDevice, out int minF, out int maxF);
+        micRate = (minF == 0 && maxF == 0) ? Rate : Mathf.Clamp(Rate, minF, maxF);
+        micClip = Microphone.Start(micDevice, true, 1, micRate);
+        if (micClip == null) { restartMicTimer = 300; return; }
+        micRate = micClip.frequency;
+        lastMicPos = 0;
+        resT = -1.0;
+        lastIn = lp1 = lp2 = 0f;
+        frameFill = 0;
+        micRunning = true;
+    }
+
+    private void StopMic()
+    {
+        if (micRunning && micDevice != null) Microphone.End(micDevice);
+        micRunning = false;
+        micClip = null;
+        Transmitting = false;
+    }
+
+    private void Capture()
+    {
+        if (micClip == null || !Microphone.IsRecording(micDevice)) { StopMic(); restartMicTimer = 120; return; }
+        int pos = Microphone.GetPosition(micDevice);
+        if (pos < 0) return;
+        int len = micClip.samples;
+        int avail = (pos - lastMicPos + len) % len;
+        if (avail <= 0) return;
+        if (micRead.Length < avail) micRead = new float[Mathf.NextPowerOfTwo(avail)];
+
+        // Döngülü klipten iki parça halinde oku (sonu + başı)
+        int first = Mathf.Min(avail, len - lastMicPos);
+        float[] tmp = first == micRead.Length ? micRead : new float[first];
+        micClip.GetData(tmp, lastMicPos);
+        System.Array.Copy(tmp, 0, micRead, 0, first);
+        if (avail > first)
+        {
+            float[] tmp2 = new float[avail - first];
+            micClip.GetData(tmp2, 0);
+            System.Array.Copy(tmp2, 0, micRead, first, avail - first);
+        }
+        lastMicPos = pos;
+        Resample(micRead, avail);
+    }
+
+    /// <summary>Mikrofon hızından 16 kHz'e (doğrusal ara değer; indirirken önce basit alçak geçiren süzgeç).</summary>
+    private void Resample(float[] x, int n)
+    {
+        double step = micRate / (double)Rate;
+        bool filter = step > 1.2;
+        float alpha = filter ? 1f - Mathf.Exp(-2f * Mathf.PI * 6500f / micRate) : 1f;
+        if (filter)
+        {
+            for (int i = 0; i < n; i++)
+            {
+                lp1 += alpha * (x[i] - lp1);
+                lp2 += alpha * (lp1 - lp2);
+                x[i] = lp2;
+            }
+        }
+
+        while (System.Math.Floor(resT) + 1 <= n - 1)
+        {
+            int i0 = (int)System.Math.Floor(resT);
+            float frac = (float)(resT - i0);
+            float a = i0 < 0 ? lastIn : x[i0];
+            float b = x[i0 + 1];
+            PushSample(a + (b - a) * frac);
+            resT += step;
+        }
+        resT -= n;
+        lastIn = x[n - 1];
+    }
+
+    private void PushSample(float s)
+    {
+        frame[frameFill++] = s;
+        if (frameFill < FrameSamples) return;
+        frameFill = 0;
+        ProcessFrame();
+    }
+
+    private void ProcessFrame()
+    {
+        float gain = MicGain;
+        double sum = 0;
+        for (int i = 0; i < FrameSamples; i++)
+        {
+            float v = Mathf.Clamp(frame[i] * gain, -1f, 1f);
+            frame[i] = v;
+            sum += v * v;
+        }
+        float rms = (float)System.Math.Sqrt(sum / FrameSamples);
+        InputLevel = Mathf.Clamp01(Mathf.Sqrt(rms) * 2.2f);
+
+        bool allowed = LocalPlayer() != null;
+        bool tx;
+        if (OpenMic)
+        {
+            if (rms > Gate) gateHold = 0.4f;
+            else gateHold -= FrameSamples / (float)Rate;
+            tx = allowed && !OpenMicMuted && gateHold > 0f;
+        }
+        else tx = allowed && pttHeld;
+        Transmitting = tx;
+
+        // Arayüz geçmişi
+        history[historyHead] = InputLevel;
+        historyTx[historyHead] = tx;
+        historyHead = (historyHead + 1) % HistoryBars;
+
+        if (tx) SendFrame();
+    }
+
+    // =====================================================================
+    //  Ağ
+    // =====================================================================
+
+    private void Register(NetworkManager nm)
+    {
+        Unregister();
+        regNm = nm;
+        regCmm = nm.CustomMessagingManager;
+        regCmm.RegisterNamedMessageHandler(UpMsg, OnUp);
+        regCmm.RegisterNamedMessageHandler(DownMsg, OnDown);
+    }
+
+    private void Unregister()
+    {
+        if (regCmm != null)
+        {
+            try
+            {
+                regCmm.UnregisterNamedMessageHandler(UpMsg);
+                regCmm.UnregisterNamedMessageHandler(DownMsg);
+            }
+            catch (System.Exception) { }
+        }
+        regCmm = null;
+        regNm = null;
+    }
+
+    private void SendFrame()
+    {
+        NetworkManager nm = regNm;
+        if (nm == null || regCmm == null) return;
+        EncodeFrame();
+        seq++;
+
+        if (nm.IsServer)
+        {
+            // Host: doğrudan herkese (kendisi hariç)
+            SendDown(nm, nm.LocalClientId, packet, PacketBytes, ulong.MaxValue);
+        }
+        else
+        {
+            using (var w = new FastBufferWriter(PacketBytes + 8, Allocator.Temp))
+            {
+                w.WriteValueSafe(seq);
+                w.WriteValueSafe((ushort)PacketBytes);
+                w.WriteBytesSafe(packet, PacketBytes);
+                regCmm.SendNamedMessage(UpMsg, NetworkManager.ServerClientId, w, NetworkDelivery.UnreliableSequenced);
+            }
+        }
+    }
+
+    /// <summary>Sunucu: konuşanın paketini (konuşan ve host hariç) bütün istemcilere dağıtır.</summary>
+    private void SendDown(NetworkManager nm, ulong speaker, byte[] data, int len, ulong except)
+    {
+        targets.Clear();
+        foreach (ulong id in nm.ConnectedClientsIds)
+            if (id != speaker && id != nm.LocalClientId && id != except) targets.Add(id);
+        if (targets.Count == 0) return;
+        using (var w = new FastBufferWriter(len + 16, Allocator.Temp))
+        {
+            w.WriteValueSafe(speaker);
+            w.WriteValueSafe((ushort)len);
+            w.WriteBytesSafe(data, len);
+            regCmm.SendNamedMessage(DownMsg, targets, w, NetworkDelivery.UnreliableSequenced);
+        }
+    }
+
+    /// <summary>Sunucuda: bir istemciden ses geldi → herkese dağıt, host ise kendisi de çal.</summary>
+    private void OnUp(ulong sender, FastBufferReader reader)
+    {
+        NetworkManager nm = regNm;
+        if (nm == null || !nm.IsServer) return;
+        if (!reader.TryBeginRead(3)) return;
+        reader.ReadValue(out byte _);
+        reader.ReadValue(out ushort len);
+        if (len != PacketBytes || !reader.TryBeginRead(len)) return;
+        byte[] data = new byte[len];
+        reader.ReadBytes(ref data, len);
+
+        SendDown(nm, sender, data, len, ulong.MaxValue);
+        if (nm.IsHost && sender != nm.LocalClientId) Receive(sender, data);
+    }
+
+    /// <summary>İstemcide: sunucudan başka birinin sesi geldi.</summary>
+    private void OnDown(ulong sender, FastBufferReader reader)
+    {
+        NetworkManager nm = regNm;
+        if (nm == null || nm.IsServer) return;
+        if (!reader.TryBeginRead(10)) return;
+        reader.ReadValue(out ulong speaker);
+        reader.ReadValue(out ushort len);
+        if (len != PacketBytes || !reader.TryBeginRead(len)) return;
+        byte[] data = new byte[len];
+        reader.ReadBytes(ref data, len);
+        if (speaker == nm.LocalClientId) return;
+        Receive(speaker, data);
+    }
+
+    private readonly float[] decoded = new float[FrameSamples];
+
+    private void Receive(ulong speaker, byte[] data)
+    {
+        if (!remotes.TryGetValue(speaker, out Remote r))
+        {
+            r = new Remote(speaker, transform);
+            r.SetVolume(VoiceVolume);
+            remotes[speaker] = r;
+        }
+        DecodeFrame(data, decoded);
+        r.Push(decoded, FrameSamples);
+    }
+
+    private void ClearRemotes()
+    {
+        foreach (Remote r in remotes.Values) r.Dispose();
+        remotes.Clear();
+    }
+
+    // =====================================================================
+    //  IMA-ADPCM (4 bit / örnek). Her paket başında kodlayıcı durumu → kayıp paket sonrası kendini toparlar.
+    // =====================================================================
+
+    private static readonly int[] IndexTable = { -1, -1, -1, -1, 2, 4, 6, 8, -1, -1, -1, -1, 2, 4, 6, 8 };
+    private static readonly int[] StepTable =
+    {
+        7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 19, 21, 23, 25, 28, 31, 34, 37, 41, 45, 50, 55, 60, 66, 73, 80, 88, 97, 107, 118,
+        130, 143, 157, 173, 190, 209, 230, 253, 279, 307, 337, 371, 408, 449, 494, 544, 598, 658, 724, 796, 876, 963, 1060,
+        1166, 1282, 1411, 1552, 1707, 1878, 2066, 2272, 2499, 2749, 3024, 3327, 3660, 4026, 4428, 4871, 5358, 5894, 6484,
+        7132, 7845, 8630, 9493, 10442, 11487, 12635, 13899, 15289, 16818, 18500, 20350, 22385, 24623, 27086, 29794, 32767,
+    };
+
+    private void EncodeFrame()
+    {
+        short p0 = (short)encPred;
+        packet[0] = (byte)(p0 & 0xff);
+        packet[1] = (byte)((p0 >> 8) & 0xff);
+        packet[2] = (byte)encIndex;
+        for (int i = 0; i < FrameSamples; i++)
+        {
+            int s = Mathf.Clamp(Mathf.RoundToInt(frame[i] * 32767f), -32768, 32767);
+            int diff = s - encPred;
+            int code = 0;
+            if (diff < 0) { code = 8; diff = -diff; }
+            int step = StepTable[encIndex];
+            int delta = step >> 3;
+            if (diff >= step) { code |= 4; diff -= step; delta += step; }
+            step >>= 1;
+            if (diff >= step) { code |= 2; diff -= step; delta += step; }
+            step >>= 1;
+            if (diff >= step) { code |= 1; delta += step; }
+            encPred += (code & 8) != 0 ? -delta : delta;
+            encPred = Mathf.Clamp(encPred, -32768, 32767);
+            encIndex = Mathf.Clamp(encIndex + IndexTable[code], 0, 88);
+
+            int b = 3 + (i >> 1);
+            if ((i & 1) == 0) packet[b] = (byte)code;
+            else packet[b] |= (byte)(code << 4);
+        }
+    }
+
+    private static void DecodeFrame(byte[] data, float[] output)
+    {
+        int pred = (short)(data[0] | (data[1] << 8));
+        int index = Mathf.Clamp(data[2], 0, 88);
+        for (int i = 0; i < FrameSamples; i++)
+        {
+            int b = data[3 + (i >> 1)];
+            int code = (i & 1) == 0 ? b & 0x0f : (b >> 4) & 0x0f;
+            int step = StepTable[index];
+            int delta = step >> 3;
+            if ((code & 4) != 0) delta += step;
+            if ((code & 2) != 0) delta += step >> 1;
+            if ((code & 1) != 0) delta += step >> 2;
+            pred += (code & 8) != 0 ? -delta : delta;
+            pred = Mathf.Clamp(pred, -32768, 32767);
+            index = Mathf.Clamp(index + IndexTable[code], 0, 88);
+            output[i] = pred / 32768f;
+        }
+    }
+
+    // =====================================================================
+    //  Uzak konuşan: titreşim tamponu + akışlı AudioClip
+    // =====================================================================
+
+    private class Remote
+    {
+        public readonly ulong Id;
+        public float LastHeard = -100f;
+        public float Level;
+
+        private readonly GameObject go;
+        private readonly AudioSource src;
+        private readonly float[] ring = new float[Rate];
+        private readonly object sync = new object();
+        private int readPos, writePos, count;
+        private bool buffering = true;
+        private volatile float gain = 1f;
+
+        public Remote(ulong id, Transform parent)
+        {
+            Id = id;
+            go = new GameObject("Voice_" + id);
+            go.transform.SetParent(parent, false);
+            src = go.AddComponent<AudioSource>();
+            src.spatialBlend = 0f;   // takım sohbeti: herkes her yerden duyar
+            src.playOnAwake = false;
+            src.loop = true;
+            src.priority = 32;
+            src.clip = AudioClip.Create("voice_" + id, Rate, 1, Rate, true, OnRead);
+            src.Play();
+        }
+
+        public bool Speaking => Time.unscaledTime - LastHeard < 0.25f;
+
+        public void SetVolume(float v)
+        {
+            gain = v;
+            if (src != null) src.volume = 1f;
+        }
+
+        public void Push(float[] samples, int n)
+        {
+            double sum = 0;
+            for (int i = 0; i < n; i++) sum += samples[i] * samples[i];
+            float rms = (float)System.Math.Sqrt(sum / n);
+            Level = Mathf.Clamp01(Mathf.Sqrt(rms) * 2.2f);
+            LastHeard = Time.unscaledTime;
+
+            lock (sync)
+            {
+                // Gecikme birikmesin: tampon 350 ms'yi geçerse en eski kısmı at
+                int max = Rate * 35 / 100;
+                if (count + n > max)
+                {
+                    int drop = count + n - Rate * 12 / 100;
+                    drop = Mathf.Min(drop, count);
+                    readPos = (readPos + drop) % ring.Length;
+                    count -= drop;
+                }
+                for (int i = 0; i < n; i++)
+                {
+                    ring[writePos] = samples[i];
+                    writePos = (writePos + 1) % ring.Length;
+                }
+                count += n;
+            }
+        }
+
+        /// <summary>Ses iş parçacığında çağrılır (Unity API kullanılmaz).</summary>
+        private void OnRead(float[] data)
+        {
+            float g = gain;
+            lock (sync)
+            {
+                if (buffering && count >= Rate * 8 / 100) buffering = false; // ~80 ms birikince çalmaya başla
+                for (int i = 0; i < data.Length; i++)
+                {
+                    if (buffering || count == 0)
+                    {
+                        data[i] = 0f;
+                        if (count == 0) buffering = true;
+                        continue;
+                    }
+                    data[i] = Mathf.Clamp(ring[readPos] * g, -1f, 1f);
+                    readPos = (readPos + 1) % ring.Length;
+                    count--;
+                }
+            }
+        }
+
+        public void Dispose()
+        {
+            if (src != null) src.Stop();
+            if (go != null) Object.Destroy(go);
+        }
+    }
+
+    // =====================================================================
+    //  Arayüz
+    // =====================================================================
+
+    private void OnGUI()
+    {
+        if (regCmm == null || LocalPlayer() == null) return;
+        EnsureStyles();
+        if (!WorkbenchUI.IsOpen && !BriefingUI.IsOpen) DrawMicWidget();
+        DrawSpeakers();
+    }
+
+    private void EnsureStyles()
+    {
+        if (textStyle != null) return;
+        textStyle = new GUIStyle(GUI.skin.label) { fontSize = 14, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleLeft, wordWrap = false, clipping = TextClipping.Overflow };
+        textStyle.normal.textColor = Color.white;
+        smallStyle = new GUIStyle(textStyle) { fontSize = 12, fontStyle = FontStyle.Normal, wordWrap = false };
+        smallStyle.normal.textColor = new Color(1f, 1f, 1f, 0.7f);
+    }
+
+    private static readonly Color Green = new Color(0.35f, 0.95f, 0.5f);
+    private static readonly Color Red = new Color(1f, 0.38f, 0.33f);
+
+    /// <summary>Altta ortada: mikrofon simgesi, durum yazısı, canlı ses dalgası.</summary>
+    private void DrawMicWidget()
+    {
+        bool noMic = !HasMicrophone || !micRunning;
+        string state;
+        if (noMic) state = Loc.T("voice.hud.nomic");
+        else if (Transmitting) state = Loc.T("voice.hud.talking");
+        else if (OpenMic) state = Loc.T(OpenMicMuted ? "voice.hud.muted" : "voice.hud.open");
+        else state = Loc.T("voice.hud.ptt");
+        string mode = Loc.T(OpenMic ? "voice.mode.open" : "voice.mode.ptt");
+
+        // Kutunun genişliği yazıya göre ayarlanır: yazı asla taşmaz / alt satıra kaymaz
+        float textW = Mathf.Max(textStyle.CalcSize(new GUIContent(state)).x, smallStyle.CalcSize(new GUIContent(mode)).x);
+        const float iconW = 44f, waveW = 130f, pad = 14f, h = 52f;
+        float w = iconW + textW + pad + waveW + pad;
+        Rect r = new Rect((Screen.width - w) * 0.5f, Screen.height - h - 12f, w, h);
+        UIUtil.DrawRect(r, new Color(0.05f, 0.06f, 0.08f, Transmitting ? 0.82f : 0.65f));
+        if (Transmitting) UIUtil.DrawRect(new Rect(r.x, r.y, r.width, 2f), Green);
+
+        bool slash = noMic || (OpenMic && OpenMicMuted);
+        bool muted = noMic || (OpenMic ? OpenMicMuted : !Transmitting);
+        Color iconC = slash ? Red : Transmitting ? Green : new Color(0.85f, 0.85f, 0.85f);
+        DrawMicIcon(new Vector2(r.x + 24f, r.y + h * 0.5f), iconC, slash);
+
+        GUI.Label(new Rect(r.x + iconW, r.y + 5f, textW + 4f, 24f), state, textStyle);
+        GUI.Label(new Rect(r.x + iconW, r.y + 27f, textW + 4f, 20f), mode, smallStyle);
+
+        // Ses dalgası (son ~1 sn): gönderilen kısım yeşil, gönderilmeyen soluk
+        float bx = r.x + iconW + textW + pad, mid = r.y + h * 0.5f;
+        float barW = waveW / HistoryBars;
+        for (int i = 0; i < HistoryBars; i++)
+        {
+            int idx = (historyHead + i) % HistoryBars;
+            float v = noMic ? 0f : history[idx];
+            float bh = Mathf.Max(2f, v * (h - 14f));
+            Color c = historyTx[idx] ? Green : new Color(1f, 1f, 1f, muted ? 0.18f : 0.32f);
+            UIUtil.DrawRect(new Rect(bx + i * barW + 1f, mid - bh * 0.5f, Mathf.Max(1f, barW - 2f), bh), c);
+        }
+    }
+
+    /// <summary>Basit mikrofon çizimi (kapsül + sap + taban); kapalıysa üstünde çapraz çizgi.</summary>
+    private static void DrawMicIcon(Vector2 c, Color col, bool slash)
+    {
+        UIUtil.DrawRect(new Rect(c.x - 5f, c.y - 13f, 10f, 15f), col);
+        UIUtil.DrawRect(new Rect(c.x - 4f, c.y - 14f, 8f, 2f), col);
+        UIUtil.DrawRect(new Rect(c.x - 9f, c.y - 2f, 2f, 6f), col);
+        UIUtil.DrawRect(new Rect(c.x + 7f, c.y - 2f, 2f, 6f), col);
+        UIUtil.DrawRect(new Rect(c.x - 9f, c.y + 4f, 18f, 2f), col);
+        UIUtil.DrawRect(new Rect(c.x - 1f, c.y + 6f, 2f, 5f), col);
+        UIUtil.DrawRect(new Rect(c.x - 6f, c.y + 11f, 12f, 2f), col);
+        if (!slash) return;
+        Matrix4x4 m = GUI.matrix;
+        GUIUtility.RotateAroundPivot(-45f, c);
+        UIUtil.DrawRect(new Rect(c.x - 14f, c.y - 1.5f, 28f, 3f), Red);
+        GUI.matrix = m;
+    }
+
+    /// <summary>Solda konuşanların listesi + konuşanların başının üstünde ses dalgası.</summary>
+    private void DrawSpeakers()
+    {
+        Camera cam = Camera.main;
+        float y = Screen.height * 0.42f;
+        foreach (Remote r in remotes.Values)
+        {
+            if (!r.Speaking) continue;
+            PlayerNetworkSetup p = FindPlayer(r.Id);
+            string name = p != null ? p.PlayerName : "?";
+
+            // Liste satırı
+            float nameW = textStyle.CalcSize(new GUIContent(name)).x;
+            Rect row = new Rect(12f, y, Mathf.Max(150f, 48f + nameW), 28f);
+            UIUtil.DrawRect(row, new Color(0.05f, 0.06f, 0.08f, 0.7f));
+            UIUtil.DrawRect(new Rect(row.x, row.y, 3f, row.height), p != null ? p.PlayerColor : Green);
+            DrawWaves(new Vector2(row.x + 18f, row.y + 14f), r.Level, 0.8f);
+            GUI.Label(new Rect(row.x + 38f, row.y + 3f, nameW + 6f, 22f), name, textStyle);
+            y += 32f;
+
+            // Baş üstü simge
+            if (cam == null || p == null) continue;
+            PlayerStealth st = p.GetComponent<PlayerStealth>();
+            if (st != null && st.IsHidden) continue;
+            Vector3 sp = cam.WorldToScreenPoint(p.transform.position + Vector3.up * 2.55f);
+            if (sp.z <= 0f || sp.z > 40f) continue;
+            DrawWaves(new Vector2(sp.x, Screen.height - sp.y), r.Level, 1.1f);
+        }
+    }
+
+    /// <summary>Ortadan dışa doğru 5 çubuk, ses seviyesine göre zıplar.</summary>
+    private static void DrawWaves(Vector2 c, float level, float scale)
+    {
+        float t = Time.unscaledTime * 14f;
+        for (int i = -2; i <= 2; i++)
+        {
+            float wobble = 0.55f + 0.45f * Mathf.Sin(t + i * 1.7f);
+            float hgt = (4f + (18f - Mathf.Abs(i) * 4f) * Mathf.Clamp01(level * 1.3f) * wobble) * scale;
+            UIUtil.DrawRect(new Rect(c.x + i * 5f * scale - 1.5f * scale, c.y - hgt * 0.5f, 3f * scale, hgt), Green);
+        }
+    }
+
+    private static PlayerNetworkSetup FindPlayer(ulong clientId)
+    {
+        foreach (PlayerNetworkSetup p in PlayerNetworkSetup.All)
+            if (p != null && p.OwnerClientId == clientId) return p;
+        return null;
+    }
+
+    // =====================================================================
+    //  Esc menüsü ayarları (SessionMenuUI çağırır)
+    // =====================================================================
+
+    public static void DrawSettings(GUIStyle section, GUIStyle small, GUIStyle button)
+    {
+        GUILayout.Label(Loc.T("voice.section"), section);
+
+        bool open = OpenMic;
+        GUILayout.BeginHorizontal();
+        Color old = GUI.backgroundColor;
+        if (!open) GUI.backgroundColor = new Color(1f, 0.8f, 0.3f);
+        if (GUILayout.Button(Loc.T("voice.mode.ptt"), button, GUILayout.Height(28f))) OpenMic = false;
+        GUI.backgroundColor = open ? new Color(1f, 0.8f, 0.3f) : old;
+        if (GUILayout.Button(Loc.T("voice.mode.open"), button, GUILayout.Height(28f))) OpenMic = true;
+        GUI.backgroundColor = old;
+        GUILayout.EndHorizontal();
+
+        // Mikrofon seçimi (tıklayınca sıradakine geçer)
+        string[] devs = Microphone.devices;
+        if (devs == null || devs.Length == 0) GUILayout.Label(Loc.T("voice.nodevice"), small);
+        else
+        {
+            string cur = DeviceName;
+            int idx = System.Array.IndexOf(devs, cur);
+            string shown = idx >= 0 ? devs[idx] : devs[0];
+            if (GUILayout.Button(Loc.T("voice.device", shown), button, GUILayout.Height(28f)) && devs.Length > 1)
+            {
+                DeviceName = devs[((idx < 0 ? 0 : idx) + 1) % devs.Length];
+                if (Instance != null) Instance.RestartMic();
+            }
+        }
+
+        GUILayout.Label(Loc.T("voice.volume", Mathf.RoundToInt(VoiceVolume * 100f)), small);
+        float v = GUILayout.HorizontalSlider(VoiceVolume, 0f, 2f);
+        if (!Mathf.Approximately(v, VoiceVolume)) VoiceVolume = v;
+
+        GUILayout.Label(Loc.T("voice.gain", MicGain.ToString("0.0")), small);
+        float g = GUILayout.HorizontalSlider(MicGain, 0.5f, 4f);
+        if (!Mathf.Approximately(g, MicGain)) MicGain = g;
+
+        // Eşik: canlı mikrofon seviyesinin üstünde gösterilir (çizgiyi konuşurken geçen, sessizken geçmeyen yere getir)
+        GUILayout.Label(Loc.T("voice.gate"), small);
+        Rect meter = GUILayoutUtility.GetRect(200f, 10f, GUILayout.ExpandWidth(true), GUILayout.Height(10f));
+        float lvl = Instance != null ? Instance.InputLevel : 0f;
+        UIUtil.DrawRect(meter, new Color(0f, 0f, 0f, 0.5f));
+        UIUtil.DrawRect(new Rect(meter.x, meter.y, meter.width * lvl, meter.height), Green);
+        float gateLvl = Mathf.Clamp01(Mathf.Sqrt(Gate) * 2.2f);
+        UIUtil.DrawRect(new Rect(meter.x + meter.width * gateLvl - 1f, meter.y - 3f, 3f, meter.height + 6f), Red);
+        float gt = GUILayout.HorizontalSlider(Gate, 0f, 0.1f);
+        if (!Mathf.Approximately(gt, Gate)) Gate = gt;
+    }
+}
