@@ -170,6 +170,7 @@ public class PlayerInteractor : MonoBehaviour
                      ((kind == TargetKind.Player && holdTarget == targetPlayer) ||
                       (kind == TargetKind.Interactable && holdTarget == targetInteractable &&
                        (targetInteractable is ArtworkDisplay || targetInteractable is JailCell || targetInteractable is SecurityCamera))); // kilit / konsol kurcalamak da suç
+        crime |= LockpickSystem.IsPicking; // Staff Only kilidini maymuncukla açmak da suç
         stealth.SetDoingCrime(crime);
     }
 

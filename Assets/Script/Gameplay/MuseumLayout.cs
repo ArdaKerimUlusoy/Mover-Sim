@@ -687,6 +687,9 @@ public partial class MuseumLayout : MonoBehaviour
 
         // Kapısına "girilmez" ipi ve uyarı tabelası (dekor)
         foreach (int di in room.doors) DoorRope(doors[di], room, th, new Color(0.75f, 0.1f, 0.12f));
+
+        // Kilitli kapı: maymuncukla açılır (MuseumLayoutStaffDoor.cs, LockpickSystem)
+        foreach (int di in room.doors) BuildStaffDoor(doors[di], room, th);
     }
 
     private void DoorRope(DoorEdge d, PRoom room, MuseumTheme th, Color c)

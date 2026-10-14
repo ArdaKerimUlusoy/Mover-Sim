@@ -57,7 +57,8 @@ public class GarageShop : Interactable, IInventoryPanel
 
             GUILayout.BeginHorizontal(GUILayout.Height(56f));
             GUILayout.BeginVertical();
-            GUILayout.Label(Loc.T(UpgradeCatalog.NameKey(t)) + "   " + Loc.T("shop.level", level, max), UIUtil.RowStyle);
+            string lv = t == UpgradeType.Lockpick ? Loc.T("shop.count", level, max) : Loc.T("shop.level", level, max); // maymuncuk adetle satılır
+            GUILayout.Label(Loc.T(UpgradeCatalog.NameKey(t)) + "   " + lv, UIUtil.RowStyle);
             GUILayout.Label(Loc.T(UpgradeCatalog.DescKey(t)) + "  •  " +
                             Loc.T(payer == PaidFrom.Team ? "shop.payteam" : "shop.payyou"), UIUtil.SmallStyle);
             GUILayout.EndVertical();

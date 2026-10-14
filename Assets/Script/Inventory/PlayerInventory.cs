@@ -50,6 +50,7 @@ public class PlayerInventory : NetworkBehaviour
     private readonly NetworkVariable<byte> bagLevel = new NetworkVariable<byte>(0);
     private readonly NetworkVariable<byte> shoesLevel = new NetworkVariable<byte>(0);
     private readonly NetworkVariable<byte> glovesLevel = new NetworkVariable<byte>(0);
+    private readonly NetworkVariable<byte> lockpickLevel = new NetworkVariable<byte>(0); // maymuncuk adedi (Staff Only kapısı)
 
     // Çanta yerine açık olan başka panel (karaborsa, mağaza...)
     private IInventoryPanel externalPanel;
@@ -119,12 +120,25 @@ public class PlayerInventory : NetworkBehaviour
             case UpgradeType.BiggerBag: return bagLevel.Value;
             case UpgradeType.QuietShoes: return shoesLevel.Value;
             case UpgradeType.SwiftGloves: return glovesLevel.Value;
+            case UpgradeType.Lockpick: return lockpickLevel.Value;
             case UpgradeType.TeamBackpacks: return TeamBank.Instance != null ? TeamBank.Instance.TeamBagLevel : 0;
             default: return 0;
         }
     }
 
     /// <summary>Eser değiştirme süresi çarpanı (eldiven upgrade'i).</summary>
+    /// <summary>Elinde maymuncuk var mı? (LockpickSystem: Staff Only kapısını açar.)</summary>
+    public bool HasLockpick => lockpickLevel.Value > 0;
+    public int LockpickCount => lockpickLevel.Value;
+
+    /// <summary>Sunucu: maymuncuk kırıldı, bir adet düşer.</summary>
+    public bool ServerBreakLockpick()
+    {
+        if (!IsServer || lockpickLevel.Value == 0) return false;
+        lockpickLevel.Value--;
+        return true;
+    }
+
     public float SwapTimeMultiplier => Mathf.Max(0.4f, 1f - UpgradeCatalog.GlovesFasterPerLevel * glovesLevel.Value);
 
     /// <summary>Ayak sesi şiddeti çarpanı (sessiz ayakkabı upgrade'i).</summary>
@@ -816,6 +830,10 @@ public class PlayerInventory : NetworkBehaviour
             case UpgradeType.SwiftGloves:
                 if (glovesLevel.Value >= max) return false;
                 glovesLevel.Value++;
+                return true;
+            case UpgradeType.Lockpick:
+                if (lockpickLevel.Value >= max) return false;
+                lockpickLevel.Value++;
                 return true;
             default:
                 return false;

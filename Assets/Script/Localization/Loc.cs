@@ -305,6 +305,18 @@ public static class Loc
         { "upg.swiftgloves.desc",   new[] { "Swap artworks 20% faster", "Eserleri %20 daha hızlı değiştir" } },
         { "upg.teambackpacks.name", new[] { "Team Backpacks", "Ekip Çantaları" } },
         { "upg.teambackpacks.desc", new[] { "+3 kg for the whole team", "Tüm ekibe +3 kg" } },
+        { "upg.lockpick.name",      new[] { "Lockpick", "Maymuncuk" } },
+        { "upg.lockpick.desc",      new[] { "Opens the Staff Only door. May break (35%)", "Staff Only kapısını açar. Kırılabilir (%35)" } },
+        { "shop.count",             new[] { "x{0} (max {1})", "x{0} (en fazla {1})" } },
+        { "lockpick.prompt",        new[] { "[Hold E] Pick the lock  (Lockpicks: {0})", "[E basılı tut] Kilidi maymuncukla aç  (Maymuncuk: {0})" } },
+        { "lockpick.title",         new[] { "Picking the lock...  Lockpicks: {0}", "Kilit açılıyor...  Maymuncuk: {0}" } },
+        { "lockpick.success",       new[] { "Success", "Başarı" } },
+        { "lockpick.fail",          new[] { "Break", "Kırılma" } },
+        { "lockpick.broke",         new[] { "Your lockpick broke! Lockpicks left: {0}", "Maymuncuk kırıldı! Kalan: {0}" } },
+        { "label.staffonly",        new[] { "STAFF ONLY", "STAFF ONLY — PERSONEL" } },
+        { "label.staffonly.locked", new[] { "LOCKED — lockpick needed", "KİLİTLİ — maymuncuk gerekir" } },
+        { "lockpick.need",          new[] { "Locked — buy a Lockpick at the garage shop (${0})", "Kilitli — garaj mağazasından maymuncuk al (${0})" } },
+        { "lockpick.done",          new[] { "Lock picked! The Staff Only door is open.", "Kilit açıldı! Staff Only kapısı açık." } },
 
         // Test müzesi etiketleri
         { "label.garage",     new[] { "GARAGE", "GARAJ" } },

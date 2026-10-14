@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using Unity.Collections;
 using Unity.Netcode;
@@ -364,6 +364,7 @@ public class PushSystem : MonoBehaviour
         // E basılı tutuyordum (eser değiştirme, çalma, kilit...): baştan başlamalıyım
         PlayerInteractor interactor = me.GetComponent<PlayerInteractor>();
         if (interactor != null) interactor.InterruptHold();
+        LockpickSystem.Interrupt(); // maymuncukla kilit açıyordum: baştan
 
         PlayerController pc = me.GetComponent<PlayerController>();
         if (pc != null && pc.enabled)

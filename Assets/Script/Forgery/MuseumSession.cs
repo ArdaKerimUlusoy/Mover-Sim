@@ -32,6 +32,7 @@ public class MuseumSession : NetworkBehaviour
     private readonly NetworkVariable<int> level = new NetworkVariable<int>(1);
     private readonly NetworkVariable<int> quota = new NetworkVariable<int>(0);
     private readonly NetworkVariable<int> baseline = new NetworkVariable<int>(int.MinValue);
+    private readonly NetworkVariable<bool> staffDoorOpen = new NetworkVariable<bool>(false); // Staff Only kapısı maymuncukla açıldı mı
 
     private static int lastTheme = -1; // aynı uygulama açıkken bir sonraki oda/görev farklı müze olsun
 
@@ -44,6 +45,13 @@ public class MuseumSession : NetworkBehaviour
     public int ThemeIndex => Mathf.Max(0, themeIndex.Value);
     public MuseumTheme Theme => ArtworkLook.Theme(ThemeIndex);
     public int Quota => quota.Value;
+    /// <summary>Staff Only kapısı bu görevde açıldı mı? (LockpickSystem açar, her yeni müzede yeniden kilitlenir.)</summary>
+    public bool StaffDoorOpen => staffDoorOpen.Value;
+
+    public void ServerOpenStaffDoor()
+    {
+        if (IsServer) staffDoorOpen.Value = true;
+    }
     public int Earned => TeamBank.Instance != null && baseline.Value != int.MinValue ? TeamBank.Instance.Money - baseline.Value : 0;
 
     /// <summary>Para kotası doldu mu? (Görevin bitmesi için ekibin kamyona da dönmesi gerekir.)</summary>
@@ -127,6 +135,7 @@ public class MuseumSession : NetworkBehaviour
         themeIndex.Value = pick;
         seed.Value = Random.Range(1, int.MaxValue);
         quota.Value = 0; // Update'te kaideler hazır olunca hesaplanır
+        staffDoorOpen.Value = false; // yeni müzede Staff Only kapısı yine kilitli
     }
 
     private void Update()

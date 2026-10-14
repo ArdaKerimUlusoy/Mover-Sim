@@ -644,3 +644,54 @@ Sesli sohbette hırsızlıkla ilgili bir şey söylersen yakındaki güvenlikler
   - Atölye ve yeni eserler: `CanvasPainter`, `WorkbenchUI`, `ArtworkLook`, `ArtworkLookExtra`.
   - Yazı düzeni: `UIUtil`, `PlayerInteractor`, `ObjectCarrier`, `PlayerInventory`.
   - Diğer: `UpgradeCatalog` (sessiz ayakkabı), `Loc` (yeni metinler).
+
+## Ek 15: Maymuncuk ve kilitli Staff Only kapısı
+
+### Nasıl oynanır
+- Staff Only odasının kapısında artık **kilitli bir kapı** var.
+  - Kilitliyken kimse içeri giremez. Odadaki değerli eser (×2.5) ancak kapı açılınca çalınır.
+- Kapı dışarıdan kolayca fark edilir:
+  - Kapının üstünde kırmızı tabela ve "STAFF ONLY" yazısı var.
+  - Kapı kilitliyken "KİLİTLİ — maymuncuk gerekir" yazısı da görünür.
+  - Kırmızı uyarı lambası yanıp söner; kapı açılınca lamba yeşile döner.
+  - Kapının önünde yerde sarı-siyah tehlike şeridi var.
+- **Maymuncuk** garaj mağazasında adetle satılır.
+  - Fiyatı **$50**, kişisel cüzdandan ödenir.
+  - Aynı anda en fazla 5 tane taşınabilir.
+- Kapıya bak ve **E'yi basılı tut**. Ekranda iki çubuk yarışır (Aion 2'deki zanaat gibi):
+  - **Başarı** (mavi) önce dolarsa kapı açılır.
+  - **Kırılma** (turuncu) önce dolarsa maymuncuk kırılır ve bir adet gider. Kapı kilitli kalır, başka maymuncukla yeniden denenebilir.
+  - Kırılma ihtimali %35, başarı %65. Bir deneme yaklaşık 3–4,5 saniye sürer.
+- Deneme sırasında:
+  - Suç işliyorsun: bir güvenlik görürse yakalar.
+  - İtilirsen, bakışın kayarsa ya da E'yi bırakırsan deneme iptal olur. Maymuncuk kırılmaz.
+- Kapı açılınca bütün ekip için **görev sonuna kadar açık** kalır.
+  - Ekipte bir kişinin kapıyı açması yeter.
+  - Yeni müzede kapı yine kilitli olur.
+- Sesler: kilit açılırken çıkan ses yakındaki güvenliklere duyulur. Kırılma sesi daha kısıktır.
+- Güvenlikler devriyede kapıyı kendileri açıp geçer. Oyuncular arkalarından geçemez.
+
+### Oyun döngüsü
+- Staff Only eseri 2. görevde açılır.
+- 1. görevde tek bir tablo satan oyuncunun payı (%20, yaklaşık $100) iki maymuncuğa yeter. İki denemeden en az birinin tutma ihtimali yaklaşık %88.
+- Ayarlar `UpgradeCatalog` içindedir:
+  - `LockpickPrice`: fiyat.
+  - `LockpickMax`: en fazla taşınabilen adet.
+  - `LockpickBreakChance`: kırılma ihtimali.
+  - `LockpickSeconds`: bir denemenin süresi.
+
+### Dosyalar
+- Yeni dosyalar (`Gameplay` klasöründe):
+  - `LockpickSystem.cs`: deneme, çubuklar, ağ mesajı.
+  - `StaffDoor.cs`: kapının açılıp kapanması, lamba, tabela yazısı.
+  - `MuseumLayoutStaffDoor.cs`: kapıyı ve süslerini her haritada kurar.
+- Sahneye bir şey eklemeye gerek yok.
+- Değişenler:
+  - `UpgradeCatalog`: maymuncuk adet, fiyat ve kırılma ayarları.
+  - `PlayerInventory`: maymuncuk adedi ve kırılma.
+  - `GarageShop`: maymuncuk satırında seviye yerine adet yazar.
+  - `MuseumSession`: kapının açık olup olmadığı.
+  - `MuseumLayout`: `SetupStaffRoom` içine tek satır.
+  - `PlayerInteractor`: kilit açmak suç sayılır.
+  - `PushSystem`: itilince deneme iptal olur.
+  - `Loc`: yeni metinler.
