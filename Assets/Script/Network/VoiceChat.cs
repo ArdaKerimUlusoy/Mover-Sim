@@ -28,6 +28,9 @@ public class VoiceChat : MonoBehaviour
 
     public static VoiceChat Instance { get; private set; }
 
+    /// <summary>Kendi sesimiz gönderilirken her 40 ms'lik paket (16 kHz, -1..1). VoiceKeywordListener dinler.</summary>
+    public static event System.Action<float[], int> LocalSpeechFrame;
+
     // ---------------- Ayarlar ----------------
 
     private const string KeyOpenMic = "SS_Voice_OpenMic", KeyVolume = "SS_Voice_Volume", KeyGain = "SS_Voice_Gain2",
@@ -437,6 +440,7 @@ public class VoiceChat : MonoBehaviour
 
     private void SendFrame()
     {
+        LocalSpeechFrame?.Invoke(frame, FrameSamples); // hırsızlık kelimesi dinleyicisi (VoiceKeywordListener)
         NetworkManager nm = regNm;
         if (nm == null || regCmm == null) return;
         EncodeFrame();
@@ -813,5 +817,7 @@ public class VoiceChat : MonoBehaviour
         UIUtil.DrawRect(new Rect(meter.x + meter.width * gateLvl - 1f, meter.y - 3f, 3f, meter.height + 6f), Red);
         float gt = GUILayout.HorizontalSlider(Gate, 0f, 0.1f);
         if (!Mathf.Approximately(gt, Gate)) Gate = gt;
+
+        VoiceKeywordListener.DrawSettings(small, button); // hırsızlık kelimeleri (güvenlik duyar)
     }
 }

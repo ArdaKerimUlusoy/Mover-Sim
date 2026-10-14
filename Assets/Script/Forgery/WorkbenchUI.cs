@@ -10,6 +10,9 @@ using UnityEngine.InputSystem;
 ///  2c) Büst  : kalıptan şekillendirme — kaydırıcılarla yont, taşını ve kaidesini seç
 ///  2d) Yüzük : kuyumcu tezgahı — gövde, metal ve taşları seç
 ///  3) ESC: bitir → yaptığın eser sunucuya gider, benzerliği sunucu hesaplar, sahte çantana girer
+///  DEVAM ET: yarım kalan / boş tablo, büst ya da yüzük sahtesi çantadaysa listede en üstte "Devam et" olarak çıkar
+///  (elinde tutarken tezgaha E basarsan doğrudan o açılır). Bitince eski yarım sahte çantadan çıkar, yenisi girer.
+///  İtilirsen (PushSystem) Esc'ye basmış gibi kapanır: yaptığın kadarı çantaya girer, sonra devam edebilirsin.
 /// </summary>
 public class WorkbenchUI : MonoBehaviour
 {
@@ -23,6 +26,8 @@ public class WorkbenchUI : MonoBehaviour
         public ArtworkDisplay display;
         public ArtKind kind;
         public string name;
+        public ushort resumeId;  // != 0: çantadaki yarım sahteyi sürdür (ForgeryRegistry kaydı)
+        public byte resumeSim;
     }
 
     private const float ShapeThreshold = 0.75f;
@@ -105,6 +110,13 @@ public class WorkbenchUI : MonoBehaviour
         current.Init(bench, player.gameObject);
     }
 
+    /// <summary>İtildi: atölyeden Esc'ye basmış gibi çıkar (tablo / büst / yüzük / boyanmaya başlanmış vazo yarım haliyle
+    /// çantaya girer; sonra tezgahta "Devam et" ile sürdürülür). Şekli bitmemiş kil kaybolur.</summary>
+    public static void Interrupt()
+    {
+        if (current != null) current.Close(current.phase != Phase.Choose && current.phase != Phase.Sculpt);
+    }
+
     /// <summary>Yakalanma / ışınlanma gibi durumlarda atölyeyi sahte üretmeden kapatır.</summary>
     public static void ForceClose()
     {
@@ -124,7 +136,47 @@ public class WorkbenchUI : MonoBehaviour
 
         BuildOptions();
         phase = Phase.Choose;
-        if (options.Count == 0) Close(false);
+        if (options.Count == 0) { Close(false); return; }
+
+        // Elinde yarım kalmış bir sahte varsa doğrudan onu sürdür
+        PlayerInventory inv = PlayerInventory.Local;
+        if (inv != null && inv.HasHeldItem)
+        {
+            ushort heldId = inv.GetSlot(inv.HeldSlot).ForgeryId;
+            if (heldId != 0)
+                foreach (Option o in options)
+                    if (o.resumeId == heldId) { StartWork(o); return; }
+        }
+    }
+
+    /// <summary>Çantadaki, bu görevin aktif bir eseri için yapılmış tablo / büst / yüzük sahteleri: sürdürülebilir.</summary>
+    private void AddResumeOptions()
+    {
+        PlayerInventory inv = PlayerInventory.Local;
+        MuseumSession ms = MuseumSession.Instance;
+        ItemDatabase db = ItemDatabase.Instance;
+        if (inv == null || ms == null || db == null) return;
+
+        var resume = new List<Option>();
+        var seen = new HashSet<ushort>();
+        for (int i = 0; i < inv.SlotCount; i++)
+        {
+            InventorySlot s = inv.GetSlot(i);
+            if (s.ForgeryId == 0 || !seen.Add(s.ForgeryId)) continue;
+            ItemDefinition def = db.Get(s.ItemIndex);
+            if (def == null || def.type != ItemType.Forgery) continue;
+            if (!ForgeryRegistry.TryGet(s.ForgeryId, out ForgeryData data) || data == null) continue;
+            if (data.kind != ArtKind.Painting && data.kind != ArtKind.Bust && data.kind != ArtKind.Jewelry) continue;
+            if (data.seed != ms.Seed) continue;
+            ArtworkDisplay d = ArtworkDisplay.FindByKey(s.LookKey);
+            if (d == null || d.Artwork == null || !MuseumSession.IsDisplayActive(d) || d.Kind != data.kind) continue;
+            resume.Add(new Option
+            {
+                display = d, kind = data.kind, name = ms.ArtworkName(d),
+                resumeId = s.ForgeryId, resumeSim = s.HasSimilarity ? s.Similarity : (byte)0
+            });
+        }
+        options.InsertRange(0, resume);
     }
 
     private void BuildOptions()
@@ -139,6 +191,7 @@ public class WorkbenchUI : MonoBehaviour
             options.Add(new Option { display = d, kind = kind, name = ms != null ? ms.ArtworkName(d) : d.Artwork.DisplayName });
         }
         options.Sort((a, b) => string.CompareOrdinal(a.display.name, b.display.name));
+        AddResumeOptions();
     }
 
     private void StartWork(Option o)
@@ -167,6 +220,7 @@ public class WorkbenchUI : MonoBehaviour
             case ArtKind.Painting:
                 painting = ArtworkLook.Painting(seed, theme, o.display.name);
                 painter = new CanvasPainter(painting);
+                if (o.resumeId != 0 && ForgeryRegistry.TryGet(o.resumeId, out ForgeryData rp)) painter.LoadFrom(rp);
                 if (cam != null) cam.transform.LookAt(work + Vector3.up * 0.3f);
                 phase = Phase.Canvas;
                 return;
@@ -175,6 +229,12 @@ public class WorkbenchUI : MonoBehaviour
                 bust = ArtworkLook.Bust(seed, theme, o.display.name);
                 for (int i = 0; i < bustSliders.Length; i++) bustSliders[i] = 0.5f;
                 bustStone = bustBase = 0;
+                if (o.resumeId != 0 && ForgeryRegistry.TryGet(o.resumeId, out ForgeryData rb) && rb.pars.Length >= BustLook.SliderCount + 2)
+                {
+                    for (int i = 0; i < bustSliders.Length; i++) bustSliders[i] = rb.pars[i] / 255f;
+                    bustStone = rb.pars[BustLook.SliderCount];
+                    bustBase = rb.pars[BustLook.SliderCount + 1];
+                }
                 if (cam != null) cam.transform.LookAt(work + Vector3.up * 0.3f);
                 // Tezgah üstünde yan yana: solda senin kalıbın, sağda orijinal
                 side = cam != null ? Vector3.ProjectOnPlane(cam.transform.right, Vector3.up).normalized : Vector3.right;
@@ -191,6 +251,12 @@ public class WorkbenchUI : MonoBehaviour
                 jewelStep = 0;
                 heldGem = -1;
                 spilled = false;
+                if (o.resumeId != 0 && ForgeryRegistry.TryGet(o.resumeId, out ForgeryData rj) && JewelCraft.TryFromPars(rj.pars, out JewelCraft saved))
+                {
+                    craft = saved;
+                    jewelStep = saved.polish > 0f ? 2 : saved.fill > 0f ? 1 : 0;
+                    spilled = saved.fill > 1f;
+                }
                 if (cam != null) cam.transform.LookAt(work + Vector3.up * 0.3f);
                 side = cam != null ? Vector3.ProjectOnPlane(cam.transform.right, Vector3.up).normalized : Vector3.right;
                 previewPos = work - side * 0.3f;
@@ -367,7 +433,7 @@ public class WorkbenchUI : MonoBehaviour
             {
                 data.targetKey = target.display.LookKey;
                 data.seed = ms.Seed;
-                bench.RequestCraft(target.display, data);
+                bench.RequestCraft(target.display, data, target.resumeId);
             }
         }
 
@@ -491,7 +557,10 @@ public class WorkbenchUI : MonoBehaviour
         {
             Option o = options[i];
             string state = o.display.IsSwapped ? Loc.T("bench.alreadyswapped") : "";
-            if (GUILayout.Button($"{i + 1}.  {o.name}  —  {Loc.T(MethodKey(o.kind))}{state}", UIUtil.ButtonStyle, GUILayout.Height(40f)))
+            string text = o.resumeId != 0
+                ? $"{i + 1}.  {Loc.T("bench.resume", o.name, o.resumeSim)}  —  {Loc.T(MethodKey(o.kind))}{state}"
+                : $"{i + 1}.  {o.name}  —  {Loc.T(MethodKey(o.kind))}{state}";
+            if (GUILayout.Button(text, UIUtil.ButtonStyle, GUILayout.Height(40f)))
                 picked = o;
         }
         GUILayout.EndScrollView();

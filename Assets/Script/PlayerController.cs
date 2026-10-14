@@ -50,6 +50,7 @@ public class PlayerController : MonoBehaviour
     private PlayerInventory inventory;
     private Vector3 verticalVelocity;
     private Vector3 currentHorizontalVelocity;
+    private Vector3 pushVelocity; // başka biri itti (PushSystem): yavaşça söner
     private float rotationX = 0f;
     private bool isCrouching = false;
 
@@ -154,6 +155,13 @@ public class PlayerController : MonoBehaviour
 
         characterController.Move(currentHorizontalVelocity * Time.deltaTime);
 
+        // İtilme: kısa bir savrulma
+        if (pushVelocity.sqrMagnitude > 0.0004f)
+        {
+            characterController.Move(pushVelocity * Time.deltaTime);
+            pushVelocity = Vector3.MoveTowards(pushVelocity, Vector3.zero, 14f * Time.deltaTime);
+        }
+
         // Zıplama
         if (!inputBlocked && Keyboard.current.spaceKey.wasPressedThisFrame && isGrounded && !isCrouching && !carryingHeavy)
         {
@@ -168,6 +176,14 @@ public class PlayerController : MonoBehaviour
 
         verticalVelocity.y += appliedGravity * Time.deltaTime;
         characterController.Move(verticalVelocity * Time.deltaTime);
+    }
+
+    /// <summary>Başka biri itti: yatay savrulma (+ biraz yukarı). PushSystem çağırır.</summary>
+    public void AddPush(Vector3 velocity)
+    {
+        pushVelocity += new Vector3(velocity.x, 0f, velocity.z);
+        if (velocity.y > 0f && characterController != null && characterController.isGrounded)
+            verticalVelocity.y = Mathf.Max(verticalVelocity.y, velocity.y);
     }
 
     private void HandleCrouch()

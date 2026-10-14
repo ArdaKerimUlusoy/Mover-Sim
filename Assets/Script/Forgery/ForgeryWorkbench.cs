@@ -71,6 +71,7 @@ public class ForgeryWorkbench : Interactable
         public NetworkObjectReference display;
         public byte[] buffer;
         public int received;
+        public ushort replaceId;
     }
 
     // Sunucu: oyuncu başına süren yükleme ve son üretim zamanı
@@ -78,13 +79,14 @@ public class ForgeryWorkbench : Interactable
     private readonly Dictionary<ulong, float> lastCraft = new Dictionary<ulong, float>();
 
     /// <summary>İstemci: yapılan sahtenin VERİSİNİ sunucuya gönder (parça parça). Benzerliği sunucu hesaplar.</summary>
-    public void RequestCraft(ArtworkDisplay display, ForgeryData data)
+    /// <param name="replaceForgeryId">!= 0: çantadaki bu yarım sahte sürdürüldü; yenisi girince eskisi çıkar.</param>
+    public void RequestCraft(ArtworkDisplay display, ForgeryData data, ushort replaceForgeryId = 0)
     {
         if (!IsSpawned || display == null || data == null) return;
         byte[] blob = data.Encode();
         if (blob.Length > ForgeryData.MaxBlobBytes) return;
 
-        CraftBeginRpc(display.NetworkObject, blob.Length);
+        CraftBeginRpc(display.NetworkObject, blob.Length, replaceForgeryId);
         for (int offset = 0; offset < blob.Length; offset += ChunkSize)
         {
             byte[] chunk = new byte[Mathf.Min(ChunkSize, blob.Length - offset)];
@@ -94,14 +96,14 @@ public class ForgeryWorkbench : Interactable
     }
 
     [Rpc(SendTo.Server)]
-    private void CraftBeginRpc(NetworkObjectReference displayRef, int totalBytes, RpcParams rpcParams = default)
+    private void CraftBeginRpc(NetworkObjectReference displayRef, int totalBytes, ushort replaceId, RpcParams rpcParams = default)
     {
         ulong id = rpcParams.Receive.SenderClientId;
         uploads.Remove(id);
         if (totalBytes <= 0 || totalBytes > ForgeryData.MaxBlobBytes) return;
         if (lastCraft.TryGetValue(id, out float t) && Time.time - t < 1f) return; // art arda üretim yok
         if (!TryGetNearbyPlayer(id, out _, 3f)) return;
-        uploads[id] = new Upload { display = displayRef, buffer = new byte[totalBytes] };
+        uploads[id] = new Upload { display = displayRef, buffer = new byte[totalBytes], replaceId = replaceId };
     }
 
     [Rpc(SendTo.Server)]
@@ -146,8 +148,26 @@ public class ForgeryWorkbench : Interactable
         }
 
         byte sim = ForgeryScorer.Score(data, ms.Seed, ms.ThemeIndex, display.name);
+
+        // "Devam et": sürdürülen yarım sahte çantadan çıkar (yerine yenisi girecek)
+        bool hadOld = false;
+        InventorySlot old = default;
+        if (up.replaceId != 0)
+        {
+            for (int i = 0; i < inv.SlotCount; i++)
+            {
+                InventorySlot s = inv.GetSlot(i);
+                if (s.ForgeryId != up.replaceId || s.LookKey != display.LookKey) continue;
+                old = s;
+                hadOld = true;
+                inv.ServerRemoveAt(i, 1);
+                break;
+            }
+        }
+
         if (!inv.CanFit(forgery))
         {
+            RestoreOld(inv, hadOld, old);
             inv.ServerNotify("inv.full");
             return;
         }
@@ -155,6 +175,7 @@ public class ForgeryWorkbench : Interactable
         ushort forgeryId = ForgeryRegistry.ServerAdd(up.buffer, data);
         if (!inv.ServerAddItem(forgery, sim, forgeryId, display.LookKey))
         {
+            RestoreOld(inv, hadOld, old);
             inv.ServerNotify("inv.full");
             return;
         }
@@ -163,6 +184,14 @@ public class ForgeryWorkbench : Interactable
 
         inv.ServerNotify("bench.done", sim.ToString(), forgery);
         inv.ServerPlaySound(SoundId.HoldComplete, transform.position);
+    }
+
+    /// <summary>Yeni sahte çantaya girmediyse sürdürülen eski yarım sahteyi geri koy.</summary>
+    private static void RestoreOld(PlayerInventory inv, bool hadOld, InventorySlot old)
+    {
+        if (!hadOld || ItemDatabase.Instance == null) return;
+        ItemDefinition def = ItemDatabase.Instance.Get(old.ItemIndex);
+        if (def != null) inv.ServerAddItem(def, old.Similarity, old.ForgeryId, old.LookKey);
     }
 
     /// <summary>Bu orijinalin sahte tanımı (ItemDefinition.forgeryOf ile bağlı olan).</summary>

@@ -276,6 +276,18 @@ public class CanvasPainter
         GUI.DrawTexture(new Rect(bar.x, bar.y, bar.width * Score, bar.height), Texture2D.whiteTexture, ScaleMode.StretchToFill, false, 0, fill, 0, 4);
     }
 
+    /// <summary>Yarım kalmış bir sahte tablonun çizimini tuvale geri yükler (atölyede "Devam et").</summary>
+    public void LoadFrom(ForgeryData d)
+    {
+        if (d == null || d.kind != ArtKind.Painting || d.width <= 0 || d.height <= 0 || d.pixels.Length < d.width * d.height) return;
+        for (int y = 0; y < H; y++)
+            for (int x = 0; x < W; x++)
+                px[y * W + x] = d.PixelColor(Mathf.Min(d.width - 1, x * d.width / W), Mathf.Min(d.height - 1, y * d.height / H));
+        canvas.SetPixels(px);
+        canvas.Apply();
+        Score = ComputeScore();
+    }
+
     /// <summary>Tuvalin şu anki halini taşınabilir veriye çevirir.</summary>
     public ForgeryData ToData()
     {

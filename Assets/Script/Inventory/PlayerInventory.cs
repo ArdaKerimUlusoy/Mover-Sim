@@ -277,7 +277,8 @@ public class PlayerInventory : NetworkBehaviour
 
         if (canAct && kb.qKey.wasPressedThisFrame)
         {
-            TryThrowDistraction();
+            // Elinde tablo / büst / vazo / yüzük (bozuk para dışında bir şey) varsa Q onu önüne bırakır
+            if (!TryDropHeld()) TryThrowDistraction();
         }
 
         // G: elindekini çantaya kaldır / son tuttuğunu yeniden ele al
@@ -425,6 +426,23 @@ public class PlayerInventory : NetworkBehaviour
     public void RequestStartSteal(PlayerInventory target)
     {
         if (target != null) StartStealRpc(target.NetworkObject);
+    }
+
+    /// <summary>Q: elde tutulan eşya (bozuk para hariç) önüne, yere bırakılır. Bıraktıysa true.</summary>
+    private bool TryDropHeld()
+    {
+        int h = heldSlot.Value;
+        if (h < 0 || h >= slots.Count) return false;
+        ItemDefinition d = Def(slots[h]);
+        if (d == null || d.type == ItemType.Distraction) return false;
+        if (d.worldPrefab == null)
+        {
+            ShowToast(Loc.T("inv.cantdrop"), Bad);
+            return true;
+        }
+        SetHeld(NoHeld);
+        DropRpc(h);
+        return true;
     }
 
     private void TryThrowDistraction()
@@ -1043,6 +1061,9 @@ public class PlayerInventory : NetworkBehaviour
 
     private static readonly Color Good = new Color(0.55f, 0.9f, 0.55f);
     private static readonly Color Bad = new Color(1f, 0.45f, 0.4f);
+
+    /// <summary>Kendi ekranında kısa uyarı (ör. itildin — PushSystem).</summary>
+    public void ShowLocalToast(string text) => ShowToast(text, Bad);
 
     private void ShowToast(string text, Color color)
     {

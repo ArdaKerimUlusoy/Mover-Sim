@@ -542,3 +542,72 @@ Yine sadece kod değişti, sahneye dokunmaya gerek yok. Kodu (yeni `TrashBin.cs`
 - **Çöp kutusu:** Kamyonun içinde, atölye tezgahının yanında (batı duvarının dibinde) duruyor.
   - Bakıp **E**'ye basınca çantadaki sahteler listelenir. Her birinin yanında "Çöpe at" düğmesi, altta "Bütün sahteleri at" düğmesi var.
   - Atılan sahte geri gelmez.
+
+## Ek 12: Sesli sohbette hırsızlık kelimeleri (güvenlik duyar)
+
+Sesli sohbette hırsızlıkla ilgili bir şey söylersen yakındaki güvenlikler duyar ve gelip bakar.
+
+- **Türkçe:** çaldım / çaldık / çalalım / çalıyorum / çalmak, çalıntı, hırsız, soygun / soyalım / soyduk, değiştirdim / değiştirelim, sahte, aşırdım, arakladım.
+- **İngilizce:** steal / stole / stolen, swap / swapped, fake, forged / forgery, heist, rob / robbed / robbery, thief, loot.
+- "Çalışıyorum", "stealth" gibi benzer ama ilgisiz kelimeler sayılmaz. Kelime listesi: `VoiceKeywordListener.cs` → `CrimeWords`.
+
+### Ne olur?
+- Güvenlik açık alanda **14 m**, duvar arkasından **6 m** içinden duyar.
+- Duyan güvenlik konuştuğun yerin yanındaki esere yürüyüp inceler. Yakında **değiştirdiğin bir eser** varsa önce ona gider ve sahteyi fark etme şansı **+%30** artar. Fark ederse oraya varınca alarm çalar.
+- Sen **25 sn** boyunca "duyulmuş" sayılırsın: bu sürede bir güvenlik / kamera seni görünce şüphelenir. Şüphe çubuğun da biraz dolar, ama tek başına alarm çalmaz.
+- Ekranında "Bir güvenlik ... dediğini duydu!" yazar. Söylediğin kelime algılanınca mikrofon kutusunun üstünde de gösterilir.
+- Sadece ses **gerçekten gönderilirken** dinlenir: V basılıyken ya da açık mikrofonda eşik geçilince.
+
+### Kurulum
+- Konuşma tanıma **Vosk** ile, çevrimdışı ve ücretsiz. Motor `Assets/Plugins/x86_64/` içinde (libvosk.dll + 3 yardımcı dll), commit'leyin.
+- Türkçe ve İngilizce küçük modeller (~80 MB) oyuncu ilk kez odaya girince **kendiliğinden indirilir**. Bir kez indirilir; yeri `%USERPROFILE%/AppData/LocalLow/<şirket>/<oyun>/VoskModels`.
+- İnternet yoksa ya da indirme olmazsa modelleri elle koyun:
+  - https://alphacephei.com/vosk/models adresinden `vosk-model-small-tr-0.3` ve `vosk-model-small-en-us-0.15` zip'lerini indirin.
+  - Zip'leri `Assets/StreamingAssets/Vosk/` içine açın (klasör adları aynen kalsın).
+- Ayar: **Esc → Sesli sohbet** altında *Kapalı / TR + EN / Türkçe / İngilizce* ve modellerin durumu.
+- Şimdilik sadece **Windows**'ta çalışır; diğer sistemlerde sessizce kapalı kalır.
+
+### Değişen dosyalar
+- Yeni: `Network/VoiceKeywordListener.cs` (dinleme + model indirme + kelime listesi), `Stealth/CrimeTalk.cs` (sunucu: kim duyar, ne yapar), `Assets/Plugins/x86_64/*.dll`.
+- Küçük eklemeler:
+  - `VoiceChat`: gönderilen ses paketini dinleyiciye veren bir olay ve ayarlar satırı.
+  - `GuardAI`: `ServerHearCrimeTalk`.
+  - `PlayerStealth`: "duyuldu" durumu.
+  - `Loc`: yeni metinler.
+
+## Ek 13: Q ile yere bırakma, yarım sahteye devam etme, F ile itme
+
+### Q: elindekini yere bırak
+- Elinde tablo, büst, vazo, yüzük (ya da başka bir eşya) varken **Q** basınca önüne bırakırsın.
+- Elin boşsa ya da bozuk para tutuyorsan Q eskisi gibi bozuk para fırlatır.
+- Yere düşen eşya ses çıkarır (ağır büst daha çok): yakındaki güvenlik bakmaya gelebilir.
+
+### Atölyede "Devam et"
+- Boş ya da yarım bıraktığın **tablo, büst veya yüzük** sahtesi çantandaysa, tezgahta E basınca listenin en üstünde
+  "Devam et: … (şu an %X)" olarak çıkar. Elinde tutarken E basarsan doğrudan o açılır.
+- Kaldığın yerden devam edersin. Esc ile bitirince yeni hali çantana girer, eski yarım sahte çıkar.
+- Vazo için yok: kil şekli kaydedilmiyor, her seferinde baştan yapılır.
+
+### F: itme
+- Önündeki (yaklaşık 2 m) **takım arkadaşını, ziyaretçiyi ya da güvenliği** F ile itersin. İtebileceğin biri varsa
+  üstünde "[F] İt" yazar; o anda F işaret (ping) koymaz. İşaret için orta fare tuşu her zaman çalışır.
+- **Takım arkadaşı** biraz savrulur, bakışı kayar ve "Biri seni itti!" yazar.
+  - E basılı tutarak yaptığı iş (eser değiştirme, çalma, kilit, konsol...) **sıfırlanır**: E'yi bırakıp baştan basması gerekir.
+  - **Atölyedeyse atölyeden çıkar:** tablo, büst ya da yüzük yarım haliyle çantasına girer, sonra "Devam et" ile sürdürür. Şekli bitmemiş vazo kaybolur.
+  - Saklanan ya da hapisteki oyuncu itilmez.
+- **Ziyaretçi** savrulur.
+- **Güvenlik** savrulur, sonra dönüp itenin olduğu yere bakar. Güvenliği itmek dikkat çeker.
+- İtmek ses çıkarır.
+
+### Değişen dosyalar
+- Yeni: `Gameplay/PushSystem.cs`.
+- Küçük eklemeler:
+  - `PlayerInventory`: Q ile bırakma.
+  - `PlayerInteractor`: `InterruptHold`.
+  - `PlayerController`: `AddPush`.
+  - `WorkbenchUI`: Devam et ve `Interrupt`.
+  - `ForgeryWorkbench`: eski yarım sahteyi değiştirme.
+  - `CanvasPainter`: `LoadFrom`.
+  - `VisitorManager`: ziyaretçi bulma ve itme yardımcıları.
+  - `PingSystem`: F tuşu çakışması.
+  - `Loc`: yeni metinler.

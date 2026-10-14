@@ -37,6 +37,7 @@ public class PlayerStealth : NetworkBehaviour
     private float lastSeenTime = -10f;
     private float wantedUntil = -1f;
     private float offenderUntil = -1f;
+    private float overheardUntil = -1f; // sesli sohbette hırsızlık kelimesi söyledi, güvenlik duydu (CrimeTalk)
     [Tooltip("Hapisten çıkan / kaçan oyuncuyu güvenlikler bu kadar saniye tanır (görünce hemen şüphelenir).")]
     [SerializeField] private float offenderMemorySeconds = 60f;
 
@@ -51,6 +52,8 @@ public class PlayerStealth : NetworkBehaviour
     public bool IsWanted => IsServer && Time.time < wantedUntil;
     /// <summary>Sunucu: güvenliklerin tanıdığı (yakalanıp kaçmış / kaçırılmış) oyuncu mu?</summary>
     public bool IsKnownOffender => IsServer && Time.time < offenderUntil;
+    /// <summary>Sunucu: sesli sohbette söyledikleri bir güvenliğe duyuldu mu? (Bir süre görülünce şüphe çeker.)</summary>
+    public bool IsOverheard => IsServer && Time.time < overheardUntil;
     public bool IsJailed => jailedUntil.Value > 0;
     public double JailedUntil => jailedUntil.Value;
 
@@ -126,6 +129,7 @@ public class PlayerStealth : NetworkBehaviour
             if (RestrictedArea.IsInside(transform.position)) level += 1f;
             if (IsWanted) level += 1.5f;
             if (IsKnownOffender) level += 1f; // yakalanıp kaçan oyuncuyu güvenlikler tanır
+            if (IsOverheard) level += 0.75f;  // "çaldım" dediği duyuldu: görülünce şüphe çeker
             return level;
         }
     }
@@ -160,6 +164,15 @@ public class PlayerStealth : NetworkBehaviour
     public void ServerMarkWanted(float until)
     {
         if (IsServer) wantedUntil = Mathf.Max(wantedUntil, until);
+    }
+
+    /// <summary>Sunucu: sesli sohbette hırsızlıkla ilgili bir şey söylediği duyuldu (CrimeTalk). Şüphe biraz artar,
+    /// bir süre güvenlik / kamera onu görünce şüphelenir. Tek başına alarm çaldırmaz.</summary>
+    public void ServerMarkOverheard(float seconds)
+    {
+        if (!IsServer || IsJailed) return;
+        overheardUntil = Mathf.Max(overheardUntil, Time.time + seconds);
+        if (suspicion.Value < 0.9f) suspicion.Value = Mathf.Min(0.9f, suspicion.Value + 0.25f);
     }
 
     /// <summary>Sunucu: güvenlikler bu oyuncuyu bir süre tanısın (hapisten çıktı / kaçırıldı / kovalamadan kaçtı).</summary>

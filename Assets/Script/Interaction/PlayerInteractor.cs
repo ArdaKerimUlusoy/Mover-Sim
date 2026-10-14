@@ -179,6 +179,14 @@ public class PlayerInteractor : MonoBehaviour
         holdTime = 0f;
     }
 
+    /// <summary>İtildi (PushSystem): yarım kalan E basılı tutma sıfırlanır; E bırakılıp baştan basılmalı.</summary>
+    public void InterruptHold()
+    {
+        CancelHold();
+        waitForRelease = true;
+        if (stealth != null) stealth.SetDoingCrime(false);
+    }
+
     private void ClearTarget()
     {
         kind = TargetKind.None;

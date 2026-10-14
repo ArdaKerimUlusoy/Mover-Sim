@@ -130,6 +130,35 @@ public class GuardAI : NetworkBehaviour
         MoveTo(pos, investigateSpeed);
     }
 
+    /// <summary>Sesli sohbette söylenen hırsızlık kelimesini duyduğunda: sahte fark etme şansı artar.</summary>
+    private const float OverheardDetectBonus = 0.3f;
+
+    /// <summary>Sunucu: bir oyuncunun hırsızlıkla ilgili konuştuğunu duydu (CrimeTalk).
+    /// Konuşanın yanındaki esere gidip inceler; eser değiştirilmişse fark etme şansı artar (fark ederse varınca alarm).
+    /// Eser yoksa konuşanın olduğu yere bakar. Duyduysa true döner.</summary>
+    public bool ServerHearCrimeTalk(PlayerStealth speaker, ArtworkDisplay display)
+    {
+        if (!IsServer || !Online || speaker == null) return false;
+        if (state.Value == State.Chase) return true; // zaten kovalıyor
+
+        PlaySoundRpc(SoundId.GuardHuh, transform.position);
+        lastKnownPos = speaker.transform.position;
+
+        if (display != null)
+        {
+            inspected.Remove(display); // önünden geçerken bir kez daha bakar
+            bool caught = display.IsSwapped &&
+                          Random.value < Mathf.Clamp01(DetectChance(display.LeftSimilarity) + OverheardDetectBonus);
+            ServerInvestigate(display.transform.position, caught, display);
+        }
+        else
+        {
+            ServerInvestigate(speaker.transform.position, false);
+        }
+        if (alert.Value < 45) alert.Value = 45;
+        return true;
+    }
+
     public void ServerOnAlarm(Vector3 pos, PlayerStealth culprit)
     {
         if (!IsServer || !Online) return;

@@ -45,6 +45,32 @@ public class VisitorManager : MonoBehaviour
 
     private void Awake() => Instance = this;
 
+    /// <summary>Herkes: önündeki (görüş açısındaki) en yakın ziyaretçi. İtmek için (PushSystem).</summary>
+    public bool FindInFront(Vector3 from, Vector3 forward, float range, float maxAngle, out byte id, out Vector3 pos)
+    {
+        id = 0;
+        pos = Vector3.zero;
+        float best = float.MaxValue;
+        Vector3 flatFwd = new Vector3(forward.x, 0f, forward.z);
+        foreach (Visitor v in visitors)
+        {
+            if (v.t == null) continue;
+            Vector3 to = v.t.position - from;
+            to.y = 0f;
+            float d = to.magnitude;
+            if (d > range || d < 0.01f || Vector3.Angle(flatFwd, to) > maxAngle) continue;
+            if (d < best) { best = d; id = v.id; pos = v.t.position; }
+        }
+        return best < float.MaxValue;
+    }
+
+    /// <summary>Sunucu: ziyaretçinin NavMeshAgent'ı (itilince kaydırmak için). Yoksa null.</summary>
+    public NavMeshAgent ServerAgent(byte id)
+    {
+        foreach (Visitor v in visitors) if (v.id == id) return v.agent;
+        return null;
+    }
+
     private void OnDestroy()
     {
         if (Instance == this) Instance = null;

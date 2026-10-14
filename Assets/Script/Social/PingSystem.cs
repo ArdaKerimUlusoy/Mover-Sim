@@ -5,6 +5,7 @@ using UnityEngine.InputSystem;
 
 /// <summary>
 /// İşaretleme (ping): orta fare tuşu veya F → baktığın yere ekip arkadaşlarının da gördüğü bir işaret koyar.
+/// (Önünde itilebilecek biri varsa F itmedir, işaret koymaz — PushSystem.)
 /// Bir eşyaya / esere bakıyorsan işaretin üstünde adı yazar. İşaretler 8 sn sonra kaybolur.
 /// Kurulum: sahnedeki ChatManager objesine eklenir (Test Museum oluşturucu otomatik ekler).
 /// </summary>
@@ -34,7 +35,7 @@ public class PingSystem : NetworkBehaviour
         if (Cursor.lockState != CursorLockMode.Locked || Time.unscaledTime < nextLocalPing) return;
 
         bool pressed = (Mouse.current != null && Mouse.current.middleButton.wasPressedThisFrame) ||
-                       (Keyboard.current != null && Keyboard.current.fKey.wasPressedThisFrame);
+                       (Keyboard.current != null && Keyboard.current.fKey.wasPressedThisFrame && !PushSystem.HasTargetInFront);
         if (!pressed) return;
 
         Camera cam = Camera.main;
