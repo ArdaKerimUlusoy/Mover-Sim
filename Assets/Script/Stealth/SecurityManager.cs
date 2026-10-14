@@ -125,9 +125,27 @@ public class SecurityManager : NetworkBehaviour
         if (best != null) best.ServerInvestigate(position, false);
     }
 
+    /// <summary>Sunucu: yeni göreve geçerken her şey sıfırlanır: alarm sessizce susar, kameralar açılır, kimse aranmaz,
+    /// güvenlikler devriyeye döner.</summary>
+    public void ServerResetForMission()
+    {
+        if (!IsServer) return;
+        alarmActive.Value = false;
+        alarmEndsAt.Value = 0;
+        camerasOffUntil.Value = 0;
+        consoleReadyAt.Value = 0;
+        foreach (PlayerStealth p in PlayerStealth.All) if (p != null && p.IsSpawned) p.ServerClearHeat();
+        foreach (GuardAI g in Guards) if (g != null) g.ServerResetForLayout();
+    }
+
+    public override void OnNetworkDespawn()
+    {
+        nextSirenTime = 0f; // bağlantı kopunca siren susar (Update de IsSpawned bakar)
+    }
+
     private void Update()
     {
-        if (alarmActive.Value)
+        if (IsSpawned && alarmActive.Value)
         {
             // Siren (herkeste)
             if (Time.unscaledTime >= nextSirenTime)
@@ -146,7 +164,7 @@ public class SecurityManager : NetworkBehaviour
     {
         if (CamerasDisabled)
         {
-            Rect cr = new Rect((Screen.width - 300f) / 2f, 100f, 300f, 28f);
+            Rect cr = new Rect((Screen.width - 300f) / 2f, UIUtil.TopSlot(28f), 300f, 28f);
             UIUtil.DrawRect(cr, new Color(0.1f, 0.3f, 0.6f, 0.75f));
             UIUtil.DrawPrompt(Loc.T("console.banner", Mathf.CeilToInt(CamerasOffRemaining)), cr.y + 1f, Color.white, 17);
         }
@@ -156,7 +174,7 @@ public class SecurityManager : NetworkBehaviour
         if (remaining < 0) remaining = 0;
 
         float pulse = 0.55f + 0.45f * Mathf.Abs(Mathf.Sin(Time.unscaledTime * 4f));
-        Rect r = new Rect((Screen.width - 340f) / 2f, 60f, 340f, 34f);
+        Rect r = new Rect((Screen.width - 340f) / 2f, UIUtil.TopSlot(34f), 340f, 34f);
         UIUtil.DrawRect(r, new Color(0.8f, 0.1f, 0.1f, 0.75f * pulse));
         UIUtil.DrawPrompt(Loc.T("alarm.banner", Mathf.CeilToInt((float)remaining)), r.y + 2f, Color.white, 20);
     }

@@ -2,7 +2,7 @@
 public enum UpgradeType : byte
 {
     BiggerBag = 0,    // kişisel: +5 kg çanta
-    QuietShoes = 1,   // kişisel: daha sessiz ayak sesi
+    QuietShoes = 1,   // KALDIRILDI (mağazada yok). Numara ağda kullanıldığı için silinmedi.
     SwiftGloves = 2,  // kişisel: eser değiştirme daha hızlı
     TeamBackpacks = 3 // ekip: herkese +3 kg
 }
@@ -14,7 +14,7 @@ public static class UpgradeCatalog
 {
     public static readonly UpgradeType[] All =
     {
-        UpgradeType.BiggerBag, UpgradeType.QuietShoes, UpgradeType.SwiftGloves, UpgradeType.TeamBackpacks
+        UpgradeType.BiggerBag, UpgradeType.SwiftGloves, UpgradeType.TeamBackpacks // ayak sesi upgrade'i kaldırıldı
     };
 
     // Etkiler
@@ -28,7 +28,7 @@ public static class UpgradeCatalog
         switch (t)
         {
             case UpgradeType.BiggerBag: return 3;
-            case UpgradeType.QuietShoes: return 2;
+            case UpgradeType.QuietShoes: return 0; // kaldırıldı: satın alınamaz
             case UpgradeType.SwiftGloves: return 2;
             case UpgradeType.TeamBackpacks: return 2;
             default: return 0;

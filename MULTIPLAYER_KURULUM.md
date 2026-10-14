@@ -611,3 +611,36 @@ Sesli sohbette hırsızlıkla ilgili bir şey söylersen yakındaki güvenlikler
   - `VisitorManager`: ziyaretçi bulma ve itme yardımcıları.
   - `PingSystem`: F tuşu çakışması.
   - `Loc`: yeni metinler.
+
+## Ek 14: Telsiz, yasaklı kelime rengi, fırça boyutu, yeni eserler, düzeltmeler
+
+### Sesli sohbet
+- **Yasaklı kelime** (çaldım, sahte...) algılanınca mikrofon kutusunun **tamamı kırmızı** olur ve "Yasaklı kelime!" yazar.
+- **Fısıltı:** güvenliğin duyma mesafesi ses yüksekliğine bağlıdır. Fısıltıyla yaklaşık 2,5 m (arkadaşının kulağına söylersen güvenlik duymaz), normal sesle yaklaşık 6 m, bağırınca yaklaşık 10 m. Duvar arkasından bunun %40'ı. Söylediğin kelimenin yanında hangi mesafeden duyulabileceği yazar.
+- **Telsiz:** 12 m'ye kadar ses tam gelir. Uzaklaştıkça kısılır (70 m'de %18) ve telsiz gibi incelip hafif cızırdar.
+
+### Atölye
+- **Fırça boyutu:** tuvalde imlecin etrafında fırçanın gerçek boyutunda bir halka görünür. Paletin altında kaydırıcı ve − / + düğmeleri var; [ ] ya da - + tuşları da çalışır. Vazo boyamada da kaydırıcı var.
+- **Yeni eserler:**
+  - 6 yeni tablo: deniz feneri, lale tarlaları, çöl ve piramitler, kiraz çiçeği, portre, daireler. Tablolar artık her görevde değişir.
+  - 5 yeni vazo şekli: amfora, kase, testi, şişe, lale ağızlı. Ayrıca 4 desen türü: bant, zikzak, benek, dikey çizgi.
+  - Büst: 2 yeni taş (yeşim, altın varak), 2 yeni kaide rengi, 4 yeni ad.
+  - Yüzük: 2 yeni metal (siyah, beyaz altın), 3 yeni taş (ametist, topaz, akuamarin), 3 yeni ad.
+
+### Düzeltmeler
+- **Hapisten çıkınca** (süre dolunca ya da kurtarılınca) oyuncu normal ziyaretçiye döner: aranmaz, tanınmaz, kovalanmaz. Kurtaran kişi hâlâ aranır ve alarm çalar.
+- **Yeni göreve geçince** her şey sıfırlanır: alarm susar, kameralar açılır, kimse aranmaz, güvenlikler devriyeye döner.
+- **Host'tan kopup ana menüye düşünce** alarm sesi artık çalmaz.
+- **Üst üste binen yazılar** düzeltildi:
+  - Üstteki uyarılar (şüphe, alarm, kamera, hapis, görev) alt alta dizilir.
+  - Nişangah altındaki yazılar (etkileşim, taşıma, bildirim) alt alta dizilir.
+- **Sessiz ayakkabı** upgrade'i mağazadan kaldırıldı.
+
+### Değişen dosyalar
+- `Gameplay/DayCycle.cs`: sabah–akşam döngüsü kaldırıldı, dosya artık boş. Silebilirsiniz (`.meta` dosyasıyla birlikte).
+- Değişenler:
+  - Aranma ve alarm sıfırlama: `PlayerStealth`, `GuardAI`, `JailCell`, `SecurityManager`.
+  - Sesli sohbet: `VoiceChat`, `VoicePlayback`, `VoiceKeywordListener`, `CrimeTalk` (fısıltı mesafesi).
+  - Atölye ve yeni eserler: `CanvasPainter`, `WorkbenchUI`, `ArtworkLook`, `ArtworkLookExtra`.
+  - Yazı düzeni: `UIUtil`, `PlayerInteractor`, `ObjectCarrier`, `PlayerInventory`.
+  - Diğer: `UpgradeCatalog` (sessiz ayakkabı), `Loc` (yeni metinler).

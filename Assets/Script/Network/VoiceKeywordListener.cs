@@ -98,6 +98,7 @@ public class VoiceKeywordListener : MonoBehaviour
 
     // Ekranda (sadece kendine): algılanan kelime
     private string shownWord = "";
+    private float shownLoud;
     private float shownUntil;
     private GUIStyle style;
 
@@ -133,8 +134,31 @@ public class VoiceKeywordListener : MonoBehaviour
     //  Ses girişi (VoiceChat gönderdiği her 40 ms'lik paketi buraya da verir)
     // =====================================================================
 
+    // Son ~1.6 sn'nin ses yüksekliği (40 ms'lik paketler): kelimenin fısıltıyla mı bağırarak mı söylendiği
+    private readonly float[] recentLevels = new float[40];
+    private readonly float[] recentTimes = new float[40];
+    private int recentHead;
+
+    /// <summary>Son ~1.2 sn'deki en yüksek ses (0 = fısıltı, 1 = bağırma).</summary>
+    private float RecentLoudness()
+    {
+        float best = 0f, now = Time.unscaledTime;
+        for (int i = 0; i < recentLevels.Length; i++)
+            if (now - recentTimes[i] < 1.2f && recentLevels[i] > best) best = recentLevels[i];
+        // VoiceChat'in mikrofon seviyesiyle aynı ölçek; 0.3 altı fısıltı, 0.9 üstü bağırma
+        return Mathf.InverseLerp(0.3f, 0.9f, best);
+    }
+
     private void OnSpeechFrame(float[] samples, int count)
     {
+        // Ses yüksekliği (her zaman kaydedilir; tanıma kapalıyken de ucuz)
+        double sum = 0;
+        for (int i = 0; i < count; i++) sum += samples[i] * samples[i];
+        float rms = count > 0 ? (float)Math.Sqrt(sum / count) : 0f;
+        recentLevels[recentHead] = Mathf.Clamp01(Mathf.Sqrt(rms) * 2.2f);
+        recentTimes[recentHead] = Time.unscaledTime;
+        recentHead = (recentHead + 1) % recentLevels.Length;
+
         if (!running || CurrentMode == Mode.Off) return;
         var pcm = new short[count];
         for (int i = 0; i < count; i++) pcm[i] = (short)Mathf.Clamp(samples[i] * 32767f, -32768f, 32767f);
@@ -172,11 +196,13 @@ public class VoiceKeywordListener : MonoBehaviour
         while (found.TryDequeue(out string word))
         {
             shownWord = word;
+            shownLoud = RecentLoudness();
             shownUntil = Time.unscaledTime + 3f;
+            VoiceChat.BannedFlashUntil = Time.unscaledTime + 2.5f; // mikrofon kutusu kırmızı yanar
             if (inSession && Time.unscaledTime >= nextSend)
             {
                 nextSend = Time.unscaledTime + ClientCooldown;
-                SendToServer(nm, word);
+                SendToServer(nm, word, shownLoud);
             }
         }
     }
@@ -455,7 +481,7 @@ public class VoiceKeywordListener : MonoBehaviour
                         Scan(l, Native.vosk_recognizer_result(l.rec), "text"); // cümle bitti
                         l.said.Clear();
                     }
-                    else if (partialCounter % 4 == 0)
+                    else if (partialCounter % 2 == 0) // ~80 ms'de bir ara sonuç: kelime söylenir söylenmez yakalansın
                     {
                         Scan(l, Native.vosk_recognizer_partial_result(l.rec), "partial"); // ~160 ms'de bir ara sonuç
                     }
@@ -511,16 +537,18 @@ public class VoiceKeywordListener : MonoBehaviour
         regCmm = null;
     }
 
-    private void SendToServer(NetworkManager nm, string word)
+    private void SendToServer(NetworkManager nm, string word, float loudness)
     {
+        byte loud = (byte)Mathf.RoundToInt(Mathf.Clamp01(loudness) * 255f);
         if (nm.IsServer)
         {
-            CrimeTalk.ServerHeard(nm.LocalClientId, word);
+            CrimeTalk.ServerHeard(nm.LocalClientId, word, loud);
             return;
         }
         using (var w = new FastBufferWriter(128, Allocator.Temp))
         {
             w.WriteValueSafe(word.Length > 24 ? word.Substring(0, 24) : word);
+            w.WriteValueSafe(loud);
             regCmm.SendNamedMessage(MsgName, NetworkManager.ServerClientId, w, NetworkDelivery.Reliable);
         }
     }
@@ -530,7 +558,8 @@ public class VoiceKeywordListener : MonoBehaviour
         try
         {
             reader.ReadValueSafe(out string word);
-            CrimeTalk.ServerHeard(sender, word);
+            reader.ReadValueSafe(out byte loud);
+            CrimeTalk.ServerHeard(sender, word, loud);
         }
         catch (Exception) { }
     }
@@ -550,7 +579,13 @@ public class VoiceKeywordListener : MonoBehaviour
 
         string line = null;
         Color c = Color.white;
-        if (Time.unscaledTime < shownUntil) { line = Loc.T("crimetalk.detected", shownWord); c = new Color(1f, 0.6f, 0.3f); }
+        if (Time.unscaledTime < shownUntil)
+        {
+            string how = Loc.T(shownLoud < 0.25f ? "crimetalk.whisper" : shownLoud > 0.75f ? "crimetalk.loud" : "crimetalk.normal",
+                               Mathf.RoundToInt(CrimeTalk.HearRangeFor(shownLoud)));
+            line = Loc.T("crimetalk.detected", shownWord) + "  " + how;
+            c = new Color(1f, 0.38f, 0.33f);
+        }
         else
         {
             string s = StatusLine(true);
@@ -558,7 +593,7 @@ public class VoiceKeywordListener : MonoBehaviour
         }
         if (line == null) return;
 
-        float w = Mathf.Min(520f, style.CalcSize(new GUIContent(line)).x + 24f);
+        float w = Mathf.Min(420f, style.CalcSize(new GUIContent(line)).x + 24f); // sağ alttaki çanta ipuçlarıyla çakışmasın
         Rect r = new Rect((Screen.width - w) * 0.5f, Screen.height - 64f - 28f, w, 22f);
         UIUtil.DrawRect(r, new Color(0.05f, 0.06f, 0.08f, 0.7f));
         style.normal.textColor = c;

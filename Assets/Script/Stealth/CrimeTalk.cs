@@ -4,7 +4,8 @@ using UnityEngine;
 
 /// <summary>
 /// Sunucu: bir oyuncu sesli sohbette hırsızlık kelimesi söyledi (VoiceKeywordListener bulur).
-///  - Yakındaki güvenlikler duyar: açık alanda hearRange metre, arada duvar varsa throughWallRange metre.
+///  - Yakındaki güvenlikler duyar. Duyma mesafesi SES YÜKSEKLİĞİNE göre: fısıltı ~2.5 m (arkadaşının kulağına
+///    söylersen güvenlik duymaz), normal ~6 m, bağırma ~10 m. Arada duvar varsa bunun %40'ı.
 ///  - Duyan güvenlik konuşanın yanındaki esere yürüyüp İNCELER. Yakında DEĞİŞTİRİLMİŞ (sahte) bir eser varsa önce ona gider
 ///    ve sahteyi fark etme şansı artar (fark ederse oraya varınca alarm). Yoksa konuşanın yakınındaki esere / yerine bakar.
 ///  - Konuşan oyuncu bir süre "duyuldu" sayılır: o sürede güvenlik onu görürse şüphelenir (PlayerStealth.ServerMarkOverheard).
@@ -12,16 +13,21 @@ using UnityEngine;
 /// </summary>
 public static class CrimeTalk
 {
-    public const float HearRange = 14f;
-    public const float ThroughWallRange = 6f;
+    public const float WhisperRange = 2.5f;  // fısıltı
+    public const float ShoutRange = 10f;     // bağırma
+    public const float WallFactor = 0.4f;    // duvar arkasından
+
+    /// <summary>Ses yüksekliğine (0 fısıltı – 1 bağırma) göre güvenliğin duyabileceği mesafe.</summary>
+    public static float HearRangeFor(float loudness01) => Mathf.Lerp(WhisperRange, ShoutRange, Mathf.Clamp01(loudness01));
     public const float ArtworkSearchRadius = 12f;
     public const float OverheardSeconds = 25f;
     public const float ServerCooldown = 4f;
 
     private static readonly Dictionary<ulong, float> lastHeard = new Dictionary<ulong, float>();
 
-    public static void ServerHeard(ulong clientId, string word)
+    public static void ServerHeard(ulong clientId, string word, byte loudness = 128)
     {
+        float hearRange = HearRangeFor(loudness / 255f);
         NetworkManager nm = NetworkManager.Singleton;
         if (nm == null || !nm.IsServer) return;
         if (!nm.ConnectedClients.TryGetValue(clientId, out NetworkClient client) || client.PlayerObject == null) return;
@@ -58,8 +64,8 @@ public static class CrimeTalk
             if (g == null || !g.Online) continue;
             Vector3 ear = g.transform.position + Vector3.up * 0.7f;
             float dist = Vector3.Distance(ear, mouth);
-            if (dist > HearRange) continue;
-            if (dist > ThroughWallRange && Blocked(mouth, ear, speaker.transform, g.transform)) continue;
+            if (dist > hearRange) continue;
+            if (dist > hearRange * WallFactor && Blocked(mouth, ear, speaker.transform, g.transform)) continue;
 
             if (g.ServerHearCrimeTalk(speaker, target)) heard++;
         }

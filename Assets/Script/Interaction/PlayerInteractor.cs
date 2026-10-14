@@ -265,13 +265,13 @@ public class PlayerInteractor : MonoBehaviour
 
         if (stealth != null && stealth.CurrentHidingSpot != null)
         {
-            UIUtil.DrawPrompt(Loc.T("hide.leave"), Screen.height / 2f + 34f, Color.white);
+            UIUtil.DrawPrompt(Loc.T("hide.leave"), UIUtil.CenterSlot(), Color.white);
             return;
         }
 
         if (kind == TargetKind.None) return;
 
-        float y = Screen.height / 2f + 34f;
+        float y = UIUtil.CenterSlot();
         Vector2 center = new Vector2(Screen.width / 2f, Screen.height / 2f);
 
         switch (kind)

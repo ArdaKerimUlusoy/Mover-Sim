@@ -49,8 +49,10 @@ public static partial class ArtworkLook
         new Color(0.55f, 0.40f, 0.20f), // bronz
         new Color(0.76f, 0.46f, 0.32f), // pişmiş toprak
         new Color(0.26f, 0.26f, 0.30f), // bazalt
+        new Color(0.42f, 0.70f, 0.52f), // yeşim
+        new Color(0.92f, 0.76f, 0.32f), // altın varak
     };
-    public static readonly string[][] BustStoneNames = { N("Marble", "Mermer"), N("Bronze", "Bronz"), N("Terracotta", "Pişmiş toprak"), N("Basalt", "Bazalt") };
+    public static readonly string[][] BustStoneNames = { N("Marble", "Mermer"), N("Bronze", "Bronz"), N("Terracotta", "Pişmiş toprak"), N("Basalt", "Bazalt"), N("Jade", "Yeşim"), N("Gilded", "Altın varak") };
 
     public static readonly Color[] BustBases =
     {
@@ -58,8 +60,10 @@ public static partial class ArtworkLook
         new Color(0.12f, 0.12f, 0.14f), // siyah mermer
         new Color(0.90f, 0.90f, 0.88f), // beyaz
         new Color(0.20f, 0.42f, 0.32f), // yeşil taş
+        new Color(0.58f, 0.18f, 0.18f), // kırmızı mermer
+        new Color(0.18f, 0.28f, 0.58f), // lacivert
     };
-    public static readonly string[][] BustBaseNames = { N("Wood", "Ahşap"), N("Black", "Siyah"), N("White", "Beyaz"), N("Green", "Yeşil") };
+    public static readonly string[][] BustBaseNames = { N("Wood", "Ahşap"), N("Black", "Siyah"), N("White", "Beyaz"), N("Green", "Yeşil"), N("Red", "Kırmızı"), N("Navy", "Lacivert") };
 
     public static readonly string[][] BustSliderNames =
     {
@@ -71,6 +75,8 @@ public static partial class ArtworkLook
     {
         N("Bust of a Philosopher", "Filozof Büstü"), N("Emperor's Bust", "İmparator Büstü"),
         N("Bust of a Poet", "Şair Büstü"), N("Bust of a Queen", "Kraliçe Büstü"),
+        N("General's Bust", "General Büstü"), N("Bust of a Scholar", "Âlim Büstü"), N("Bust of a Dancer", "Dansçı Büstü"),
+        N("Bust of a Sultan", "Sultan Büstü"),
     };
 
     public static readonly Color[] JewelMetals =
@@ -79,8 +85,10 @@ public static partial class ArtworkLook
         new Color(0.85f, 0.87f, 0.90f), // gümüş
         new Color(0.80f, 0.50f, 0.30f), // bakır
         new Color(0.95f, 0.65f, 0.60f), // roze
+        new Color(0.22f, 0.22f, 0.25f), // oksitli (siyah)
+        new Color(0.98f, 0.95f, 0.80f), // beyaz altın
     };
-    public static readonly string[][] JewelMetalNames = { N("Gold", "Altın"), N("Silver", "Gümüş"), N("Copper", "Bakır"), N("Rose", "Roze") };
+    public static readonly string[][] JewelMetalNames = { N("Gold", "Altın"), N("Silver", "Gümüş"), N("Copper", "Bakır"), N("Rose", "Roze"), N("Black", "Siyah"), N("White gold", "Beyaz altın") };
 
     public static readonly Color[] JewelGems =
     {
@@ -88,8 +96,11 @@ public static partial class ArtworkLook
         new Color(0.12f, 0.25f, 0.80f), // safir
         new Color(0.10f, 0.65f, 0.30f), // zümrüt
         new Color(0.90f, 0.95f, 1.00f), // elmas
+        new Color(0.60f, 0.25f, 0.78f), // ametist
+        new Color(1.00f, 0.62f, 0.12f), // topaz
+        new Color(0.40f, 0.86f, 0.90f), // akuamarin
     };
-    public static readonly string[][] JewelGemNames = { N("Ruby", "Yakut"), N("Sapphire", "Safir"), N("Emerald", "Zümrüt"), N("Diamond", "Elmas") };
+    public static readonly string[][] JewelGemNames = { N("Ruby", "Yakut"), N("Sapphire", "Safir"), N("Emerald", "Zümrüt"), N("Diamond", "Elmas"), N("Amethyst", "Ametist"), N("Topaz", "Topaz"), N("Aquamarine", "Akuamarin") };
 
     public static readonly string[][] JewelStyleNames = { N("Thin band", "İnce halka"), N("Thick band", "Kalın halka"), N("Signet", "Mühür") };
 
@@ -97,6 +108,7 @@ public static partial class ArtworkLook
     {
         N("Signet Ring", "Mühür Yüzüğü"), N("Royal Ring", "Kraliyet Yüzüğü"),
         N("Heirloom Ring", "Yadigâr Yüzük"), N("Coronation Ring", "Taç Giyme Yüzüğü"),
+        N("Duchess's Ring", "Düşes Yüzüğü"), N("Sultan's Ring", "Sultan Yüzüğü"), N("Pharaoh's Ring", "Firavun Yüzüğü"),
     };
 
     static readonly Dictionary<string, BustLook> bustCache = new Dictionary<string, BustLook>();

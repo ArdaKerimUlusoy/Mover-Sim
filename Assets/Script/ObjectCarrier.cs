@@ -393,7 +393,7 @@ public class ObjectCarrier : MonoBehaviour
             fontSize = 18,
             fontStyle = FontStyle.Bold
         };
-        Rect rect = new Rect(0f, cy + 34f, Screen.width, 30f);
+        Rect rect = new Rect(0f, UIUtil.CenterSlot(), Screen.width, 30f); // etkileşim yazısıyla üst üste binmesin
 
         style.normal.textColor = new Color(0f, 0f, 0f, 0.85f);
         GUI.Label(new Rect(rect.x + 1f, rect.y + 1f, rect.width, rect.height), text, style);

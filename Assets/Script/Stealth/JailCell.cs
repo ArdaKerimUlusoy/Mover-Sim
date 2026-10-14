@@ -86,9 +86,7 @@ public class JailCell : Interactable
             if (p == null || !p.IsSpawned || !p.IsJailed) continue;
             PlayerNetworkSetup freed = p.GetComponent<PlayerNetworkSetup>();
             if (ChatManager.Instance != null) ChatManager.Instance.ServerSystemMessage("chat.rescued", rescuer, freed != null ? freed.PlayerName : "");
-            ServerRelease(p);
-            p.ServerMarkWanted(Time.time + wantedFor); // kaçan mahkum da aranıyor
-            p.ServerMarkOffender();
+            ServerRelease(p); // hapisten çıkan normal ziyaretçiye döner (aranmaz, tanınmaz)
         }
 
         // Hapisten kaçırma: alarm yeniden çalar, kurtaran da aranır
@@ -121,7 +119,8 @@ public class JailCell : Interactable
     {
         if (!IsServer || prisoner == null || !prisoner.IsJailed) return;
         prisoner.ServerSetJailed(0);
-        if (remember) prisoner.ServerMarkOffender(); // güvenlikler yüzünü tanıyor
+        // Hapisten çıkan oyuncu normal ziyaretçi moduna döner: güvenlikler onu artık aramaz / tanımaz
+        prisoner.ServerClearHeat();
         prisoner.ServerTeleport(ReleasePos + Vector3.up * 0.1f, transform.eulerAngles.y);
         if (prisoner.TryGetComponent(out PlayerInventory inv)) inv.ServerPlaySound(SoundId.DoorOpen, transform.position);
     }

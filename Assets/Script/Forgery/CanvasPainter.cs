@@ -35,7 +35,7 @@ public class CanvasPainter
     private bool dirty;
 
     private Rect canvasRect, refRect;
-    private GUIStyle labelStyle, titleStyle;
+    private GUIStyle labelStyle, titleStyle, scoreStyle;
 
     public static readonly Color CanvasBase = new Color(0.96f, 0.93f, 0.85f);
 
@@ -101,6 +101,11 @@ public class CanvasPainter
             for (int i = 0; i < palette.Length && i < 9; i++)
                 if (kb[Key.Digit1 + i].wasPressedThisFrame) PaletteIndex = i;
             if (kb.gKey.wasPressedThisFrame) ShowGuide = !ShowGuide;
+            // Fırça boyutu: [ ] ya da - + tuşları (tekerleğe ek olarak)
+            if (kb.leftBracketKey.wasPressedThisFrame || kb.minusKey.wasPressedThisFrame || kb.numpadMinusKey.wasPressedThisFrame)
+                BrushSize = Mathf.Clamp(BrushSize - 1, 1, 30);
+            if (kb.rightBracketKey.wasPressedThisFrame || kb.equalsKey.wasPressedThisFrame || kb.numpadPlusKey.wasPressedThisFrame)
+                BrushSize = Mathf.Clamp(BrushSize + 1, 1, 30);
             if (kb.bKey.wasPressedThisFrame) { for (int i = 0; i < px.Length; i++) px[i] = palette[PaletteIndex]; dirty = true; }
         }
 
@@ -268,12 +273,39 @@ public class CanvasPainter
 
         // Puan
         float sy = by + 2 * (bs + 8) + 12;
-        GUI.Label(new Rect(refRect.x, sy, refRect.width, 24), Loc.T("bench.similarity", Mathf.RoundToInt(Score * 100), ItemDefinition.GradeName((byte)Mathf.RoundToInt(Score * 100))), titleStyle);
+        if (scoreStyle == null) scoreStyle = new GUIStyle(titleStyle) { wordWrap = false, fontSize = 18, clipping = TextClipping.Overflow };
+        GUI.Label(new Rect(refRect.x, sy, refRect.width, 24), Loc.T("bench.similarity", Mathf.RoundToInt(Score * 100), ItemDefinition.GradeName((byte)Mathf.RoundToInt(Score * 100))), scoreStyle);
         GUI.Label(new Rect(refRect.x, sy + 50, refRect.width, 22), Loc.T("bench.regions", RegionsDone, RegionsTotal), labelStyle);
+
+        // Fırça boyutu: kaydırıcı + / − düğmeleri (boyut halkası imlecin üstünde çizilir)
+        float fy = sy + 80;
+        GUI.Label(new Rect(refRect.x, fy, refRect.width, 22), Loc.T("bench.brushsize", BrushSize), labelStyle);
+        fy += 24;
+        if (GUI.Button(new Rect(refRect.x, fy, 28, 22), "−")) BrushSize = Mathf.Clamp(BrushSize - 1, 1, 30);
+        if (GUI.Button(new Rect(refRect.xMax - 28, fy, 28, 22), "+")) BrushSize = Mathf.Clamp(BrushSize + 1, 1, 30);
+        float slid = GUI.HorizontalSlider(new Rect(refRect.x + 36, fy + 6, refRect.width - 72, 14), BrushSize, 1f, 30f);
+        BrushSize = Mathf.Clamp(Mathf.RoundToInt(slid), 1, 30);
         Rect bar = new Rect(refRect.x, sy + 30, refRect.width, 12);
         GUI.DrawTexture(bar, Texture2D.whiteTexture, ScaleMode.StretchToFill, false, 0, new Color(1, 1, 1, 0.15f), 0, 4);
         Color fill = Score >= 0.75f ? new Color(0.35f, 0.95f, 0.45f) : (Score >= 0.5f ? new Color(1f, 0.75f, 0.25f) : new Color(1f, 0.4f, 0.3f));
         GUI.DrawTexture(new Rect(bar.x, bar.y, bar.width * Score, bar.height), Texture2D.whiteTexture, ScaleMode.StretchToFill, false, 0, fill, 0, 4);
+
+        DrawBrushCursor();
+    }
+
+    /// <summary>Fare tuvalin üstündeyken fırçanın gerçek boyutunu gösteren halka (imlecin etrafında).</summary>
+    void DrawBrushCursor()
+    {
+        Vector2 mp = Event.current.mousePosition;
+        if (!canvasRect.Contains(mp)) return;
+        float d = Mathf.Max(4f, BrushSize * 2f * canvasRect.width / W);
+        Rect r = new Rect(mp.x - d * 0.5f, mp.y - d * 0.5f, d, d);
+        Rect outer = new Rect(r.x - 1.5f, r.y - 1.5f, r.width + 3f, r.height + 3f);
+        // Koyu dış çizgi + seçili renkte iç çizgi: her zeminde görünür
+        GUI.DrawTexture(outer, Texture2D.whiteTexture, ScaleMode.StretchToFill, true, 0, new Color(0f, 0f, 0f, 0.75f), 1.5f, outer.width * 0.5f);
+        GUI.DrawTexture(r, Texture2D.whiteTexture, ScaleMode.StretchToFill, true, 0, Color.white, 2f, d * 0.5f);
+        Color pc = palette[PaletteIndex];
+        GUI.DrawTexture(new Rect(mp.x - 2f, mp.y - 2f, 4f, 4f), Texture2D.whiteTexture, ScaleMode.StretchToFill, true, 0, new Color(pc.r, pc.g, pc.b, 1f), 0, 2f);
     }
 
     /// <summary>Yarım kalmış bir sahte tablonun çizimini tuvale geri yükler (atölyede "Devam et").</summary>

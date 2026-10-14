@@ -2,7 +2,7 @@
 
 /// <summary>
 /// Karaborsa fiyat kuralları (GDD Bölüm 4 ve 7):
-///   Satış fiyatı = taban değer × benzerlik çarpanı (× ileride aranma çarpanı)
+///   Satış fiyatı = taban değer × benzerlik çarpanı × kaide çarpanı (× ileride aranma çarpanı)
 /// Orijinal eserin "benzerlik" değeri, müzede YERİNE BIRAKILAN sahtenin benzerliğidir:
 /// sahte ne kadar iyiyse orijinal o kadar geç fark edilir ve o kadar pahalı satılır.
 /// </summary>
@@ -33,7 +33,8 @@ public static class PriceRules
     public static int SalePrice(ItemDefinition def, InventorySlot slot)
     {
         int price = SalePrice(def, slot.Similarity);
-        return Mathf.RoundToInt(price * DisplayMultiplier(slot.LookKey));
+        if (price <= 0) return 0;
+        return Mathf.Max(1, Mathf.RoundToInt(price * DisplayMultiplier(slot.LookKey)));
     }
 
     /// <summary>Eserin geldiği kaidenin değer çarpanı (yoksa 1).</summary>

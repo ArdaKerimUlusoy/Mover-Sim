@@ -31,6 +31,15 @@ public class VoiceChat : MonoBehaviour
     /// <summary>Kendi sesimiz gönderilirken her 40 ms'lik paket (16 kHz, -1..1). VoiceKeywordListener dinler.</summary>
     public static event System.Action<float[], int> LocalSpeechFrame;
 
+    /// <summary>Yasaklı (hırsızlık) kelime söylendi: mikrofon kutusu bu ana kadar YEŞİL yerine KIRMIZI yanar.</summary>
+    public static float BannedFlashUntil;
+    private static bool BannedFlash => Time.unscaledTime < BannedFlashUntil;
+
+    // Telsiz: konuşan bu mesafeye kadar tam duyulur, sonra ses azalır ve telsiz gibi daralır / cızırdar
+    private const float RadioFullRange = 12f;
+    private const float RadioFarRange = 70f;
+    private const float RadioMinVolume = 0.18f;
+
     // ---------------- Ayarlar ----------------
 
     private const string KeyOpenMic = "SS_Voice_OpenMic", KeyVolume = "SS_Voice_Volume", KeyGain = "SS_Voice_Gain2",
@@ -186,7 +195,12 @@ public class VoiceChat : MonoBehaviour
 
         // Gelen seslerin seviyesi ve eski konuşanların temizlenmesi
         float vol = VoiceVolume;
-        foreach (Remote r in remotes.Values) r.SetVolume(vol);
+        foreach (Remote r in remotes.Values)
+        {
+            float radio = RadioAmount(r.Id);              // 0 = yanında, 1 = çok uzakta
+            r.SetVolume(vol * Mathf.Lerp(1f, RadioMinVolume, radio));
+            r.SetRadio(radio);
+        }
         if (Time.unscaledTime > nextCleanup)
         {
             nextCleanup = Time.unscaledTime + 2f;
@@ -207,6 +221,20 @@ public class VoiceChat : MonoBehaviour
             OpenMicMuted = !OpenMicMuted;
             GameAudio.Play2D(SoundId.UiClick, 0.5f);
         }
+    }
+
+    /// <summary>Konuşan ne kadar uzakta? 0 = yakın (tam ses), 1 = çok uzak (kısık, telsiz cızırtısı).</summary>
+    private static float RadioAmount(ulong speakerClientId)
+    {
+        PlayerNetworkSetup me = LocalPlayer();
+        if (me == null) return 0f;
+        foreach (PlayerNetworkSetup p in PlayerNetworkSetup.All)
+        {
+            if (p == null || !p.IsSpawned || p.OwnerClientId != speakerClientId) continue;
+            float d = Vector3.Distance(me.transform.position, p.transform.position);
+            return Mathf.Clamp01((d - RadioFullRange) / (RadioFarRange - RadioFullRange));
+        }
+        return 0f;
     }
 
     private static PlayerNetworkSetup LocalPlayer()
@@ -620,6 +648,11 @@ public class VoiceChat : MonoBehaviour
             if (playback != null) playback.Gain = v;
         }
 
+        public void SetRadio(float amount)
+        {
+            if (playback != null) playback.Radio = amount;
+        }
+
         public void Push(float[] samples, int n)
         {
             double sum = 0;
@@ -665,7 +698,9 @@ public class VoiceChat : MonoBehaviour
     {
         bool noMic = !HasMicrophone || !micRunning;
         string state;
+        Color live = BannedFlash ? Red : Green; // yasaklı kelime söylenince kırmızı
         if (noMic) state = Loc.T("voice.hud.nomic");
+        else if (BannedFlash) state = Loc.T("voice.hud.banned");
         else if (Transmitting) state = Loc.T("voice.hud.talking");
         else if (OpenMic) state = Loc.T(OpenMicMuted ? "voice.hud.muted" : "voice.hud.open");
         else state = Loc.T("voice.hud.ptt");
@@ -676,12 +711,13 @@ public class VoiceChat : MonoBehaviour
         const float iconW = 44f, waveW = 130f, pad = 14f, h = 52f;
         float w = iconW + textW + pad + waveW + pad;
         Rect r = new Rect((Screen.width - w) * 0.5f, Screen.height - h - 12f, w, h);
-        UIUtil.DrawRect(r, new Color(0.05f, 0.06f, 0.08f, Transmitting ? 0.82f : 0.65f));
-        if (Transmitting) UIUtil.DrawRect(new Rect(r.x, r.y, r.width, 2f), Green);
+        // Yasaklı kelime: bütün kutu kırmızıya döner (hemen fark edilsin)
+        UIUtil.DrawRect(r, BannedFlash ? new Color(0.55f, 0.06f, 0.06f, 0.92f) : new Color(0.05f, 0.06f, 0.08f, Transmitting ? 0.82f : 0.65f));
+        if (Transmitting || BannedFlash) UIUtil.DrawRect(new Rect(r.x, r.y, r.width, BannedFlash ? 3f : 2f), live);
 
         bool slash = noMic || (OpenMic && OpenMicMuted);
         bool muted = noMic || (OpenMic ? OpenMicMuted : !Transmitting);
-        Color iconC = slash ? Red : Transmitting ? Green : new Color(0.85f, 0.85f, 0.85f);
+        Color iconC = slash ? Red : (Transmitting || BannedFlash) ? live : new Color(0.85f, 0.85f, 0.85f);
         DrawMicIcon(new Vector2(r.x + 24f, r.y + h * 0.5f), iconC, slash);
 
         GUI.Label(new Rect(r.x + iconW, r.y + 5f, textW + 4f, 24f), state, textStyle);
@@ -695,7 +731,7 @@ public class VoiceChat : MonoBehaviour
             int idx = (historyHead + i) % HistoryBars;
             float v = noMic ? 0f : history[idx];
             float bh = Mathf.Max(2f, v * (h - 14f));
-            Color c = historyTx[idx] ? Green : new Color(1f, 1f, 1f, muted ? 0.18f : 0.32f);
+            Color c = historyTx[idx] ? live : new Color(1f, 1f, 1f, muted ? 0.18f : 0.32f);
             UIUtil.DrawRect(new Rect(bx + i * barW + 1f, mid - bh * 0.5f, Mathf.Max(1f, barW - 2f), bh), c);
         }
     }

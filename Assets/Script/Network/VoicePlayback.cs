@@ -21,6 +21,12 @@ public class VoicePlayback : MonoBehaviour
     public float Gain { get => gain; set => gain = value; }
     private volatile float gain = 1f;
 
+    /// <summary>Telsiz etkisi (0–1): konuşan uzaklaştıkça ses dar bantlı ve hafif cızırtılı olur. Ses iş parçacığından okunur.</summary>
+    public float Radio { get => radio; set => radio = value; }
+    private volatile float radio;
+    private float hpState, hpAlpha;
+    private uint noiseSeed = 22222;
+
     private readonly float[] ring = new float[Capacity];
     private readonly object sync = new object();
     private int readPos, writePos, count;
@@ -37,6 +43,7 @@ public class VoicePlayback : MonoBehaviour
         baseStep = Rate / (double)outRate;
         // 16 kHz → çıkış hızına yükseltirken oluşan tiz yansımaları (cızırtı) süz: ~7 kHz alçak geçiren
         lpAlpha = 1f - Mathf.Exp(-2f * Mathf.PI * 7000f / outRate);
+        hpAlpha = 1f - Mathf.Exp(-2f * Mathf.PI * 500f / outRate); // telsiz: kalın sesleri kes
 
         src = gameObject.AddComponent<AudioSource>();
         src.spatialBlend = 0f; // takım sohbeti: her yerden duyulur
@@ -119,6 +126,16 @@ public class VoicePlayback : MonoBehaviour
                 lp1 += lpAlpha * (lastSample - lp1);
                 lp2 += lpAlpha * (lp1 - lp2);
                 float o = lp2 * env * g;
+                float rad = radio;
+                if (rad > 0.01f)
+                {
+                    // Telsiz: alçak frekansları kes (ince "telsiz" sesi) + konuşurken hafif cızırtı
+                    hpState += hpAlpha * (o - hpState);
+                    float band = (o - hpState) * 1.5f;
+                    noiseSeed = noiseSeed * 1664525u + 1013904223u;
+                    float noise = ((noiseSeed >> 9) / 8388608f - 1f) * 0.035f * rad * env;
+                    o = o + (band - o) * rad + noise;
+                }
                 if (o > 1f) o = 1f; else if (o < -1f) o = -1f;
                 int baseIdx = f * channels;
                 for (int c = 0; c < channels; c++) data[baseIdx + c] = o;

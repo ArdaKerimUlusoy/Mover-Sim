@@ -1085,7 +1085,7 @@ public class PlayerInventory : NetworkBehaviour
 
         if (!string.IsNullOrEmpty(toastText) && Time.unscaledTime < toastUntil)
         {
-            UIUtil.DrawPrompt(toastText, Screen.height / 2f + 70f, toastColor);
+            UIUtil.DrawPrompt(toastText, UIUtil.CenterSlot(), toastColor);
         }
 
         if (IsPanelOpen)

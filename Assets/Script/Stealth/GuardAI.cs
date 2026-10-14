@@ -221,6 +221,19 @@ public class GuardAI : NetworkBehaviour
     }
 
     /// <summary>Sunucu: müze düzeni değişti (yeni harita) → ilk devriye noktasına ışınlan, devriyeye başla.</summary>
+    /// <summary>Sunucu: bu oyuncuyu artık kovalamaz / aramaz (hapisten çıktı, yeni görev). Devriyeye döner.</summary>
+    public void ServerForget(PlayerStealth p)
+    {
+        if (!IsServer || p == null || focus != p) return;
+        focus = null;
+        huntSpot = null;
+        searchUntil = -1f;
+        lookAroundUntil = -1f;
+        alert.Value = 0;
+        state.Value = State.Patrol;
+        GoToWaypoint();
+    }
+
     public void ServerResetForLayout()
     {
         if (!IsServer) return;

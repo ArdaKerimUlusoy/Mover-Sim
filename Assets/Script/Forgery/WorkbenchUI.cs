@@ -512,7 +512,7 @@ public class WorkbenchUI : MonoBehaviour
             case Phase.Jewel: DrawJewel(); DrawFooter(true); return;
         }
 
-        float w = 400f, h = phase == Phase.Paint ? 370f : 270f;
+        float w = 400f, h = phase == Phase.Paint ? 420f : 270f;
         UIUtil.DrawRect(new Rect(10, 10, w, h), new Color(0.05f, 0.06f, 0.08f, 0.85f));
         GUILayout.BeginArea(new Rect(22, 18, w - 24, h - 22));
         GUILayout.Label(vase.Name, big);
@@ -536,6 +536,16 @@ public class WorkbenchUI : MonoBehaviour
                 GUI.backgroundColor = prev;
             }
             GUILayout.EndHorizontal();
+            // Fırça boyutu (vazo boyama)
+            if (clay != null)
+            {
+                GUILayout.Label(Loc.T("bench.brushsize", clay.paintBrushSize), label);
+                GUILayout.BeginHorizontal();
+                if (GUILayout.Button("−", GUILayout.Width(30), GUILayout.Height(22))) clay.paintBrushSize = Mathf.Clamp(clay.paintBrushSize - 2, 2, 64);
+                clay.paintBrushSize = Mathf.Clamp(Mathf.RoundToInt(GUILayout.HorizontalSlider(clay.paintBrushSize, 2f, 64f, GUILayout.Height(22))), 2, 64);
+                if (GUILayout.Button("+", GUILayout.Width(30), GUILayout.Height(22))) clay.paintBrushSize = Mathf.Clamp(clay.paintBrushSize + 2, 2, 64);
+                GUILayout.EndHorizontal();
+            }
             Bar(Loc.T("bench.shape"), shapeScore, -1f);
             Bar(Loc.T("bench.paintscore"), paintScore, -1f);
             GUILayout.FlexibleSpace();
@@ -759,6 +769,7 @@ public class WorkbenchUI : MonoBehaviour
                 GUILayout.BeginHorizontal();
                 for (int i = 0; i < ArtworkLook.JewelGems.Length; i++)
                 {
+                    if (i > 0 && i % 4 == 0) { GUILayout.EndHorizontal(); GUILayout.BeginHorizontal(); } // 4'lü satırlar
                     Color prev = GUI.backgroundColor;
                     GUI.backgroundColor = ArtworkLook.JewelGems[i];
                     string text = MuseumTheme.Pick(ArtworkLook.JewelGemNames[i]);
@@ -916,6 +927,7 @@ public class WorkbenchUI : MonoBehaviour
         GUILayout.BeginHorizontal();
         for (int i = 0; i < colors.Length; i++)
         {
+            if (i > 0 && i % 3 == 0) { GUILayout.EndHorizontal(); GUILayout.BeginHorizontal(); } // 3'lü satırlar (çok seçenek sığsın)
             Color prev = GUI.backgroundColor;
             GUI.backgroundColor = colors[i];
             string text = MuseumTheme.Pick(names[i]);

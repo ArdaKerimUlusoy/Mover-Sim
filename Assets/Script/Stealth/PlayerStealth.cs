@@ -223,6 +223,18 @@ public class PlayerStealth : NetworkBehaviour
         TeleportRpc(pos, yaw);
     }
 
+    /// <summary>Sunucu: bu oyuncu hakkındaki bütün şüphe / aranma / tanınma bilgisini siler: normal ziyaretçi olur.
+    /// Hapisten çıkınca ve yeni göreve geçince çağrılır. Onu kovalayan / arayan güvenlikler de bırakır.</summary>
+    public void ServerClearHeat()
+    {
+        if (!IsServer) return;
+        suspicion.Value = 0f;
+        wantedUntil = -1f;
+        offenderUntil = -1f;
+        overheardUntil = -1f;
+        foreach (GuardAI g in SecurityManager.Guards) if (g != null) g.ServerForget(this);
+    }
+
     /// <summary>Sunucu: hapse girdi (until = çıkış anı) ya da çıktı (0).</summary>
     public void ServerSetJailed(double until)
     {
@@ -290,8 +302,9 @@ public class PlayerStealth : NetworkBehaviour
         if (IsJailed)
         {
             double left = jailedUntil.Value - NetworkManager.ServerTime.Time;
-            UIUtil.DrawPrompt(Loc.T("jail.banner"), Screen.height * 0.16f, new Color(1f, 0.6f, 0.4f), 24);
-            UIUtil.DrawPrompt(Loc.T("jail.wait", Mathf.Max(0, Mathf.CeilToInt((float)left))), Screen.height * 0.16f + 32f, Color.white, 16);
+            float jy = UIUtil.TopSlot(60f);
+            UIUtil.DrawPrompt(Loc.T("jail.banner"), jy, new Color(1f, 0.6f, 0.4f), 24);
+            UIUtil.DrawPrompt(Loc.T("jail.wait", Mathf.Max(0, Mathf.CeilToInt((float)left))), jy + 30f, Color.white, 16);
             return;
         }
 
@@ -300,7 +313,7 @@ public class PlayerStealth : NetworkBehaviour
         if (s <= 0.01f && !showEye && !hidden.Value) return;
 
         float w = 260f;
-        Rect r = new Rect((Screen.width - w) / 2f, 18f, w, 34f);
+        Rect r = new Rect((Screen.width - w) / 2f, UIUtil.TopSlot(34f), w, 34f);
         GUI.Box(r, GUIContent.none, UIUtil.BoxStyle);
 
         string label = hidden.Value ? Loc.T("stealth.hidden") : showEye ? Loc.T("stealth.watched") : Loc.T("stealth.suspicion");

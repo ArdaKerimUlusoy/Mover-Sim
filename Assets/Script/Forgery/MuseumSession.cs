@@ -179,6 +179,7 @@ public class MuseumSession : NetworkBehaviour
         ForgeryRegistry.Clear();
 
         JailCell.ServerReleaseAll(); // yeni müzeye herkes birlikte gider
+        if (SecurityManager.Instance != null) SecurityManager.Instance.ServerResetForMission(); // alarm / aranma / kovalama sıfırlanır
 
         level.Value = level.Value + 1;
         PickNewMuseum();
@@ -295,12 +296,13 @@ public class MuseumSession : NetworkBehaviour
 
         if (complete)
         {
-            UIUtil.DrawPrompt(Loc.T("mission.complete"), Screen.height * 0.2f, new Color(0.55f, 1f, 0.6f), 26);
-            UIUtil.DrawPrompt(IsHost ? Loc.T("mission.nexthost") : Loc.T("mission.nextwait"), Screen.height * 0.2f + 34f, Color.white, 16);
+            float y = UIUtil.TopSlot(62f);
+            UIUtil.DrawPrompt(Loc.T("mission.complete"), y, new Color(0.55f, 1f, 0.6f), 26);
+            UIUtil.DrawPrompt(IsHost ? Loc.T("mission.nexthost") : Loc.T("mission.nextwait"), y + 32f, Color.white, 16);
         }
         else
         {
-            UIUtil.DrawPrompt(Loc.T("mission.return"), Screen.height * 0.2f, new Color(1f, 0.85f, 0.4f), 22);
+            UIUtil.DrawPrompt(Loc.T("mission.return"), UIUtil.TopSlot(30f), new Color(1f, 0.85f, 0.4f), 22);
         }
     }
 }

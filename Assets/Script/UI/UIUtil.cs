@@ -75,6 +75,39 @@ public static class UIUtil
         GUI.color = old;
     }
 
+    // ---------------- Yazı yuvaları: aynı karede çizilen uyarılar üst üste binmesin ----------------
+    private static int slotFrame = -1;
+    private static EventType slotEvent;
+    private static float topY, centerY;
+
+    private static void ResetSlots()
+    {
+        EventType t = Event.current != null ? Event.current.type : EventType.Repaint;
+        if (slotFrame == Time.frameCount && slotEvent == t) return;
+        slotFrame = Time.frameCount;
+        slotEvent = t;
+        topY = 18f;
+        centerY = Screen.height / 2f + 34f;
+    }
+
+    /// <summary>Ekranın üst ortasında sıradaki boş yer (şüphe çubuğu, alarm, hapis, görev uyarıları alt alta dizilir).</summary>
+    public static float TopSlot(float height)
+    {
+        ResetSlots();
+        float y = topY;
+        topY += height + 6f;
+        return y;
+    }
+
+    /// <summary>Nişangahın altında sıradaki boş yer (etkileşim yazısı, taşıma yazısı, bildirimler alt alta).</summary>
+    public static float CenterSlot(float height = 30f)
+    {
+        ResetSlots();
+        float y = centerY;
+        centerY += height + 2f;
+        return y;
+    }
+
     /// <summary>Ekran ortasında gölgeli yazı (etkileşim yazıları için).</summary>
     public static void DrawPrompt(string text, float y, Color color, int fontSize = 18)
     {

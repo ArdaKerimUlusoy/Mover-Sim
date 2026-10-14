@@ -110,6 +110,8 @@ public static partial class ArtworkLook
     {
         N("Country House", "Kır Evi"), N("Stormy Sea", "Fırtınalı Deniz"), N("Moonlit Mountains", "Ay Işığında Dağlar"),
         N("Color Blocks", "Renk Blokları"), N("Still Life", "Natürmort"), N("Sunset", "Gün Batımı"),
+        N("Lighthouse", "Deniz Feneri"), N("Tulip Fields", "Lale Tarlaları"), N("Desert Pyramids", "Çöl ve Piramitler"),
+        N("Cherry Blossom", "Kiraz Çiçeği"), N("Portrait of a Lady", "Bir Hanımın Portresi"), N("Circles", "Daireler"),
     };
 
     static readonly float[][] VaseProfiles =
@@ -119,6 +121,12 @@ public static partial class ArtworkLook
         new[] { 0.70f, 0.95f, 1.00f, 1.00f, 0.95f, 0.88f, 0.80f, 0.75f, 0.72f, 0.70f },
         new[] { 0.45f, 0.55f, 0.75f, 0.95f, 1.00f, 0.90f, 0.60f, 0.38f, 0.30f, 0.32f, 0.45f },
         new[] { 0.50f, 0.60f, 0.70f, 0.80f, 0.90f, 0.97f, 1.00f, 0.98f, 0.92f, 0.85f },
+        // Yeni şekiller: amfora (dar boyun), kase, testi, şişe, lale ağızlı
+        new[] { 0.35f, 0.55f, 0.85f, 1.00f, 0.95f, 0.75f, 0.45f, 0.28f, 0.25f, 0.30f, 0.42f },
+        new[] { 0.40f, 0.70f, 0.90f, 1.00f, 1.00f, 1.00f },
+        new[] { 0.65f, 0.90f, 1.00f, 0.95f, 0.80f, 0.60f, 0.40f, 0.35f, 0.35f, 0.38f },
+        new[] { 0.80f, 1.00f, 1.00f, 0.95f, 0.70f, 0.40f, 0.25f, 0.22f, 0.22f, 0.25f },
+        new[] { 0.45f, 0.65f, 0.80f, 0.85f, 0.80f, 0.70f, 0.65f, 0.72f, 0.88f, 1.00f },
     };
 
     public static readonly Color ClayColor = new Color(0.82f, 0.71f, 0.55f);
@@ -181,6 +189,9 @@ public static partial class ArtworkLook
         float a = Range(rng, 0.36f, 0.56f), aw = Range(rng, 0.08f, 0.13f);
         float b = Range(rng, 0.72f, 0.84f), bw = Range(rng, 0.05f, 0.08f);
         float baseH = Range(rng, 0.06f, 0.12f);
+        // Desen türü: 0 düz bantlar, 1 zikzak bant, 2 benekli bant, 3 dikey çizgiler (iki bant arası)
+        int patternKind = rng.Next(4);
+        int repeats = rng.Next(4, 9);
 
         const int S = 128;
         var tex = new Texture2D(S, S, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp, name = "VasePattern" };
@@ -188,11 +199,40 @@ public static partial class ArtworkLook
         for (int y = 0; y < S; y++)
         {
             float vv = (y + 0.5f) / S;
-            Color c = body;
-            if (vv < baseH) c = baseC;
-            else if (vv > a && vv < a + aw) c = band1;
-            else if (vv > b && vv < b + bw) c = band2;
-            for (int x = 0; x < S; x++) px[y * S + x] = c;
+            for (int x = 0; x < S; x++)
+            {
+                float uu = (x + 0.5f) / S;
+                Color c = body;
+                if (vv < baseH) c = baseC;
+                else if (vv > b && vv < b + bw) c = band2;
+                else
+                {
+                    switch (patternKind)
+                    {
+                        case 1: // zikzak bant
+                        {
+                            float tri = Mathf.Abs(Mathf.Repeat(uu * repeats, 1f) - 0.5f) * 2f; // 0..1
+                            float mid = a + aw * 0.5f + (tri - 0.5f) * aw * 0.9f;
+                            if (Mathf.Abs(vv - mid) < aw * 0.32f) c = band1;
+                            break;
+                        }
+                        case 2: // benekli bant
+                        {
+                            float du = (Mathf.Repeat(uu * repeats * 2f, 1f) - 0.5f) / (repeats * 2f) * 6.28f;
+                            float dv = vv - (a + aw * 0.5f);
+                            if (du * du + dv * dv < (aw * 0.42f) * (aw * 0.42f)) c = band1;
+                            break;
+                        }
+                        case 3: // iki bant arasında dikey çizgiler
+                            if (vv > a && vv < b && Mathf.Repeat(uu * repeats * 2f, 1f) < 0.28f) c = band1;
+                            break;
+                        default:
+                            if (vv > a && vv < a + aw) c = band1;
+                            break;
+                    }
+                }
+                px[y * S + x] = c;
+            }
         }
         tex.SetPixels(px);
         tex.Apply();
@@ -209,7 +249,11 @@ public static partial class ArtworkLook
         if (paintingCache.TryGetValue(ck, out PaintingLook cached)) return cached;
 
         MuseumTheme th = Theme(themeIndex);
-        int style = (th.paintingStyle + (Hash(key) % 2) * 3) % PaintingNames.Length;
+        // Yarı yarıya temanın kendi tarzı, yarı yarıya 12 tablonun herhangi biri (her görevde değişir)
+        var prng = new System.Random(seed ^ Hash("painting:" + key));
+        int style = prng.Next(2) == 0
+            ? (th.paintingStyle + (Hash(key) % 2) * 3) % 6
+            : prng.Next(PaintingNames.Length);
         var p = new PaintingLook { name = PaintingNames[style], image = CreatePainting(style, out Color[] pal), palette = pal };
         paintingCache[ck] = p;
         return p;
@@ -530,6 +574,133 @@ public static partial class ArtworkLook
                     if (a1u * a1u + a1v * a1v < 0.075f * 0.075f) c = apple;
                     float a2u = (u - 0.8f) * 1.333f, a2v = v - 0.35f;
                     if (a2u * a2u + a2v * a2v < 0.065f * 0.065f) c = apple;
+                    px[y * w + x] = c;
+                }
+                break;
+            }
+            case 6: // Deniz feneri
+            {
+                Color sky = C(0.6f, 0.82f, 0.96f), sea = C(0.1f, 0.32f, 0.58f), rock = C(0.4f, 0.38f, 0.36f), white = C(0.97f, 0.97f, 0.95f), red = C(0.82f, 0.18f, 0.15f), lamp = C(0.99f, 0.86f, 0.3f);
+                palette = new[] { sky, sea, rock, white, red, lamp };
+                for (int y = 0; y < h; y++) for (int x = 0; x < w; x++)
+                {
+                    float u = (x + 0.5f) / w, v = (y + 0.5f) / h;
+                    Color c = sky;
+                    if (v < 0.36f + 0.02f * Mathf.Sin(u * 22f)) c = sea;
+                    float ru = (u - 0.3f) * 1.333f, rv = (v - 0.1f) * 1.4f;
+                    if (ru * ru + rv * rv < 0.26f * 0.26f) c = rock;
+                    float half = 0.06f - (v - 0.32f) * 0.04f;
+                    if (v > 0.32f && v < 0.74f && Mathf.Abs(u - 0.3f) < half)
+                        c = Mathf.Repeat((v - 0.32f) / 0.105f, 1f) < 0.5f ? white : red;
+                    if (v >= 0.74f && v < 0.84f && Mathf.Abs(u - 0.3f) < 0.045f) c = lamp;
+                    if (v >= 0.84f && v < 0.9f && Mathf.Abs(u - 0.3f) < 0.055f - (v - 0.84f) * 0.8f) c = red;
+                    px[y * w + x] = c;
+                }
+                break;
+            }
+            case 7: // Lale tarlaları
+            {
+                Color sky = C(0.62f, 0.8f, 0.97f), red = C(0.86f, 0.15f, 0.2f), yellow = C(0.98f, 0.82f, 0.15f), pink = C(0.95f, 0.5f, 0.68f), green = C(0.3f, 0.6f, 0.28f), sun = C(1f, 0.96f, 0.7f);
+                palette = new[] { sky, red, yellow, pink, green, sun };
+                for (int y = 0; y < h; y++) for (int x = 0; x < w; x++)
+                {
+                    float u = (x + 0.5f) / w, v = (y + 0.5f) / h;
+                    Color c = sky;
+                    float su = (u - 0.2f) * 1.333f, sv = v - 0.8f;
+                    if (su * su + sv * sv < 0.09f * 0.09f) c = sun;
+                    float hz = 0.5f + 0.04f * Mathf.Sin(u * 4f);
+                    if (v < hz) c = green;
+                    // Perspektifli şeritler: ufka doğru incelir
+                    if (v < hz - 0.04f)
+                    {
+                        float band = (u - 0.5f) / Mathf.Max(0.05f, (hz - v) * 1.4f);
+                        int idx = Mathf.FloorToInt(band * 1.5f + 100f) % 4;
+                        c = idx == 0 ? red : idx == 1 ? green : idx == 2 ? yellow : pink;
+                    }
+                    px[y * w + x] = c;
+                }
+                break;
+            }
+            case 8: // Çöl ve piramitler
+            {
+                Color sky = C(0.98f, 0.78f, 0.45f), sand = C(0.9f, 0.72f, 0.42f), pyr = C(0.78f, 0.58f, 0.3f), shade = C(0.58f, 0.4f, 0.2f), sun = C(1f, 0.95f, 0.75f), dune = C(0.82f, 0.62f, 0.34f);
+                palette = new[] { sky, sand, pyr, shade, sun, dune };
+                for (int y = 0; y < h; y++) for (int x = 0; x < w; x++)
+                {
+                    float u = (x + 0.5f) / w, v = (y + 0.5f) / h;
+                    Color c = sky;
+                    float su = (u - 0.78f) * 1.333f, sv = v - 0.78f;
+                    if (su * su + sv * sv < 0.1f * 0.1f) c = sun;
+                    float base0 = 0.3f;
+                    float t1 = base0 + 0.42f - Mathf.Abs(u - 0.35f) * 1.4f;
+                    if (v > base0 && v < t1) c = u < 0.35f ? pyr : shade;
+                    float t2 = base0 + 0.26f - Mathf.Abs(u - 0.66f) * 1.3f;
+                    if (v > base0 && v < t2) c = u < 0.66f ? pyr : shade;
+                    if (v <= base0) c = v < 0.14f + 0.04f * Mathf.Sin(u * 7f) ? dune : sand;
+                    px[y * w + x] = c;
+                }
+                break;
+            }
+            case 9: // Kiraz çiçeği
+            {
+                Color sky = C(0.82f, 0.9f, 0.97f), trunk = C(0.35f, 0.22f, 0.14f), bloom = C(0.98f, 0.7f, 0.8f), deep = C(0.9f, 0.45f, 0.6f), ground = C(0.45f, 0.65f, 0.38f), white = C(0.98f, 0.97f, 0.95f);
+                palette = new[] { sky, trunk, bloom, deep, ground, white };
+                float[] bx = { 0.3f, 0.48f, 0.62f, 0.76f, 0.4f };
+                float[] by = { 0.72f, 0.82f, 0.72f, 0.66f, 0.62f };
+                for (int y = 0; y < h; y++) for (int x = 0; x < w; x++)
+                {
+                    float u = (x + 0.5f) / w, v = (y + 0.5f) / h;
+                    Color c = sky;
+                    if (v < 0.16f) c = ground;
+                    if (v >= 0.14f && v < 0.6f && Mathf.Abs(u - 0.42f - (v - 0.14f) * 0.15f) < 0.035f) c = trunk;
+                    if (v > 0.45f && v < 0.62f && Mathf.Abs((v - 0.45f) - (u - 0.48f) * 0.6f) < 0.025f && u > 0.48f && u < 0.75f) c = trunk;
+                    for (int k = 0; k < bx.Length; k++)
+                    {
+                        float du = (u - bx[k]) * 1.333f, dv = v - by[k];
+                        if (du * du + dv * dv < 0.12f * 0.12f) c = k % 2 == 0 ? bloom : deep;
+                    }
+                    float pu = (u - 0.86f) * 1.333f, pv = v - 0.25f;
+                    if (pu * pu + pv * pv < 0.03f * 0.03f) c = white;
+                    px[y * w + x] = c;
+                }
+                break;
+            }
+            case 10: // Bir hanımın portresi
+            {
+                Color bg = C(0.18f, 0.3f, 0.22f), skin = C(0.93f, 0.78f, 0.62f), hair = C(0.32f, 0.2f, 0.12f), dress = C(0.12f, 0.12f, 0.2f), collar = C(0.97f, 0.97f, 0.95f), lips = C(0.78f, 0.25f, 0.25f);
+                palette = new[] { bg, skin, hair, dress, collar, lips };
+                for (int y = 0; y < h; y++) for (int x = 0; x < w; x++)
+                {
+                    float u = (x + 0.5f) / w, v = (y + 0.5f) / h;
+                    Color c = bg;
+                    float hu = (u - 0.5f) * 1.333f, hv = (v - 0.62f) * 0.95f;
+                    if (hu * hu + hv * hv < 0.25f * 0.25f) c = hair;
+                    float fu = (u - 0.5f) * 1.333f, fv = (v - 0.58f) * 0.85f;
+                    if (fu * fu / (0.15f * 0.15f) + fv * fv / (0.17f * 0.17f) < 1f) c = skin;
+                    if (Mathf.Abs(u - 0.5f) < 0.035f && v > 0.44f && v < 0.47f) c = lips;
+                    if (v < 0.3f && Mathf.Abs(u - 0.5f) < 0.38f - v * 0.3f) c = dress;
+                    if (v < 0.3f && v > 0.24f && Mathf.Abs(u - 0.5f) < 0.1f) c = collar;
+                    if (v >= 0.3f && v < 0.38f && Mathf.Abs(u - 0.5f) < 0.05f) c = skin; // boyun
+                    px[y * w + x] = c;
+                }
+                break;
+            }
+            case 11: // Daireler
+            {
+                Color bg = C(0.94f, 0.9f, 0.8f), red = C(0.85f, 0.2f, 0.15f), blue = C(0.15f, 0.3f, 0.7f), yellow = C(0.98f, 0.8f, 0.15f), black = C(0.08f, 0.08f, 0.08f), green = C(0.2f, 0.55f, 0.35f);
+                palette = new[] { bg, red, blue, yellow, black, green };
+                for (int y = 0; y < h; y++) for (int x = 0; x < w; x++)
+                {
+                    float u = (x + 0.5f) / w, v = (y + 0.5f) / h;
+                    Color c = bg;
+                    float ax = (u - 0.32f) * 1.333f, ay = v - 0.55f, ad = ax * ax + ay * ay;
+                    if (ad < 0.3f * 0.3f) c = ad > 0.25f * 0.25f ? black : blue;
+                    float bx2 = (u - 0.68f) * 1.333f, by2 = v - 0.42f;
+                    if (bx2 * bx2 + by2 * by2 < 0.22f * 0.22f) c = red;
+                    float cx2 = (u - 0.7f) * 1.333f, cy2 = v - 0.8f;
+                    if (cx2 * cx2 + cy2 * cy2 < 0.1f * 0.1f) c = yellow;
+                    float dx2 = (u - 0.15f) * 1.333f, dy2 = v - 0.15f;
+                    if (dx2 * dx2 + dy2 * dy2 < 0.08f * 0.08f) c = green;
                     px[y * w + x] = c;
                 }
                 break;
