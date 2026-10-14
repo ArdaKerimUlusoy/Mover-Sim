@@ -718,3 +718,25 @@ Eski "uzaklaştıkça hafif telsiz" ayarının yerini aldı. Ayrı bir telsiz tu
 - `Loc`
 
 Ses paketinin biçimi değişti. Host ve oyuncuların hepsi aynı sürümü kullanmalı.
+
+## Ek 17: Staff Only soygunu (kamera süresi ve görev hedefi)
+
+### Önerilen akış
+1. Bir oyuncu Staff Only kapısını maymuncukla açar.
+2. Bir arkadaşı güvenlik odasındaki konsoldan kameraları kapatır.
+3. Kameralar kapalıyken değerli eser değiştirilir.
+
+### Kamera kapalı kalma süresi
+- Konsol kameraları artık **20 sn** kapatır (önceden 4 sn). Sonrasında 30 sn beklemek gerekir.
+- Bu süreler `SecurityCamera.cs` içindeki `MinDisableSeconds` ve `MinConsoleCooldown` değerleridir.
+- Sahnede eski 4 sn değeri kayıtlı olsa bile en az bu süreler kullanılır.
+
+### Görevde özel hedef
+- Brifing terminalinde (görev paneli) bu eserin altında "ÖZEL HEDEF — Staff Only odasında" yazar.
+- Sol üstteki görev kutusunda gösterilmez.
+
+### Değişen dosyalar
+- `SecurityCamera`
+- `MuseumSession`
+- `BriefingTerminal`
+- `Loc`

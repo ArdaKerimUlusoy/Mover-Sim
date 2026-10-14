@@ -410,6 +410,7 @@ public static class Loc
         // Görev / müze (MuseumSession)
         { "mission.title",     new[] { "MISSION {0} — {1}, {2}", "GÖREV {0} — {1}, {2}" } },
         { "mission.quota",     new[] { "Team earnings: ${0} / ${1}", "Ekip kazancı: ${0} / ${1}" } },
+        { "brief.staff",       new[] { "SPECIAL TARGET — in the Staff Only room", "ÖZEL HEDEF — Staff Only odasında" } },
         { "mission.complete",  new[] { "MISSION COMPLETE!", "GÖREV TAMAM!" } },
         { "mission.nexthost",  new[] { "Press N for the next mission (new museum, more to steal)", "Sonraki görev için N'ye bas (yeni müze, daha çok eser)" } },
         { "mission.truck",     new[] { "Back in the truck: {0} / {1}", "Kamyona dönen: {0} / {1}" } },

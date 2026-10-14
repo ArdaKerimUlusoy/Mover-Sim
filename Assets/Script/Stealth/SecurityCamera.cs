@@ -8,7 +8,8 @@ using UnityEngine;
 /// Kurulum: kamera objesine NetworkObject + bu bileşen; altına VisionConeVisual'lı bir çocuk.
 ///
 /// Artık odalardaki kameralar RoomCamera; sahnedeki bu eski kameralar "emekli". Bunlardan biri (ağ kimliği
-/// olduğu için) güvenlik odasındaki KONSOL olur: E basılı tut → bütün kameralar 4 sn kapanır (sonra bekleme süresi).
+/// olduğu için) güvenlik odasındaki KONSOL olur: E basılı tut → bütün kameralar 20 sn kapanır (sonra bekleme süresi).
+/// (Staff Only soygunu için: bir kişi kilidi açar, biri kameraları kapatır, kapalıyken değerli eser değiştirilir.)
 /// </summary>
 public class SecurityCamera : Interactable
 {
@@ -36,6 +37,11 @@ public class SecurityCamera : Interactable
     [Header("Konsol")]
     [SerializeField] private float disableSeconds = 4f;
     [SerializeField] private float consoleCooldown = 20f;
+    // Sahnede eski değer (4 sn) kayıtlı olabilir: en az bu kadar kapanır / bekler (Staff Only'e yürüyüp değiştirmeye yetsin)
+    private const float MinDisableSeconds = 20f;
+    private const float MinConsoleCooldown = 30f;
+    private float DisableSeconds => Mathf.Max(disableSeconds, MinDisableSeconds);
+    private float ConsoleCooldown => Mathf.Max(consoleCooldown, MinConsoleCooldown);
 
     /// <summary>Bu obje güvenlik odasındaki konsol mu? (MuseumLayout her bilgisayarda aynı objeyi seçer.)</summary>
     public bool IsConsole { get; private set; }
@@ -76,14 +82,14 @@ public class SecurityCamera : Interactable
         if (sm == null) return "";
         if (sm.CamerasDisabled) return Loc.T("console.off", Mathf.CeilToInt(sm.CamerasOffRemaining));
         if (!sm.CanDisableCameras) return Loc.T("console.cooldown", Mathf.CeilToInt(sm.ConsoleCooldownRemaining));
-        return Loc.T("console.prompt", Mathf.RoundToInt(disableSeconds));
+        return Loc.T("console.prompt", Mathf.RoundToInt(DisableSeconds));
     }
 
     protected override void ServerInteract(ulong clientId, NetworkObject player)
     {
         if (!IsConsole || SecurityManager.Instance == null) return;
         PlayerNetworkSetup ps = player.GetComponent<PlayerNetworkSetup>();
-        SecurityManager.Instance.ServerDisableCameras(disableSeconds, consoleCooldown, ps != null ? ps.PlayerName : "");
+        SecurityManager.Instance.ServerDisableCameras(DisableSeconds, ConsoleCooldown, ps != null ? ps.PlayerName : "");
         if (player.TryGetComponent(out PlayerInventory inv)) inv.ServerPlaySound(SoundId.HoldComplete, transform.position);
     }
 

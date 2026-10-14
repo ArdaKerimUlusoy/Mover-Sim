@@ -151,6 +151,8 @@ public class BriefingUI : MonoBehaviour
         return t;
     }
 
+    private GUIStyle staffNote;
+
     private void OnGUI()
     {
         MuseumSession ms = MuseumSession.Instance;
@@ -186,6 +188,11 @@ public class BriefingUI : MonoBehaviour
             string how = Loc.T(WorkbenchUI.MethodKey(kind));
             GUILayout.Label(Loc.T("brief.value", d.Value, d.Artwork.weightKg.ToString("0.#"), how), UIUtil.SmallStyle);
             if (d.IsSwapped) GUILayout.Label(Loc.T("brief.swapped", d.LeftSimilarity), UIUtil.SmallStyle);
+            else if (d.IsStaffOnlyPiece) // özel hedef
+            {
+                if (staffNote == null) staffNote = new GUIStyle(UIUtil.AccentStyle) { wordWrap = true, fontSize = 13 };
+                GUILayout.Label(Loc.T("brief.staff"), staffNote, GUILayout.MaxWidth(560f));
+            }
             GUILayout.EndVertical();
             GUILayout.EndHorizontal();
         }
