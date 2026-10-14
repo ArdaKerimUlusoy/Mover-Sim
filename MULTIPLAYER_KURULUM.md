@@ -695,3 +695,26 @@ Sesli sohbette hırsızlıkla ilgili bir şey söylersen yakındaki güvenlikler
   - `PlayerInteractor`: kilit açmak suç sayılır.
   - `PushSystem`: itilince deneme iptal olur.
   - `Loc`: yeni metinler.
+
+## Ek 16: Sesli sohbette mesafe
+
+Eski "uzaklaştıkça hafif telsiz" ayarının yerini aldı. Ayrı bir telsiz tuşu yok. Normal oyun içi konuşma (V ya da sürekli açık mikrofon) mesafeye göre değişir:
+- 5 m içinde arkadaşın sesi tam gelir.
+- Uzaklaştıkça sesi azalır ve biraz boğuklaşır.
+- 35 m'den sonra hiç duyulmaz.
+- Arada duvar varsa ses biraz daha kısık gelir.
+- Ses arkadaşının olduğu yönden (sağ / sol) gelir.
+- Duyamadığın kadar uzaktaki konuşmalar soldaki konuşanlar listesinde görünmez.
+
+### Ayarlar
+`VoiceChat.cs` başındaki değerler:
+- `ProxClear`: sesin tam geldiği mesafe.
+- `ProxSilent`: sesin tamamen kesildiği mesafe.
+- `WallVolume` / `WallMuffle`: duvarın etkisi.
+
+### Değişen dosyalar
+- `VoiceChat`
+- `VoicePlayback`
+- `Loc`
+
+Ses paketinin biçimi değişti. Host ve oyuncuların hepsi aynı sürümü kullanmalı.

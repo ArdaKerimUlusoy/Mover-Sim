@@ -12,6 +12,8 @@ using UnityEngine.InputSystem;
 ///    Host kendi sesini doğrudan herkese yollar, gelen sesleri de kendisi çalar.
 ///  - Her konuşan için kısa bir titreşim tamponu (jitter buffer) + akışlı AudioClip ile çalınır.
 ///  - Mod: Bas-konuş (V basılı) ya da sürekli açık (V = sustur / aç). Sürekli açıkta ses eşiği altındaki gürültü gönderilmez.
+///  - MESAFE: yakındaki arkadaş net duyulur; uzaklaştıkça sesi azalır (biraz da boğuklaşır), duvar arkasından daha kısık
+///    gelir, ProxSilent'ten sonra hiç duyulmaz. Ses geldiği yönden (sağ / sol) gelir.
 ///  - Ekranda: altta ortada mikrofon kutusu (durum + canlı ses dalgası), solda konuşanların listesi,
 ///    konuşan oyuncunun başının üstünde ses dalgası.
 ///  - Ayarlar (Esc menüsü): mod, gelen ses seviyesi, mikrofon yükseltme, ses eşiği, mikrofon seçimi. PlayerPrefs'te saklanır.
@@ -22,7 +24,7 @@ public class VoiceChat : MonoBehaviour
 {
     public const int Rate = 16000;
     private const int FrameSamples = 640;                 // 40 ms
-    private const int PacketBytes = 3 + FrameSamples / 2; // durum başlığı (3) + 4 bit/örnek
+    private const int PacketBytes = 4 + FrameSamples / 2; // durum başlığı (3) + bayrak (1, şimdilik boş) + 4 bit/örnek
     private const string UpMsg = "SS_VoiceUp";
     private const string DownMsg = "SS_VoiceDown";
 
@@ -35,10 +37,11 @@ public class VoiceChat : MonoBehaviour
     public static float BannedFlashUntil;
     private static bool BannedFlash => Time.unscaledTime < BannedFlashUntil;
 
-    // Telsiz: konuşan bu mesafeye kadar tam duyulur, sonra ses azalır ve telsiz gibi daralır / cızırdar
-    private const float RadioFullRange = 12f;
-    private const float RadioFarRange = 70f;
-    private const float RadioMinVolume = 0.18f;
+    // Mesafe: bu mesafeye kadar tam ses, sonra azalır, ProxSilent'te tamamen kesilir
+    private const float ProxClear = 5f;
+    private const float ProxSilent = 35f;
+    private const float WallVolume = 0.6f;    // arada duvar varsa ses çarpanı
+    private const float WallMuffle = 0.35f;   // arada duvar varsa ek boğukluk
 
     // ---------------- Ayarlar ----------------
 
@@ -195,12 +198,7 @@ public class VoiceChat : MonoBehaviour
 
         // Gelen seslerin seviyesi ve eski konuşanların temizlenmesi
         float vol = VoiceVolume;
-        foreach (Remote r in remotes.Values)
-        {
-            float radio = RadioAmount(r.Id);              // 0 = yanında, 1 = çok uzakta
-            r.SetVolume(vol * Mathf.Lerp(1f, RadioMinVolume, radio));
-            r.SetRadio(radio);
-        }
+        foreach (Remote r in remotes.Values) ApplyHearing(r, vol);
         if (Time.unscaledTime > nextCleanup)
         {
             nextCleanup = Time.unscaledTime + 2f;
@@ -223,18 +221,64 @@ public class VoiceChat : MonoBehaviour
         }
     }
 
-    /// <summary>Konuşan ne kadar uzakta? 0 = yakın (tam ses), 1 = çok uzak (kısık, telsiz cızırtısı).</summary>
-    private static float RadioAmount(ulong speakerClientId)
+    /// <summary>Bir konuşanı nasıl duyuyorum? Mesafe arttıkça kısık (ve biraz boğuk), duvar arkasından daha kısık, yönlü.</summary>
+    private void ApplyHearing(Remote r, float vol)
     {
         PlayerNetworkSetup me = LocalPlayer();
-        if (me == null) return 0f;
-        foreach (PlayerNetworkSetup p in PlayerNetworkSetup.All)
+        PlayerNetworkSetup p = FindPlayer(r.Id);
+        if (me == null || p == null || !p.IsSpawned)
         {
-            if (p == null || !p.IsSpawned || p.OwnerClientId != speakerClientId) continue;
-            float d = Vector3.Distance(me.transform.position, p.transform.position);
-            return Mathf.Clamp01((d - RadioFullRange) / (RadioFarRange - RadioFullRange));
+            r.Audible = r.Speaking;
+            r.Apply(vol, 0f, 0f, 0f, 0f, 0f);
+            return;
         }
-        return 0f;
+
+        Vector3 myHead = me.transform.position + Vector3.up * 1.6f;
+        Vector3 hisHead = p.transform.position + Vector3.up * 1.6f;
+        float d = Vector3.Distance(myHead, hisHead);
+
+        // Arada duvar var mı? (saniyede ~5 kez bakılır)
+        if (Time.unscaledTime >= r.NextWallCheck)
+        {
+            r.NextWallCheck = Time.unscaledTime + 0.2f;
+            r.Walled = d > 1.5f && d < ProxSilent + 2f && Blocked(myHead, hisHead, me.transform, p.transform);
+        }
+
+        // Yakın ses
+        float prox = d <= ProxClear ? 1f : 1f - Mathf.SmoothStep(0f, 1f, (d - ProxClear) / (ProxSilent - ProxClear));
+        float proxMuffle = Mathf.Clamp01((d - ProxClear) / (ProxSilent - ProxClear)) * 0.4f;
+        if (r.Walled) { prox *= WallVolume; proxMuffle = Mathf.Min(1f, proxMuffle + WallMuffle); }
+
+        // Ses yönü: kamera sağına göre
+        float pan = 0f;
+        Camera cam = Camera.main;
+        if (cam != null && d > 0.5f)
+        {
+            Vector3 dir = (hisHead - cam.transform.position).normalized;
+            pan = Mathf.Clamp(Vector3.Dot(cam.transform.right, dir), -1f, 1f) * 0.7f;
+        }
+
+        r.Audible = r.Speaking && prox > 0.02f;
+        r.Apply(vol * prox, 0f, proxMuffle, 0f, 0f, pan);
+    }
+
+    private static readonly RaycastHit[] wallHits = new RaycastHit[8];
+
+    /// <summary>İki baş arasında (oyuncular hariç) katı bir şey var mı?</summary>
+    private static bool Blocked(Vector3 a, Vector3 b, Transform me, Transform him)
+    {
+        Vector3 dir = b - a;
+        float len = dir.magnitude;
+        if (len < 0.01f) return false;
+        int n = Physics.RaycastNonAlloc(a, dir / len, wallHits, len, ~0, QueryTriggerInteraction.Ignore);
+        for (int i = 0; i < n; i++)
+        {
+            Transform t = wallHits[i].collider.transform;
+            if (t.IsChildOf(me) || t.IsChildOf(him)) continue;
+            if (wallHits[i].collider.GetComponentInParent<PlayerNetworkSetup>() != null) continue;
+            return true;
+        }
+        return false;
     }
 
     private static PlayerNetworkSetup LocalPlayer()
@@ -414,6 +458,7 @@ public class VoiceChat : MonoBehaviour
             else pttHold -= frameSec;
             tx = allowed && pttHold > 0f;
         }
+        packet[3] = 0;
         Transmitting = tx;
 
         // Arayüz geçmişi
@@ -594,7 +639,7 @@ public class VoiceChat : MonoBehaviour
             encPred = Mathf.Clamp(encPred, -32768, 32767);
             encIndex = Mathf.Clamp(encIndex + IndexTable[code], 0, 88);
 
-            int b = 3 + (i >> 1);
+            int b = 4 + (i >> 1);
             if ((i & 1) == 0) packet[b] = (byte)code;
             else packet[b] |= (byte)(code << 4);
         }
@@ -606,7 +651,7 @@ public class VoiceChat : MonoBehaviour
         int index = Mathf.Clamp(data[2], 0, 88);
         for (int i = 0; i < FrameSamples; i++)
         {
-            int b = data[3 + (i >> 1)];
+            int b = data[4 + (i >> 1)];
             int code = (i & 1) == 0 ? b & 0x0f : (b >> 4) & 0x0f;
             int step = StepTable[index];
             int delta = step >> 3;
@@ -629,6 +674,9 @@ public class VoiceChat : MonoBehaviour
         public readonly ulong Id;
         public float LastHeard = -100f;
         public float Level;
+        public bool Audible;          // şu an beni duyabiliyor muyum (liste / baş üstü simgesi için)
+        public bool Walled;           // arada duvar var
+        public float NextWallCheck;
 
         private readonly GameObject go;
         private readonly VoicePlayback playback;
@@ -651,6 +699,20 @@ public class VoiceChat : MonoBehaviour
         public void SetRadio(float amount)
         {
             if (playback != null) playback.Radio = amount;
+        }
+
+        /// <summary>Ses seviyesi + boğukluk + yön.</summary>
+        public void Apply(float volume, float radio, float muffle, float stat, float drop, float pan)
+        {
+            if (playback != null)
+            {
+                playback.Gain = volume;
+                playback.Radio = radio;
+                playback.Muffle = muffle;
+                playback.Static = stat;
+                playback.Dropout = drop;
+                playback.Pan = pan;
+            }
         }
 
         public void Push(float[] samples, int n)
@@ -760,7 +822,7 @@ public class VoiceChat : MonoBehaviour
         float y = Screen.height * 0.42f;
         foreach (Remote r in remotes.Values)
         {
-            if (!r.Speaking) continue;
+            if (!r.Speaking || !r.Audible) continue; // uzakta (duyulmayan) yakın konuşmayı gösterme
             PlayerNetworkSetup p = FindPlayer(r.Id);
             string name = p != null ? p.PlayerName : "?";
 
@@ -769,7 +831,7 @@ public class VoiceChat : MonoBehaviour
             Rect row = new Rect(12f, y, Mathf.Max(150f, 48f + nameW), 28f);
             UIUtil.DrawRect(row, new Color(0.05f, 0.06f, 0.08f, 0.7f));
             UIUtil.DrawRect(new Rect(row.x, row.y, 3f, row.height), p != null ? p.PlayerColor : Green);
-            DrawWaves(new Vector2(row.x + 18f, row.y + 14f), r.Level, 0.8f);
+            DrawWaves(new Vector2(row.x + 18f, row.y + 14f), r.Level, 0.8f, Green);
             GUI.Label(new Rect(row.x + 38f, row.y + 3f, nameW + 6f, 22f), name, textStyle);
             y += 32f;
 
@@ -779,19 +841,19 @@ public class VoiceChat : MonoBehaviour
             if (st != null && st.IsHidden) continue;
             Vector3 sp = cam.WorldToScreenPoint(p.transform.position + Vector3.up * 2.55f);
             if (sp.z <= 0f || sp.z > 40f) continue;
-            DrawWaves(new Vector2(sp.x, Screen.height - sp.y), r.Level, 1.1f);
+            DrawWaves(new Vector2(sp.x, Screen.height - sp.y), r.Level, 1.1f, Green);
         }
     }
 
     /// <summary>Ortadan dışa doğru 5 çubuk, ses seviyesine göre zıplar.</summary>
-    private static void DrawWaves(Vector2 c, float level, float scale)
+    private static void DrawWaves(Vector2 c, float level, float scale, Color col)
     {
         float t = Time.unscaledTime * 14f;
         for (int i = -2; i <= 2; i++)
         {
             float wobble = 0.55f + 0.45f * Mathf.Sin(t + i * 1.7f);
             float hgt = (4f + (18f - Mathf.Abs(i) * 4f) * Mathf.Clamp01(level * 1.3f) * wobble) * scale;
-            UIUtil.DrawRect(new Rect(c.x + i * 5f * scale - 1.5f * scale, c.y - hgt * 0.5f, 3f * scale, hgt), Green);
+            UIUtil.DrawRect(new Rect(c.x + i * 5f * scale - 1.5f * scale, c.y - hgt * 0.5f, 3f * scale, hgt), col);
         }
     }
 
