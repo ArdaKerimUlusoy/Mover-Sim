@@ -83,7 +83,7 @@ public class ObjectCarrier : MonoBehaviour
         lookTarget = heldBody == null ? FindPickupTarget() : null;
 
         // Menü açıkken (imleç serbest) oyun girdilerini alma.
-        if (Cursor.lockState != CursorLockMode.Locked || ChatUI.IsTyping)
+        if (Cursor.lockState != CursorLockMode.Locked || ChatUI.IsTyping || PlayerController.InputLocked)
         {
             CancelThrowCharge();
             return;

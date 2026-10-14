@@ -278,7 +278,7 @@ public class PlayerInventory : NetworkBehaviour
             SetPanelOpen(false);
         }
 
-        bool blocked = ChatUI.IsTyping || SessionMenuUI.IsPaused || WorkbenchUI.IsOpen || BriefingUI.IsOpen;
+        bool blocked = ChatUI.IsTyping || SessionMenuUI.IsPaused || WorkbenchUI.IsOpen || BriefingUI.IsOpen || PlayerController.InputLocked;
         if (blocked) return;
 
         if (kb.tabKey.wasPressedThisFrame)
@@ -733,7 +733,7 @@ public class PlayerInventory : NetworkBehaviour
         if (Loc.Has(arg)) arg = Loc.T(arg); // ör. upgrade adı anahtarı → oyuncunun dilinde
 
         bool bad = key == "inv.full" || key == "inv.cantdrop" || key == "steal.stolen" || key == "steal.rummage" ||
-                   key.StartsWith("shop.not");
+                   key.StartsWith("shop.not") || key.StartsWith("truck.");
         ShowToast(Loc.T(key, arg, itemName), bad ? Bad : Good);
 
         if (key == "steal.stolen" || key == "steal.rummage") GameAudio.Play2D(SoundId.Steal, 0.8f);
@@ -809,6 +809,18 @@ public class PlayerInventory : NetworkBehaviour
         if (!IsServer) return;
         int teamLevel = TeamBank.Instance != null ? TeamBank.Instance.TeamBagLevel : 0;
         capacityKg.Value = baseCapacityKg + bagLevel.Value * UpgradeCatalog.BagKgPerLevel + teamLevel * UpgradeCatalog.TeamBagKgPerLevel;
+    }
+
+    /// <summary>Sunucu: kişisel cüzdan ve kişisel upgrade'leri sıfırlar (koşu sıfırlanırken, yalnızca MuseumSession.ResetKeepsPersonalProgress false ise).</summary>
+    public void ServerResetPersonalProgress()
+    {
+        if (!IsServer) return;
+        personalMoney.Value = 0;
+        bagLevel.Value = 0;
+        shoesLevel.Value = 0;
+        glovesLevel.Value = 0;
+        lockpickLevel.Value = 0;
+        ServerApplyCapacity();
     }
 
     /// <summary>Sunucu: kişisel upgrade seviyesini bir artırır (ödeme GarageShop'ta yapılır).</summary>
@@ -1047,6 +1059,9 @@ public class PlayerInventory : NetworkBehaviour
     }
 
     // ---------------- Elde tutulan eşyanın görüntüsü ----------------
+
+    /// <summary>Görev değişince (eser dokuları yenilenince) elde tutulan görseli yeniden kurar.</summary>
+    public void RebuildHeldVisual() => RefreshHeldVisual(true);
 
     /// <summary>Elde tutulan eşya ele yapışık durmaz; oyuncunun önünde süzülür (HeldItemView). Herkes görür.</summary>
     private void RefreshHeldVisual(bool force = false)

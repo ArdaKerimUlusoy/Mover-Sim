@@ -29,6 +29,19 @@ public class HidingSpot : Interactable
         return true;
     }
 
+    /// <summary>Sunucu: bütün dolaplardaki oyuncuları çıkarır (doluluk + hidden temizlenir, sahibine ExitRpc gider:
+    /// kontroller geri gelir). Yeni görev başında çağrılır; ardından oyuncular ayrıca ışınlanır.</summary>
+    public static void ServerReleaseAll()
+    {
+        foreach (HidingSpot h in new System.Collections.Generic.List<HidingSpot>(All))
+        {
+            if (h == null || !h.IsSpawned || !h.IsServer || !h.IsOccupied) continue;
+            PlayerStealth occ = h.ServerOccupant();
+            if (occ != null) h.ServerExit(occ, occ.OwnerClientId, occ.NetworkObject);
+            else h.occupant.Value = Nobody; // sahibi bulunamadı: doluluğu yine de temizle
+        }
+    }
+
     /// <summary>Sunucu: bu oyuncunun saklandığı yer (yoksa null).</summary>
     public static HidingSpot FindOccupiedBy(PlayerStealth stealth)
     {

@@ -292,23 +292,36 @@ public static partial class ArtworkLook
             float wobble = (1f - sim) * 0.18f;
             radius = t => look.Radius(t) * (1f + Mathf.Sin(t * 19f) * wobble);
         }
-        go.AddComponent<MeshFilter>().sharedMesh = Lathe(radius, look.height, 32, 32);
+        Mesh mesh = Lathe(radius, look.height, 32, 32);
+        go.AddComponent<MeshFilter>().sharedMesh = mesh;
         var mr = go.AddComponent<MeshRenderer>();
-        mr.sharedMaterial = MakeLit(Color.white, fake ? Degrade(look.pattern, sim) : look.pattern);
+        // look.pattern önbellekte paylaşılır (ClearCaches yönetir); sadece bu görsel için üretilenler sahiplenilir.
+        Texture2D degraded = fake ? Degrade(look.pattern, sim) : null;
+        Material mat = MakeLit(Color.white, degraded != null ? degraded : look.pattern);
+        mr.sharedMaterial = mat;
+        RuntimeResources res = RuntimeResources.For(go);
+        res.Own(mesh);
+        res.Own(mat);
+        res.Own(degraded);
         return go;
     }
 
     public static GameObject BuildPaintingVisual(PaintingLook look, byte similarity = InventorySlot.NoSimilarity)
     {
         bool fake = similarity != InventorySlot.NoSimilarity;
-        Texture2D img = fake ? Degrade(look.image, similarity / 100f) : look.image;
-        return BuildFramedPicture(img, look.width, look.height);
+        Texture2D degraded = fake ? Degrade(look.image, similarity / 100f) : null;
+        GameObject go = BuildFramedPicture(degraded != null ? degraded : look.image, look.width, look.height);
+        // look.image önbellekte paylaşılır (ClearCaches yönetir); bozuk kopya ise yalnız bu görsele ait.
+        if (degraded != null) RuntimeResources.For(go).Own(degraded);
+        return go;
     }
 
-    /// <summary>Çerçeveli tablo. Pivot alt-orta, ön yüz -Z.</summary>
+    /// <summary>Çerçeveli tablo. Pivot alt-orta, ön yüz -Z.
+    /// Ürettiği materyaller görsele bağlanır; img (dokunun kendisi) SAHİPLENİLMEZ — çağıran yönetir.</summary>
     public static GameObject BuildFramedPicture(Texture2D img, float w, float h)
     {
         var root = new GameObject("Painting");
+        RuntimeResources res = RuntimeResources.For(root);
         float f = 0.05f, d = 0.04f;
         Vector3 c = new Vector3(0f, h * 0.5f + f, 0f);
 
@@ -321,13 +334,17 @@ public static partial class ArtworkLook
         var cm = MakeLit(Color.white, img);
         if (cm.HasProperty("_Smoothness")) cm.SetFloat("_Smoothness", 0.1f);
         canvas.GetComponent<MeshRenderer>().sharedMaterial = cm;
+        res.Own(cm);
 
         Material frame = MakeLit(new Color(0.55f, 0.38f, 0.12f));
+        Material back = MakeLit(new Color(0.3f, 0.22f, 0.15f));
+        res.Own(frame);
+        res.Own(back);
         Piece(root.transform, c + new Vector3(0f, h * 0.5f + f * 0.5f, 0f), new Vector3(w + 2f * f, f, d + 0.01f), frame);
         Piece(root.transform, c + new Vector3(0f, -h * 0.5f - f * 0.5f, 0f), new Vector3(w + 2f * f, f, d + 0.01f), frame);
         Piece(root.transform, c + new Vector3(-w * 0.5f - f * 0.5f, 0f, 0f), new Vector3(f, h, d + 0.01f), frame);
         Piece(root.transform, c + new Vector3(w * 0.5f + f * 0.5f, 0f, 0f), new Vector3(f, h, d + 0.01f), frame);
-        Piece(root.transform, c, new Vector3(w, h, d), MakeLit(new Color(0.3f, 0.22f, 0.15f)));
+        Piece(root.transform, c, new Vector3(w, h, d), back);
         return root;
     }
 

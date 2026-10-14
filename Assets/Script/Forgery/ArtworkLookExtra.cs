@@ -30,13 +30,27 @@ public sealed class JewelLook
 /// <summary>Çalışma anında üretilen mesh / doku / malzemeleri görselle birlikte yok eder (bellek sızmasın).</summary>
 public sealed class RuntimeResources : MonoBehaviour
 {
-    private readonly List<Object> owned = new List<Object>();
+    // HashSet: aynı nesne iki kez sahiplenilirse (ör. BuildFramedPicture + BuildForgeryVisual) iki kez Destroy edilmez.
+    private readonly HashSet<Object> owned = new HashSet<Object>();
 
+    /// <summary>Görselin kökündeki RuntimeResources (yoksa eklenir). Tek bileşen = tek sahiplik listesi.</summary>
+    public static RuntimeResources For(GameObject go)
+    {
+        if (go == null) return null;
+        var r = go.GetComponent<RuntimeResources>();
+        return r != null ? r : go.AddComponent<RuntimeResources>();
+    }
+
+    /// <summary>Sadece bu görsel için ÜRETİLEN nesneler verilmeli (önbellek dokuları / hazır primitive mesh'leri değil).</summary>
     public void Own(Object o) { if (o != null) owned.Add(o); }
 
     private void OnDestroy()
     {
-        foreach (Object o in owned) if (o != null) Destroy(o);
+        foreach (Object o in owned)
+        {
+            if (o == null) continue;
+            if (Application.isPlaying) Destroy(o); else DestroyImmediate(o);
+        }
         owned.Clear();
     }
 }
@@ -165,6 +179,9 @@ public static partial class ArtworkLook
         var root = new GameObject("Bust");
         Material stoneMat = MakeLit(BustStones[Mathf.Clamp(stone, 0, BustStones.Length - 1)]);
         Material baseMat = MakeLit(BustBases[Mathf.Clamp(baseColor, 0, BustBases.Length - 1)]);
+        RuntimeResources res = RuntimeResources.For(root);
+        res.Own(stoneMat);
+        res.Own(baseMat); // parçalar hazır primitive mesh kullanır; onlar sahiplenilmez
 
         float bh = Mathf.Lerp(0.06f, 0.18f, s[5]);
         float headW = Mathf.Lerp(0.17f, 0.27f, s[0]);
@@ -194,6 +211,8 @@ public static partial class ArtworkLook
         Material metalMat = MakeLit(Color.Lerp(metalC * 0.7f, metalC, pol));
         if (metalMat.HasProperty("_Metallic")) metalMat.SetFloat("_Metallic", Mathf.Lerp(0.4f, 0.9f, pol));
         if (metalMat.HasProperty("_Smoothness")) metalMat.SetFloat("_Smoothness", Mathf.Lerp(0.15f, 0.85f, pol));
+        RuntimeResources res = RuntimeResources.For(root);
+        res.Own(metalMat);
 
         const float R = 0.09f;
         int style = Mathf.Clamp(c.style, 0, 2);
@@ -204,7 +223,9 @@ public static partial class ArtworkLook
         var band = new GameObject("Band");
         band.transform.SetParent(root.transform, false);
         band.transform.localPosition = center;
-        band.AddComponent<MeshFilter>().sharedMesh = Torus(R, r, 40, 12);
+        Mesh torus = Torus(R, r, 40, 12);
+        res.Own(torus);
+        band.AddComponent<MeshFilter>().sharedMesh = torus;
         band.AddComponent<MeshRenderer>().sharedMaterial = metalMat;
 
         float top = R + r;
@@ -222,6 +243,7 @@ public static partial class ArtworkLook
             int gem = Mathf.Clamp(c.gems[i], 0, JewelGems.Length - 1);
             Material gemMat = MakeLit(JewelGems[gem]);
             if (gemMat.HasProperty("_Smoothness")) gemMat.SetFloat("_Smoothness", 0.9f);
+            res.Own(gemMat);
             float rr = Mathf.Abs(c.angles[i] - 90f) < 30f && style == 2 ? top : R + r;
             Part(root, PrimitiveType.Sphere, center + dir * (rr + 0.012f), Vector3.one * 0.038f, gemMat);
         }
@@ -343,7 +365,7 @@ public static partial class ArtworkLook
         if (go == null) return null;
 
         // Bu görsel için üretilen her şey onunla birlikte yok olsun
-        var res = go.AddComponent<RuntimeResources>();
+        var res = RuntimeResources.For(go); // Build* zaten eklemiş olabilir: aynı bileşen, yinelenmeyen liste
         res.Own(tex);
         res.Own(mesh);
         var seen = new HashSet<Material>();
@@ -376,6 +398,31 @@ public static partial class ArtworkLook
         }
         originalIcons[ck] = t;
         return t;
+    }
+
+    /// <summary>
+    /// Tohum değişince (yeni görev) çağrılmalı: önbellek anahtarları tohumu içerdiği için aksi halde her görevde büyür.
+    /// Sözlükleri boşaltır ve önbellekteki çalışma anı dokularını (vazo deseni, tablo resmi, ikonlar) yok eder.
+    /// SIRA: önce ClearCaches, SONRA kaideleri / hologramı yeniden kur — eski görseller bu dokulara bakıyorsa pembe/boş görünür.
+    /// </summary>
+    public static void ClearCaches()
+    {
+        var textures = new HashSet<Texture2D>(); // tablo ikonu = tablo resmi: aynı doku bir kez yok edilsin
+        foreach (VaseLook v in vaseCache.Values) if (v != null && v.pattern != null) textures.Add(v.pattern);
+        foreach (PaintingLook p in paintingCache.Values) if (p != null && p.image != null) textures.Add(p.image);
+        foreach (Texture2D t in originalIcons.Values) if (t != null) textures.Add(t);
+
+        vaseCache.Clear();
+        paintingCache.Clear();
+        bustCache.Clear();
+        jewelCache.Clear();
+        originalIcons.Clear();
+        PaintingRegions.ClearCache();
+
+        foreach (Texture2D t in textures)
+        {
+            if (Application.isPlaying) Object.Destroy(t); else Object.DestroyImmediate(t);
+        }
     }
 
     static Color[] NewIcon()
@@ -692,6 +739,9 @@ public sealed class PaintingRegions
     private Color[] palette;      // tablonun paleti + boş tuval rengi (en sonda)
 
     private static readonly Dictionary<Texture2D, PaintingRegions> cache = new Dictionary<Texture2D, PaintingRegions>();
+
+    /// <summary>ArtworkLook.ClearCaches çağırır (anahtarlar yok edilen tablo dokularıdır).</summary>
+    public static void ClearCache() => cache.Clear();
 
     public static PaintingRegions For(PaintingLook look)
     {

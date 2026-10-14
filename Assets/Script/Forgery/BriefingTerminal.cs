@@ -104,6 +104,13 @@ public class BriefingTerminal : Interactable
 public class BriefingUI : MonoBehaviour
 {
     public static bool IsOpen { get; private set; }
+    private static BriefingUI current;
+
+    /// <summary>Açık brifing panelini kapatır (kamyon sekansı başlarken).</summary>
+    public static void ForceClose()
+    {
+        if (current != null) current.Close();
+    }
 
     private PlayerController controller;
     private int openedFrame;
@@ -117,6 +124,7 @@ public class BriefingUI : MonoBehaviour
         var ui = go.AddComponent<BriefingUI>();
         ui.controller = player != null ? player.GetComponent<PlayerController>() : null;
         ui.openedFrame = Time.frameCount;
+        current = ui;
         if (ui.controller != null) ui.controller.enabled = false;
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible = true;
@@ -139,12 +147,13 @@ public class BriefingUI : MonoBehaviour
         Destroy(gameObject);
     }
 
-    private void OnDestroy() { IsOpen = false; }
+    private void OnDestroy() { IsOpen = false; if (current == this) current = null; }
 
     private Texture2D IconFor(MuseumSession ms, ArtworkDisplay d, ArtKind kind)
     {
         string key = ms.Seed + "|" + ms.ThemeIndex + "|" + d.name;
-        if (icons.TryGetValue(key, out Texture2D t)) return t;
+        // t != null: ArtworkLook.ClearCaches dokuyu yok ettiyse (Unity'de sahte null) yeniden üret
+        if (icons.TryGetValue(key, out Texture2D t) && t != null) return t;
         t = ArtworkLook.OriginalIcon(kind, ms.Seed, ms.ThemeIndex, d.name);
         if (t == null) t = d.Artwork.icon;
         icons[key] = t;

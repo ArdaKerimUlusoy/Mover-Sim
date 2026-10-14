@@ -21,9 +21,12 @@ public static class CrimeTalk
     public static float HearRangeFor(float loudness01) => Mathf.Lerp(WhisperRange, ShoutRange, Mathf.Clamp01(loudness01));
     public const float ArtworkSearchRadius = 12f;
     public const float OverheardSeconds = 25f;
-    public const float ServerCooldown = 4f;
+    /// <summary>Aynı oyuncudan iki "duyuldu" arasında en az (sn): CrimeWordSettings.serverMinInterval (eskiden sabit 4 sn).</summary>
+    public static float ServerCooldown => CrimeWordSettings.Active.serverMinInterval;
 
     private static readonly Dictionary<ulong, float> lastHeard = new Dictionary<ulong, float>();
+
+    public const int MaxWordLength = 24;
 
     public static void ServerHeard(ulong clientId, string word, byte loudness = 128)
     {
@@ -31,6 +34,16 @@ public static class CrimeTalk
         NetworkManager nm = NetworkManager.Singleton;
         if (nm == null || !nm.IsServer) return;
         if (!nm.ConnectedClients.TryGetValue(clientId, out NetworkClient client) || client.PlayerObject == null) return;
+
+        // Sunucu doğrulaması: uzak istemci son birkaç sn içinde GERÇEKTEN ses göndermiş olmalı (değiştirilmiş istemcinin
+        // sessizce "çal" bildirimi yollamasına karşı). Host'un kendi bildirimi kendi makinesinde üretilir: muaf.
+        if (clientId != nm.LocalClientId)
+        {
+            if (!VoiceChat.ServerLastVoice.TryGetValue(clientId, out float lastVoice) ||
+                Time.unscaledTime - lastVoice > CrimeWordSettings.Active.serverVoiceRecentSeconds) return;
+        }
+        if (string.IsNullOrEmpty(word)) word = "?";
+        else if (word.Length > MaxWordLength) word = word.Substring(0, MaxWordLength);
 
         if (lastHeard.TryGetValue(clientId, out float t) && Time.time - t < ServerCooldown) return;
         lastHeard[clientId] = Time.time;

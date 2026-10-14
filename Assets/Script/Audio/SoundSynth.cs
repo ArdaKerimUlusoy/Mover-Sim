@@ -154,6 +154,50 @@ public static class SoundSynth
                     float f = Mathf.Lerp(300f, 520f, t / 0.3f);
                     return (Mathf.Sin(TwoPi * f * t) + Mathf.Sin(TwoPi * f * 2f * t) * 0.3f) * Env(t, 0.02f, 8f) * 0.3f;
                 }) };
+            case SoundId.TruckEngine:
+                {
+                    // Eski kamyon motoru: kontak, gürleyen alçak ton, hafif hızlanma
+                    System.Random er = new System.Random(77);
+                    float ph = 0f;
+                    return new[] { Make("TruckEngine", 2.4f, t =>
+                    {
+                        float rpm = t < 0.5f ? Mathf.Lerp(25f, 48f, t / 0.5f) + Mathf.Sin(TwoPi * 14f * t) * 6f : Mathf.Lerp(48f, 70f, (t - 0.5f) / 1.9f);
+                        ph += TwoPi * rpm / Rate;
+                        float puff = Mathf.Pow(Mathf.Abs(Mathf.Sin(ph * 0.5f)), 3f);
+                        float body = Mathf.Sin(ph) * 0.5f + Mathf.Sin(ph * 2f) * 0.3f + Mathf.Sin(ph * 3f) * 0.15f;
+                        float rumble = Noise(er) * 0.06f;
+                        float env = Mathf.Clamp01(t / 0.08f) * Mathf.Clamp01((2.4f - t) / 0.4f);
+                        return (body * (0.5f + puff * 0.5f) + rumble) * env * 0.45f;
+                    }) };
+                }
+            case SoundId.PoliceSiren:
+                {
+                    // Sevimli "vııv-vııv": 1.6 sn'de iki kez yükselip alçalan yumuşak ton
+                    float sp = 0f;
+                    return new[] { Make("PoliceSiren", 1.6f, t =>
+                    {
+                        float k = (t % 0.8f) / 0.8f;
+                        float f = 620f + Mathf.Sin(k * Mathf.PI) * 420f;
+                        sp += TwoPi * f / Rate;
+                        float tone = Mathf.Sin(sp) * 0.75f + Mathf.Sin(sp * 2f) * 0.15f;
+                        float env = Mathf.Clamp01(t / 0.03f) * Mathf.Clamp01((1.6f - t) / 0.05f);
+                        return tone * env * 0.2f;
+                    }) };
+                }
+            case SoundId.TruckBrake:
+                {
+                    // Lastik gıcırtısı + yumuşak tok vuruş
+                    System.Random br = new System.Random(5);
+                    float lp2 = 0f, bp = 0f;
+                    return new[] { Make("TruckBrake", 0.9f, t =>
+                    {
+                        lp2 += (Noise(br) - lp2) * 0.25f;
+                        bp += TwoPi * Mathf.Lerp(1500f, 700f, t / 0.9f) / Rate;
+                        float screech = (Mathf.Sin(bp) * 0.5f + lp2 * 0.5f) * Mathf.Clamp01(t / 0.02f) * Mathf.Clamp01((0.9f - t) / 0.35f);
+                        float thud = Mathf.Sin(TwoPi * 70f * t) * Env(t, 0.003f, 9f);
+                        return screech * 0.22f + thud * 0.45f;
+                    }) };
+                }
             default:
                 return Array.Empty<AudioClip>();
         }

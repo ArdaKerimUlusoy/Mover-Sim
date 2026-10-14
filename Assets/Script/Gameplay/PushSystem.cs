@@ -132,7 +132,7 @@ public class PushSystem : MonoBehaviour
         PlayerStealth me = PlayerStealth.Local;
         Camera cam = Camera.main;
         if (me == null || cam == null || !me.IsSpawned) return none;
-        if (ChatUI.IsTyping || SessionMenuUI.IsPaused || PlayerInventory.IsPanelOpen || WorkbenchUI.IsOpen || BriefingUI.IsOpen) return none;
+        if (ChatUI.IsTyping || SessionMenuUI.IsPaused || PlayerInventory.IsPanelOpen || WorkbenchUI.IsOpen || BriefingUI.IsOpen || PlayerController.InputLocked) return none;
         if (Cursor.lockState != CursorLockMode.Locked || me.IsJailed || me.CurrentHidingSpot != null || LocalKnockedOut) return none;
         canAct = true;
 

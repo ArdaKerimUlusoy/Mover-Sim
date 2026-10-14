@@ -31,7 +31,7 @@ public class PingSystem : NetworkBehaviour
     private void Update()
     {
         if (!IsSpawned || PlayerInventory.Local == null) return;
-        if (ChatUI.IsTyping || SessionMenuUI.IsPaused || PlayerInventory.IsPanelOpen) return;
+        if (ChatUI.IsTyping || SessionMenuUI.IsPaused || PlayerInventory.IsPanelOpen || PlayerController.InputLocked) return;
         if (Cursor.lockState != CursorLockMode.Locked || Time.unscaledTime < nextLocalPing) return;
 
         bool pressed = (Mouse.current != null && Mouse.current.middleButton.wasPressedThisFrame) ||

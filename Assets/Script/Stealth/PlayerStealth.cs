@@ -29,6 +29,10 @@ public class PlayerStealth : NetworkBehaviour
     private readonly NetworkVariable<bool> doingCrime = new NetworkVariable<bool>(
         false, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
 
+    // Jopla vurulup baygın mı? Sahibi yazar (PlayerController.IsKnockedOut), herkes okur → PlayerAvatar yere yığılır.
+    private readonly NetworkVariable<bool> knockedOut = new NetworkVariable<bool>(
+        false, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
+
     private PlayerInventory inventory;
     private PlayerController controller;
     private CharacterController characterController;
@@ -49,6 +53,8 @@ public class PlayerStealth : NetworkBehaviour
     public bool IsWatched => watched.Value;
     public bool IsCrouching => crouching.Value;
     public bool IsDoingCrime => doingCrime.Value;
+    /// <summary>Baygın mı (ağ üzerinden, tüm istemcilerde geçerli)?</summary>
+    public bool IsKnockedOutNet => knockedOut.Value;
     public bool IsWanted => IsServer && Time.time < wantedUntil;
     /// <summary>Sunucu: güvenliklerin tanıdığı (yakalanıp kaçmış / kaçırılmış) oyuncu mu?</summary>
     public bool IsKnownOffender => IsServer && Time.time < offenderUntil;
@@ -56,6 +62,20 @@ public class PlayerStealth : NetworkBehaviour
     public bool IsOverheard => IsServer && Time.time < overheardUntil;
     public bool IsJailed => jailedUntil.Value > 0;
     public double JailedUntil => jailedUntil.Value;
+
+    /// <summary>Bağlı (doğmuş) oyuncu sayısı; her bilgisayarda aynıdır.</summary>
+    public static int ConnectedCount
+    {
+        get
+        {
+            int n = 0;
+            foreach (PlayerStealth p in All) if (p != null && p.IsSpawned) n++;
+            return n;
+        }
+    }
+
+    /// <summary>Tek kişilik oyun mu? Hapisten kendiliğinden çıkış YALNIZCA bu durumda çalışır; çok oyunculuda yalnızca arkadaş kurtarır.</summary>
+    public static bool SoloGame => ConnectedCount <= 1;
 
     private string PlayerName
     {
@@ -110,6 +130,8 @@ public class PlayerStealth : NetworkBehaviour
         {
             bool c = controller.IsCrouching;
             if (crouching.Value != c) crouching.Value = c;
+            bool k = controller.IsKnockedOut;
+            if (knockedOut.Value != k) knockedOut.Value = k;
         }
 
         if (IsServer) ServerTick();
@@ -197,6 +219,7 @@ public class PlayerStealth : NetworkBehaviour
     public void ServerCatch()
     {
         if (!IsServer || IsJailed) return;
+        if (MuseumSession.Instance != null && MuseumSession.Instance.SequenceActive) return; // kamyon / sıfırlama sekansı sürerken yakalanma yok
 
         var returned = new List<int>();
         int lost = inventory != null ? inventory.ServerConfiscateOriginals(returned) : 0;
@@ -214,6 +237,7 @@ public class PlayerStealth : NetworkBehaviour
         if (JailCell.Instance != null && JailCell.Instance.IsSpawned)
         {
             JailCell.Instance.ServerImprison(this);
+            if (MuseumSession.Instance != null) MuseumSession.Instance.ServerCheckAllCaught(); // herkes yakalandıysa koşu biter
             return;
         }
 
@@ -305,7 +329,10 @@ public class PlayerStealth : NetworkBehaviour
             double left = jailedUntil.Value - NetworkManager.ServerTime.Time;
             float jy = UIUtil.TopSlot(60f);
             UIUtil.DrawPrompt(Loc.T("jail.banner"), jy, new Color(1f, 0.6f, 0.4f), 24);
-            UIUtil.DrawPrompt(Loc.T("jail.wait", Mathf.Max(0, Mathf.CeilToInt((float)left))), jy + 30f, Color.white, 16);
+            string jailLine = SoloGame
+                ? Loc.T("jail.wait", Mathf.Max(0, Mathf.CeilToInt((float)left)))
+                : Loc.T("jail.waitmulti"); // çok oyunculu: geri sayım yok, arkadaş kurtarmalı
+            UIUtil.DrawPrompt(jailLine, jy + 30f, Color.white, 16);
             return;
         }
 

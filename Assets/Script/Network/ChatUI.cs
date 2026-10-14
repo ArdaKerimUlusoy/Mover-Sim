@@ -54,6 +54,14 @@ public class ChatUI : MonoBehaviour
     public static bool ClosedRecently => Time.unscaledTime - lastCloseTime < 0.2f;
     private static float lastCloseTime = -10f;
 
+    /// <summary>Yazma kutusu açıksa kapatır (kamyon sekansı başlarken).</summary>
+    public static void ForceCloseTyping()
+    {
+        if (!IsTyping) return;
+        lastCloseTime = Time.unscaledTime;
+        IsTyping = false;
+    }
+
     private void Update()
     {
         Keyboard kb = Keyboard.current;

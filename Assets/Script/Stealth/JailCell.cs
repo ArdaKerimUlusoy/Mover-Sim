@@ -5,7 +5,8 @@ using UnityEngine;
 /// Müzenin hapsi (GDD Bölüm 6'nın basit hali): güvenliğe yakalanan oyuncu buraya kapatılır.
 ///  - Yakalanan oyuncunun çantasındaki orijinaller kaidelerine geri döner (PlayerStealth.ServerCatch).
 ///  - Hapisteki oyuncu parmaklıkların arkasında bekler; bir arkadaşı dışarıdan E basılı tutarak kurtarabilir.
-///  - Kimse kurtarmazsa süre dolunca kendiliğinden çıkar (tek başına oynarken oyun kilitlenmesin).
+///  - TEK KİŞİLİK oyunda süre dolunca kendiliğinden çıkar (oyun kilitlenmesin). Birden fazla oyuncu varken otomatik çıkış YOKTUR:
+///    yalnızca arkadaşı kurtarabilir (hepsi yakalanırsa koşu biter: MuseumSession.ServerCheckAllCaught).
 /// Kurulum: hapis kapısı objesine NetworkObject + bu bileşen. Kapının "ileri" yönü hücrenin DIŞINA bakar.
 /// İsteğe bağlı "Inside Point" / "Release Point"; verilmezse kapının arkası / önü kullanılır.
 /// </summary>
@@ -15,7 +16,7 @@ public class JailCell : Interactable
 
     [SerializeField] private Transform insidePoint;
     [SerializeField] private Transform releasePoint;
-    [Tooltip("Kimse kurtarmazsa kaç saniye sonra serbest kalır.")]
+    [Tooltip("Yalnızca tek kişilik oyunda: kimse kurtarmazsa kaç saniye sonra serbest kalır.")]
     [SerializeField] private float jailSeconds = 30f;
     [SerializeField] private float rescueHoldSeconds = 2.5f;
     [Tooltip("Kurtarma girişimi güvenlikleri en fazla bu sıklıkla uyarır (saniye).")]
@@ -115,27 +116,28 @@ public class JailCell : Interactable
     }
 
     /// <summary>Sunucu: oyuncuyu hücrenin önüne bırakır.</summary>
-    public void ServerRelease(PlayerStealth prisoner, bool remember = true)
+    public void ServerRelease(PlayerStealth prisoner, bool remember = true, bool teleport = true)
     {
         if (!IsServer || prisoner == null || !prisoner.IsJailed) return;
         prisoner.ServerSetJailed(0);
         // Hapisten çıkan oyuncu normal ziyaretçi moduna döner: güvenlikler onu artık aramaz / tanımaz
         prisoner.ServerClearHeat();
-        prisoner.ServerTeleport(ReleasePos + Vector3.up * 0.1f, transform.eulerAngles.y);
+        if (teleport) prisoner.ServerTeleport(ReleasePos + Vector3.up * 0.1f, transform.eulerAngles.y);
         if (prisoner.TryGetComponent(out PlayerInventory inv)) inv.ServerPlaySound(SoundId.DoorOpen, transform.position);
     }
 
-    /// <summary>Sunucu: herkesi serbest bırakır (yeni görev başlarken).</summary>
-    public static void ServerReleaseAll()
+    /// <summary>Sunucu: herkesi serbest bırakır (yeni görev başlarken). teleport=false: çağıran oyuncuları kendisi ışınlar.</summary>
+    public static void ServerReleaseAll(bool teleport = true)
     {
         if (Instance == null || !Instance.IsServer) return;
         foreach (PlayerStealth p in PlayerStealth.All)
-            if (p != null && p.IsSpawned && p.IsJailed) Instance.ServerRelease(p, false);
+            if (p != null && p.IsSpawned && p.IsJailed) Instance.ServerRelease(p, false, teleport);
     }
 
     private void Update()
     {
         if (!IsServer || !IsSpawned) return;
+        if (!PlayerStealth.SoloGame) return; // çok oyunculu: kendiliğinden çıkış YOK, yalnızca arkadaş kurtarabilir
         double now = NetworkManager.ServerTime.Time;
         foreach (PlayerStealth p in PlayerStealth.All)
         {

@@ -52,6 +52,8 @@ public class GarageShop : Interactable, IInventoryPanel
             bool maxed = level >= max;
             int price = UpgradeCatalog.Price(t, level);
             PaidFrom payer = UpgradeCatalog.Payer(t);
+            // Maymuncuk: kişisel cüzdan yetmezse ekip kasasından ödenir (Staff Only erişimi cebe bağlı kalmasın)
+            if (t == UpgradeType.Lockpick && !maxed && inv.PersonalMoney < price && bank != null && bank.Money >= price) payer = PaidFrom.Team;
             int available = payer == PaidFrom.Team ? (bank != null ? bank.Money : 0) : inv.PersonalMoney;
             bool canAfford = !maxed && available >= price && (payer == PaidFrom.Personal || bank != null);
 
@@ -97,7 +99,24 @@ public class GarageShop : Interactable, IInventoryPanel
         int price = UpgradeCatalog.Price(type, level);
         TeamBank bank = TeamBank.Instance;
 
-        if (UpgradeCatalog.Payer(type) == PaidFrom.Team)
+        if (type == UpgradeType.Lockpick)
+        {
+            // Önce kişisel cüzdan, yetmezse ekip kasası
+            if (inv.ServerTrySpendMoney(price))
+            {
+                if (!inv.ServerIncreaseUpgrade(type)) { inv.ServerAddMoney(price); return; }
+            }
+            else if (bank != null && bank.ServerTrySpend(price))
+            {
+                if (!inv.ServerIncreaseUpgrade(type)) { bank.ServerRefund(price); return; }
+            }
+            else
+            {
+                inv.ServerNotify("shop.notenough");
+                return;
+            }
+        }
+        else if (UpgradeCatalog.Payer(type) == PaidFrom.Team)
         {
             if (bank == null || !bank.ServerTrySpend(price))
             {
@@ -106,7 +125,7 @@ public class GarageShop : Interactable, IInventoryPanel
             }
             if (!bank.ServerIncreaseTeamBag())
             {
-                bank.ServerAdd(price); // iade
+                bank.ServerRefund(price); // iade (kazanç sayılmaz)
                 return;
             }
         }

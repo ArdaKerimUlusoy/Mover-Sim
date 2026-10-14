@@ -26,6 +26,9 @@ public enum SoundId : byte
     Caught = 18,
     GuardAlert = 19,
     GuardHuh = 20,
+    TruckEngine = 21,   // kamyon kalkış motoru
+    PoliceSiren = 22,   // polis sireni (yumuşak, yükselip alçalan)
+    TruckBrake = 23,    // sert fren / lastik sesi
 }
 
 /// <summary>

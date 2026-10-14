@@ -1,6 +1,5 @@
 using Unity.Netcode;
 using UnityEngine;
-using UnityEngine.InputSystem;
 
 /// <summary>
 /// Görev / müze oturumu (sunucu belirler, herkese senkronlanır):
@@ -10,7 +9,8 @@ using UnityEngine.InputSystem;
 ///  - Seviye (GDD Bölüm 8): eserler, güvenlikler ve kameralar seviyeyle açılır (requiredLevel).
 ///      1: basit tablolar, 2 güvenlik   2: + vazo, 3. güvenlik, kameralar   3: + yüzük   4+: + büst (başyapıt)
 ///  - Kota: bu görevde ekip kasasına girmesi gereken para.
-///  - Görev, kota dolduktan sonra TÜM oyuncular kamyona dönünce tamamlanır (TruckZone); host N ile sonraki göreve geçer.
+///  - Kamyonu kimse sürmez: kamyondaki biri K ile arka kapıyı kapatır (hapiste olmayan herkes içerideyse). Kota doluysa kaçış başarılı → sonraki görev;
+///    dolu değilse polis yakalar → koşu sıfırlanır (1. seviye). Oyuncuların HEPSİ hapse düşerse de koşu sıfırlanır (çok oyunculuda).
 ///  - Yeni görevde eski sahteler silinir: eski müzenin eserlerine göre yapılmışlardı.
 /// Kurulum: ChatManager objesine (NetworkObject zaten var) bu bileşen. Create Test Museum otomatik ekler.
 /// </summary>
@@ -33,8 +33,28 @@ public class MuseumSession : NetworkBehaviour
     private readonly NetworkVariable<int> quota = new NetworkVariable<int>(0);
     private readonly NetworkVariable<int> baseline = new NetworkVariable<int>(int.MinValue);
     private readonly NetworkVariable<bool> staffDoorOpen = new NetworkVariable<bool>(false); // Staff Only kapısı maymuncukla açıldı mı
+    private readonly NetworkVariable<bool> doorClosed = new NetworkVariable<bool>(false);      // kamyonun arka kapısı
+    private readonly NetworkVariable<byte> sequence = new NetworkVariable<byte>(0);            // EscapeSequence
+    private readonly NetworkVariable<double> sequenceStart = new NetworkVariable<double>(0);   // sunucu saatiyle başlangıç (geç katılan doğru yerden görür)
 
     private static int lastTheme = -1; // aynı uygulama açıkken bir sonraki oda/görev farklı müze olsun
+
+    /// <summary>Koşu sıfırlanırken (polis / herkes yakalandı) KİŞİSEL cüzdan ve kişisel upgrade'ler korunsun mu? false yapılırsa onlar da sıfırlanır (ekip çantası upgrade'i dahil).</summary>
+    public static readonly bool ResetKeepsPersonalProgress = true;
+
+    public enum EscapeSequence : byte { None = 0, Departure = 1, Police = 2, AllCaught = 3 }
+
+    /// <summary>Sekans süreleri (sn). Sunucu bitince görevi geçirir / koşuyu sıfırlar.</summary>
+    public static float SequenceDuration(EscapeSequence s)
+    {
+        switch (s)
+        {
+            case EscapeSequence.Departure: return 7f;
+            case EscapeSequence.Police: return 8.5f;
+            case EscapeSequence.AllCaught: return 4.5f;
+            default: return 0f;
+        }
+    }
 
     private GUIStyle hudStyle, hudBig;
     private MaterialPropertyBlock themeBlock;
@@ -52,26 +72,28 @@ public class MuseumSession : NetworkBehaviour
     {
         if (IsServer) staffDoorOpen.Value = true;
     }
-    public int Earned => TeamBank.Instance != null && baseline.Value != int.MinValue ? TeamBank.Instance.Money - baseline.Value : 0;
+    /// <summary>Bu görevde ekibin kazandığı para: kasaya GİREN gelir (TeamBank.TotalEarned); kasadan yapılan harcamalar kotayı düşürmez.</summary>
+    public int Earned => TeamBank.Instance != null && baseline.Value != int.MinValue ? TeamBank.Instance.TotalEarned - baseline.Value : 0;
 
     /// <summary>Para kotası doldu mu? (Görevin bitmesi için ekibin kamyona da dönmesi gerekir.)</summary>
     public bool QuotaMet => quota.Value > 0 && Earned >= quota.Value;
 
-    /// <summary>Görev tamam: kota doldu VE bütün oyuncular kamyonda.</summary>
-    public bool Complete
-    {
-        get
-        {
-            if (!QuotaMet) return false;
-            TruckZone.Count(out int inside, out int total);
-            return total > 0 && inside >= total;
-        }
-    }
+    /// <summary>Kaçış sekansı sürüyor mu? (kontroller kilitli, yeni yakalanma yok)</summary>
+    public bool SequenceActive => sequence.Value != 0;
+    public EscapeSequence ActiveSequence => (EscapeSequence)sequence.Value;
+    /// <summary>Kamyonun arka kapısı kapalı mı?</summary>
+    public bool DoorClosed => doorClosed.Value;
+    /// <summary>Sekansın başlangıcından beri geçen süre (sn, sunucu saatine göre).</summary>
+    public float SequenceTime => SequenceActive && NetworkManager != null ? Mathf.Max(0f, (float)(NetworkManager.ServerTime.Time - sequenceStart.Value)) : 0f;
+
+    /// <summary>Kapı kapatılıp kamyon gidebilir mi: kota dolu ve hapiste olmayan herkes kamyonda.</summary>
+    public bool Complete => QuotaMet && TruckZone.GetStatus().EveryoneIn;
 
     private void Awake()
     {
         Instance = this;
         if (GetComponent<VisitorManager>() == null) gameObject.AddComponent<VisitorManager>(); // müzeyi gezen ziyaretçiler
+        if (GetComponent<TruckEscapeUI>() == null) gameObject.AddComponent<TruckEscapeUI>(); // kapı tuşu + kalkış / polis / yakalandı sekansları (ağ nesnesi değil)
     }
 
     // ---------------- Ziyaretçiler (VisitorManager konumları bu objenin RPC'siyle gönderir) ----------------
@@ -111,6 +133,8 @@ public class MuseumSession : NetworkBehaviour
 
     public override void OnNetworkDespawn()
     {
+        PlayerController.InputLocked = false;
+        PlayerController.ShakeAmount = 0f;
         themeIndex.OnValueChanged -= OnLookChanged;
         seed.OnValueChanged -= OnSeedChanged;
         level.OnValueChanged -= OnLookChanged;
@@ -120,8 +144,14 @@ public class MuseumSession : NetworkBehaviour
 
     private void OnSeedChanged(int a, int b)
     {
+        WorkbenchUI.ForceClose(); // atölye açıksa silinecek dokuyu göstermesin
         ForgeryRegistry.Clear(); // yeni görev: eski sahtelerin verisi artık gereksiz
+        ArtworkLook.ClearCaches(); // eski müzenin eser dokuları silinsin (önce temizle, sonra yeniden kur)
         ApplyTheme();
+
+        // Eldeki ve yerdeki eserlerin görselleri silinen dokulara bakmasın: yeni dokularla yeniden kur
+        foreach (PlayerInventory inv in FindObjectsByType<PlayerInventory>(FindObjectsSortMode.None)) inv.RebuildHeldVisual();
+        foreach (WorldItem wi in FindObjectsByType<WorldItem>(FindObjectsSortMode.None)) wi.RebuildArtVisual();
     }
 
     // ---------------- Sunucu ----------------
@@ -138,6 +168,10 @@ public class MuseumSession : NetworkBehaviour
         staffDoorOpen.Value = false; // yeni müzede Staff Only kapısı yine kilitli
     }
 
+    private float nextCaughtCheck;
+    private const float ConfirmWindow = 3.5f; // istemci penceresi 3 sn + ağ payı
+    private readonly System.Collections.Generic.Dictionary<ulong, float> pendingConfirm = new System.Collections.Generic.Dictionary<ulong, float>();
+
     private void Update()
     {
         if (!IsSpawned) return;
@@ -145,16 +179,94 @@ public class MuseumSession : NetworkBehaviour
         if (IsServer)
         {
             if (baseline.Value == int.MinValue && TeamBank.Instance != null && TeamBank.Instance.IsSpawned)
-                baseline.Value = TeamBank.Instance.Money;
+                baseline.Value = TeamBank.Instance.TotalEarned;
 
             if (quota.Value == 0 && ArtworkDisplay.All.Count > 0)
                 quota.Value = ComputeQuota();
 
-            // Host: görev tamamsa (kota + herkes kamyonda) N ile sonraki görev
-            Keyboard kb = Keyboard.current;
-            if (IsHost && kb != null && !ChatUI.IsTyping && kb.nKey.wasPressedThisFrame && Complete)
-                ServerNextMission();
+            if (SequenceActive)
+            {
+                // Sekans bitti: kaçış başarılıysa sonraki görev, polis / herkes yakalandı ise koşu sıfırlanır
+                EscapeSequence s = ActiveSequence;
+                if (NetworkManager.ServerTime.Time - sequenceStart.Value >= SequenceDuration(s))
+                {
+                    sequence.Value = 0;
+                    if (s == EscapeSequence.Departure) ServerNextMission();
+                    else ServerResetRun();
+                }
+            }
+            else if (Time.unscaledTime >= nextCaughtCheck)
+            {
+                nextCaughtCheck = Time.unscaledTime + 0.25f;
+                ServerCheckAllCaught(); // periyodik: biri oyundan çıkınca kalanların hepsi hapisteyse de yakalanır
+            }
         }
+    }
+
+    // ---------------- Kamyon kapısı / sekanslar (sunucu) ----------------
+
+    /// <summary>Sunucu: bağlı oyuncular (en az 2) ve HEPSİ hapisteyse koşu biter. Tek kişilik oyunda sayılmaz (otomatik çıkış vardır).</summary>
+    public void ServerCheckAllCaught()
+    {
+        if (!IsServer || !Ready || SequenceActive) return;
+        int total = 0, jailed = 0;
+        foreach (PlayerStealth p in PlayerStealth.All)
+        {
+            if (p == null || !p.IsSpawned) continue;
+            total++;
+            if (p.IsJailed) jailed++;
+        }
+        if (total >= 2 && jailed == total) ServerBeginSequence(EscapeSequence.AllCaught);
+    }
+
+    private void ServerBeginSequence(EscapeSequence s)
+    {
+        sequenceStart.Value = NetworkManager.ServerTime.Time;
+        sequence.Value = (byte)s;
+        if (s == EscapeSequence.Departure || s == EscapeSequence.Police) doorClosed.Value = true;
+    }
+
+    /// <summary>İstemci (kamyondaki oyuncu): arka kapıyı kapatmayı iste. confirmed = kota dolmadan gitmeyi onayladı.</summary>
+    public void RequestCloseDoor(bool confirmed)
+    {
+        if (IsSpawned) CloseDoorRpc(confirmed);
+    }
+
+    [Rpc(SendTo.Server)]
+    private void CloseDoorRpc(bool confirmed, RpcParams rpcParams = default)
+    {
+        if (!Ready || SequenceActive || doorClosed.Value) return;
+        ulong sender = rpcParams.Receive.SenderClientId;
+        if (!NetworkManager.ConnectedClients.TryGetValue(sender, out NetworkClient client) || client.PlayerObject == null) return;
+
+        PlayerNetworkSetup ps = client.PlayerObject.GetComponent<PlayerNetworkSetup>();
+        PlayerStealth st = client.PlayerObject.GetComponent<PlayerStealth>();
+        PlayerInventory inv = client.PlayerObject.GetComponent<PlayerInventory>();
+        if (ps == null || st == null || st.IsJailed || st.IsKnockedOutNet) return;
+        if (!TruckZone.IsInside(ps)) return; // yalnızca kamyonun içindeyken (sunucudaki konuma göre)
+
+        TruckZone.Status status = TruckZone.GetStatus();
+        if (status.outsideCount > 0)
+        {
+            if (inv != null) inv.ServerNotify("truck.outside", status.firstOutside ?? "");
+            return;
+        }
+        bool met = QuotaMet;
+        if (!met)
+        {
+            // Onay istemci beyanı olamaz: sunucu önce aynı oyuncudan gelen onaysız (uyarı) isteği kaydeder,
+            // onaylı istek yalnızca bundan en fazla ConfirmWindow sn sonra geçerlidir.
+            float now = Time.unscaledTime;
+            if (!confirmed)
+            {
+                pendingConfirm[sender] = now;
+                return; // uyarıyı istemci kendi ekranında gösterir
+            }
+            if (!pendingConfirm.TryGetValue(sender, out float asked) || now - asked > ConfirmWindow) return;
+            pendingConfirm.Remove(sender);
+            if (ChatManager.Instance != null) ChatManager.Instance.ServerSystemMessage("truck.leftearly", ps.PlayerName, "");
+        }
+        ServerBeginSequence(met ? EscapeSequence.Departure : EscapeSequence.Police);
     }
 
     private int ComputeQuota()
@@ -164,13 +276,48 @@ public class MuseumSession : NetworkBehaviour
         {
             if (d == null || d.Artwork == null || !IsDisplayActive(d)) continue;
             if (d.Kind == ArtKind.None) continue; // ana hedefler: sahtesi yapılabilen eserler
+            // Staff Only eseri BONUS: kota için zorunlu değil (kapı maymuncukla açılır, maymuncuk bitebilir → görev kilitlenmesin)
+            if (d.IsStaffOnlyPiece) continue;
             sum += d.Value;
         }
         int q = Mathf.RoundToInt(sum * quotaFactor) + quotaExtra;
         return Mathf.Max(50, Mathf.CeilToInt(q / 50f) * 50);
     }
 
+    /// <summary>Sunucu: kaçış başarılı, sonraki müze (seviye + 1).</summary>
     public void ServerNextMission()
+    {
+        if (!IsServer) return;
+        ServerStartMission(level.Value + 1, false);
+    }
+
+    /// <summary>Sunucu: koşuyu baştan başlatır (polis yakaladı / herkes yakalandı). Seviye 1, yeni müze, ekip kasası ve çantadaki eserler sıfırlanır.
+    /// Kişisel cüzdan + kişisel upgrade'ler ResetKeepsPersonalProgress true iken KALIR.</summary>
+    public void ServerResetRun()
+    {
+        if (!IsServer) return;
+        if (TeamBank.Instance != null)
+        {
+            TeamBank.Instance.ServerReset();
+            if (!ResetKeepsPersonalProgress) TeamBank.Instance.ServerResetUpgrades();
+        }
+        foreach (NetworkClient c in NetworkManager.ConnectedClientsList)
+        {
+            if (c.PlayerObject == null) continue;
+            PlayerInventory inv = c.PlayerObject.GetComponent<PlayerInventory>();
+            if (inv == null) continue;
+            inv.ServerConfiscateOriginals(null); // çalınmış orijinaller yok olur (müze zaten yenilenecek)
+            if (!ResetKeepsPersonalProgress) inv.ServerResetPersonalProgress();
+        }
+        foreach (WorldItem wi in FindObjectsByType<WorldItem>(FindObjectsSortMode.None))
+        {
+            if (wi != null && wi.IsSpawned && wi.Item != null && wi.Item.type == ItemType.Original) wi.ServerConsume();
+        }
+        ServerStartMission(1, true);
+    }
+
+    /// <summary>Ortak görev başlangıcı (sonraki seviye ya da koşu sıfırlaması).</summary>
+    private void ServerStartMission(int newLevel, bool runReset)
     {
         if (!IsServer) return;
 
@@ -187,14 +334,42 @@ public class MuseumSession : NetworkBehaviour
         }
         ForgeryRegistry.Clear();
 
-        JailCell.ServerReleaseAll(); // yeni müzeye herkes birlikte gider
         if (SecurityManager.Instance != null) SecurityManager.Instance.ServerResetForMission(); // alarm / aranma / kovalama sıfırlanır
 
-        level.Value = level.Value + 1;
+        // ÖNCE yeni tohum/harita (bölmeler, hapis, dolaplar yeniden konumlanır), SONRA oyuncular serbest bırakılıp kamyona ışınlanır:
+        // böylece kimse eski hücrenin/dolabın yerindeki yeni duvarın içinde kalmaz.
+        level.Value = Mathf.Max(1, newLevel);
         PickNewMuseum();
-        baseline.Value = TeamBank.Instance != null ? TeamBank.Instance.Money : 0;
+        baseline.Value = TeamBank.Instance != null ? TeamBank.Instance.TotalEarned : 0;
+        doorClosed.Value = false; // kapı yeni görevde açık başlar
+        sequence.Value = 0;
         foreach (ArtworkDisplay d in ArtworkDisplay.All) if (d != null) d.ServerResetForMission();
-        if (ChatManager.Instance != null) ChatManager.Instance.ServerSystemMessage("mission.next", Theme.name, level.Value.ToString());
+
+        JailCell.ServerReleaseAll(false);   // hapistekiler çıkar (ışınlamayı aşağıda kamyona biz yaparız)
+        foreach (PlayerStealth p in PlayerStealth.All) if (p != null && p.IsSpawned && p.IsJailed) p.ServerSetJailed(0); // hapis yoksa da temizle
+        HidingSpot.ServerReleaseAll();      // dolaptakiler çıkar: doluluk + hidden temizlenir, sahibine çıkış bildirilir
+        ServerSendEveryoneToTruck();
+        if (ChatManager.Instance != null)
+        {
+            if (runReset) ChatManager.Instance.ServerSystemMessage("mission.restart", Theme.name, "");
+            else ChatManager.Instance.ServerSystemMessage("mission.next", Theme.name, level.Value.ToString());
+        }
+    }
+
+    /// <summary>Sunucu: bütün oyuncuları kamyondaki doğma noktalarına ışınlar (yeni görev başı).</summary>
+    private void ServerSendEveryoneToTruck()
+    {
+        foreach (PlayerStealth p in PlayerStealth.All)
+        {
+            if (p == null || !p.IsSpawned) continue;
+            if (p.IsHidden) p.ServerSetHidden(false); // dolap kaydı bulunamayan artık-gizli durum
+            p.ServerClearHeat();
+            if (SpawnPoint.All.Count > 0)
+            {
+                SpawnPoint sp = SpawnPoint.All[(int)(p.OwnerClientId % (ulong)SpawnPoint.All.Count)];
+                p.ServerTeleport(sp.transform.position + Vector3.up, sp.transform.eulerAngles.y);
+            }
+        }
     }
 
     // ---------------- Herkes ----------------
@@ -287,7 +462,10 @@ public class MuseumSession : NetworkBehaviour
 
         MuseumTheme th = Theme;
         bool quotaMet = QuotaMet;
-        Rect r = new Rect(12f, 84f, 330f, quotaMet ? 92f : 70f);
+        PlayerStealth me = PlayerStealth.Local;
+        bool localInside = me != null && me.IsSpawned && !me.IsJailed && TruckZone.IsInside(me.GetComponent<PlayerNetworkSetup>());
+        bool showTruck = quotaMet || localInside;
+        Rect r = new Rect(12f, 84f, 330f, showTruck ? 92f : 70f);
         UIUtil.DrawRect(r, new Color(0.05f, 0.06f, 0.08f, 0.75f));
         GUI.Label(new Rect(r.x + 10f, r.y + 4f, r.width - 20f, 22f), Loc.T("mission.title", Level, th.name, th.City), hudStyle);
         int earned = Mathf.Max(0, Earned);
@@ -297,21 +475,13 @@ public class MuseumSession : NetworkBehaviour
         float ratio = Quota > 0 ? Mathf.Clamp01(earned / (float)Quota) : 0f;
         UIUtil.DrawRect(new Rect(bar.x, bar.y, bar.width * ratio, bar.height), quotaMet ? new Color(0.45f, 0.9f, 0.5f) : new Color(1f, 0.8f, 0.3f));
 
-        if (!quotaMet) return;
+        if (!showTruck) return;
 
-        TruckZone.Count(out int inside, out int total);
-        bool complete = total > 0 && inside >= total;
-        GUI.Label(new Rect(r.x + 10f, r.y + 64f, r.width - 20f, 22f), Loc.T("mission.truck", inside, total), hudStyle);
+        TruckZone.Status st = TruckZone.GetStatus();
+        GUI.Label(new Rect(r.x + 10f, r.y + 64f, r.width - 20f, 22f), Loc.T("mission.truckinfo", st.inside, st.total, st.jailed), hudStyle);
 
-        if (complete)
-        {
-            float y = UIUtil.TopSlot(62f);
-            UIUtil.DrawPrompt(Loc.T("mission.complete"), y, new Color(0.55f, 1f, 0.6f), 26);
-            UIUtil.DrawPrompt(IsHost ? Loc.T("mission.nexthost") : Loc.T("mission.nextwait"), y + 32f, Color.white, 16);
-        }
-        else
-        {
+        // Kota doldu ama yerel oyuncu kamyonun dışında: geri dönmesi gerek (kamyondakilere kapı ipucunu TruckEscapeUI çizer)
+        if (quotaMet && !localInside && !SequenceActive)
             UIUtil.DrawPrompt(Loc.T("mission.return"), UIUtil.TopSlot(30f), new Color(1f, 0.85f, 0.4f), 22);
-        }
     }
 }

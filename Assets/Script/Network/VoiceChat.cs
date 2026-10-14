@@ -95,7 +95,27 @@ public class VoiceChat : MonoBehaviour
     public float InputLevel { get; private set; }
 
     /// <summary>Bilgisayarda mikrofon var mı?</summary>
-    public bool HasMicrophone => Microphone.devices != null && Microphone.devices.Length > 0;
+    public bool HasMicrophone { get { string[] d = MicDevices; return d != null && d.Length > 0; } }
+
+    // Microphone.devices her çağrıda yeni bir dizi üretir ve işletim sistemine sorar; Update / OnGUI her karede soruyordu.
+    // Liste 1.5 sn'de bir yenilenir (takılan / çıkarılan mikrofon en geç bu kadar sonra görülür). Sadece ana thread'den okunur.
+    private const float MicDevicesRefresh = 1.5f;
+    private static string[] micDevicesCache;
+    private static float micDevicesNext = float.NegativeInfinity;
+
+    private static string[] MicDevices
+    {
+        get
+        {
+            float now = Time.unscaledTime;
+            if (micDevicesCache == null || now >= micDevicesNext || now < micDevicesNext - MicDevicesRefresh * 2f)
+            {
+                micDevicesCache = Microphone.devices;
+                micDevicesNext = now + MicDevicesRefresh;
+            }
+            return micDevicesCache;
+        }
+    }
 
     private NetworkManager regNm;
     private CustomMessagingManager regCmm;
@@ -133,6 +153,16 @@ public class VoiceChat : MonoBehaviour
     private float levelSmooth;
 
     private readonly Dictionary<ulong, Remote> remotes = new Dictionary<ulong, Remote>();
+
+    /// <summary>Şu an hoparlörden duyulan biri konuşuyor mu (sesi mikrofona geri sızabilir; VoiceKeywordListener yanlış alarmı önlemek için kullanır).</summary>
+    public bool AnyRemoteAudibleSpeaking
+    {
+        get
+        {
+            foreach (Remote r in remotes.Values) if (r.Speaking && r.Audible) return true;
+            return false;
+        }
+    }
     private readonly List<ulong> toRemove = new List<ulong>();
     private readonly List<ulong> targets = new List<ulong>();
     private float nextCleanup;
@@ -174,6 +204,7 @@ public class VoiceChat : MonoBehaviour
             if (regCmm != null) Unregister();
             if (micRunning) StopMic();
             if (remotes.Count > 0) ClearRemotes();
+            if (ServerLastVoice.Count > 0) ServerLastVoice.Clear(); // oturum kapandı
             Transmitting = false;
             return;
         }
@@ -206,6 +237,14 @@ public class VoiceChat : MonoBehaviour
             foreach (KeyValuePair<ulong, Remote> kv in remotes)
                 if (Time.unscaledTime - kv.Value.LastHeard > 30f) toRemove.Add(kv.Key);
             foreach (ulong id in toRemove) { remotes[id].Dispose(); remotes.Remove(id); }
+
+            // Sunucu: kopan istemcilerin "son ses" kaydını sil
+            if (nm.IsServer && ServerLastVoice.Count > 0)
+            {
+                toRemove.Clear();
+                foreach (ulong id in ServerLastVoice.Keys) if (!nm.ConnectedClients.ContainsKey(id)) toRemove.Add(id);
+                foreach (ulong id in toRemove) ServerLastVoice.Remove(id);
+            }
         }
     }
 
@@ -301,7 +340,9 @@ public class VoiceChat : MonoBehaviour
 
     private void StartMic()
     {
-        string[] devs = Microphone.devices;
+        string[] devs = Microphone.devices; // başlatırken güncel liste (seyrek çağrılır); önbelleği de tazele
+        micDevicesCache = devs;
+        micDevicesNext = Time.unscaledTime + MicDevicesRefresh;
         if (devs == null || devs.Length == 0) return;
         string wanted = DeviceName;
         micDevice = null;
@@ -340,17 +381,11 @@ public class VoiceChat : MonoBehaviour
         if (avail <= 0) return;
         if (micRead.Length < avail) micRead = new float[Mathf.NextPowerOfTwo(avail)];
 
-        // Döngülü klipten iki parça halinde oku (sonu + başı)
+        // Döngülü klipten iki parça halinde oku (sonu + başı). Span: doğrudan micRead'in ilgili dilimine yazılır,
+        // kare başına geçici dizi ayrılmaz (GetData(float[]) dizinin TAMAMINI doldurduğu için eskiden her seferinde new float[] gerekiyordu).
         int first = Mathf.Min(avail, len - lastMicPos);
-        float[] tmp = first == micRead.Length ? micRead : new float[first];
-        micClip.GetData(tmp, lastMicPos);
-        System.Array.Copy(tmp, 0, micRead, 0, first);
-        if (avail > first)
-        {
-            float[] tmp2 = new float[avail - first];
-            micClip.GetData(tmp2, 0);
-            System.Array.Copy(tmp2, 0, micRead, first, avail - first);
-        }
+        micClip.GetData(new System.Span<float>(micRead, 0, first), lastMicPos);
+        if (avail > first) micClip.GetData(new System.Span<float>(micRead, first, avail - first), 0);
         lastMicPos = pos;
         Resample(micRead, avail);
     }
@@ -552,7 +587,16 @@ public class VoiceChat : MonoBehaviour
         }
     }
 
+    // Gelen paket tamponu: her paket için new byte[] yerine tek dizi. Güvenli çünkü OnUp / OnDown, SendDown ve Receive
+    // hepsi ANA thread'de ve senkron çalışır: FastBufferWriter baytları kopyalar, DecodeFrame hemen çözer, VoicePlayback.Push
+    // örnekleri kilit altında kendi halka tamponuna kopyalar. Ses thread'i (OnAudioFilterRead) bu diziye hiç dokunmaz.
+    // Bu diziyi saklayan / başka thread'e veren bir kod eklenirse kopyası verilmeli.
+    private readonly byte[] rxPacket = new byte[PacketBytes];
+
     /// <summary>Sunucuda: bir istemciden ses geldi → herkese dağıt, host ise kendisi de çal.</summary>
+    /// <summary>Sunucu: her istemciden son ses paketinin geldiği an (Time.unscaledTime). Host'un kendi sesi buraya girmez.</summary>
+    public static readonly Dictionary<ulong, float> ServerLastVoice = new Dictionary<ulong, float>();
+
     private void OnUp(ulong sender, FastBufferReader reader)
     {
         NetworkManager nm = regNm;
@@ -561,8 +605,9 @@ public class VoiceChat : MonoBehaviour
         reader.ReadValue(out byte _);
         reader.ReadValue(out ushort len);
         if (len != PacketBytes || !reader.TryBeginRead(len)) return;
-        byte[] data = new byte[len];
+        byte[] data = rxPacket; // len == PacketBytes doğrulandı; yeniden kullanılan tampon
         reader.ReadBytes(ref data, len);
+        ServerLastVoice[sender] = Time.unscaledTime; // CrimeTalk: bu istemci gerçekten ses gönderiyor mu (sahte bildirime karşı)
 
         SendDown(nm, sender, data, len, ulong.MaxValue);
         if (nm.IsHost && sender != nm.LocalClientId) Receive(sender, data);
@@ -577,7 +622,7 @@ public class VoiceChat : MonoBehaviour
         reader.ReadValue(out ulong speaker);
         reader.ReadValue(out ushort len);
         if (len != PacketBytes || !reader.TryBeginRead(len)) return;
-        byte[] data = new byte[len];
+        byte[] data = rxPacket; // len == PacketBytes doğrulandı; yeniden kullanılan tampon
         reader.ReadBytes(ref data, len);
         if (speaker == nm.LocalClientId) return;
         Receive(speaker, data);
@@ -882,8 +927,8 @@ public class VoiceChat : MonoBehaviour
         GUI.backgroundColor = old;
         GUILayout.EndHorizontal();
 
-        // Mikrofon seçimi (tıklayınca sıradakine geçer)
-        string[] devs = Microphone.devices;
+        // Mikrofon seçimi (tıklayınca sıradakine geçer). Önbellekli liste: menü açıkken her OnGUI'de cihaz sorgulanmasın.
+        string[] devs = MicDevices;
         if (devs == null || devs.Length == 0) GUILayout.Label(Loc.T("voice.nodevice"), small);
         else
         {

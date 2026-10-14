@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using Unity.Collections;
 using Unity.Netcode;
 using UnityEngine;
@@ -8,12 +9,22 @@ using UnityEngine.InputSystem;
 /// MAYMUNCUK: Staff Only odasının kilitli kapısını açar.
 ///  - Maymuncuk garaj mağazasından adetle alınır (kişisel cüzdan, ucuz: UpgradeCatalog.LockpickPrice, en fazla LockpickMax).
 ///  - Kapıya bakıp E'yi basılı tut. "Başarı" ve "Kırılma" çubukları yarışır (Aion 2'deki zanaat gibi), önce dolan kazanır:
-///    Başarı → kapı açılır. Kırılma → maymuncuk kırılır (bir adet gider), kapı kilitli kalır; başka maymuncukla yeniden dene.
+///    Başarı → kapı açılır (maymuncuk harcanmaz). Kırılma → maymuncuk kırılır (bir adet gider), kapı kilitli kalır; başka maymuncukla yeniden dene.
 ///    Kırılma ihtimali: UpgradeCatalog.LockpickBreakChance. Bu sırada SUÇ işliyorsun: güvenlik görürse yakalar.
 ///    İtilirsen / bakışını kaçırırsan / E'yi bırakırsan deneme iptal olur (maymuncuk kırılmaz), baştan başlar.
 ///  - Açılınca kapı bütün ekip için görev sonuna kadar açık kalır (yeni müzede yine kilitli). Açılırken ses çıkar.
 ///  - Ekipte bir kişinin maymuncuğu olması yeter.
-/// Ağ: istemci → sunucu "SS_LockpickReq" (sunucu maymuncuğu ve mesafeyi doğrular). Sahneye bir şey eklemeye gerek yok.
+///
+/// Ağ (SUNUCU YETKİLİ, named message):
+///  istemci → sunucu "SS_LockpickReq": Begin(id, kapı konumu) / Finish(id) / Cancel(id)
+///  sunucu → istemci "SS_LockpickRes": Started(id, süre) / Rejected / Cancelled / Success / Broke
+///  - Begin: sunucu yakınlığı, maymuncuğu, kapının kilitli olduğunu ve bu oyuncunun süren denemesi olmadığını doğrular;
+///    deneme süresini SUNUCU seçer, başlangıcı sunucu saatiyle kaydeder.
+///  - Finish: süre dolmadan gelirse reddedilir (deneme düşer, maymuncuk kırılmaz). Doğrulama yeniden yapılır,
+///    başarı/kırılma ZARINI SUNUCU atar ve sonucu uygular (kapıyı açar / maymuncuğu kırar), istemciye bildirir.
+///  - Deneme sürerken oyuncu uzaklaşır / hapse düşer / saklanır / kapı başkasınca açılır / oyuncu ayrılırsa kayıt silinir.
+///  İstemci sonucu deneme bitene kadar bilmez (çubuklar sonuç gelene kadar başa baş gider) — "kırılacak gibi, bırak" hilesi de yok.
+/// Sahneye bir şey eklemeye gerek yok.
 /// </summary>
 public class LockpickSystem : MonoBehaviour
 {
@@ -23,10 +34,24 @@ public class LockpickSystem : MonoBehaviour
     public static bool IsPicking { get; private set; }
 
     private const string ReqMsg = "SS_LockpickReq";
+    private const string ResMsg = "SS_LockpickRes";
+    private const NetworkDelivery Delivery = NetworkDelivery.ReliableSequenced; // Begin/Cancel/Begin sırası korunmalı
+
     private const float Range = 2.6f;        // kapıya ne kadar yakından açılır
     private const float ServerRange = 4f;    // sunucu: gecikme payıyla
+    private const float DoorMatchTolerance = 2f; // istemcinin bildirdiği kapı konumu ile sunucudaki kapı arası
     private const float UnlockNoiseRadius = 4.5f;
     private const float BreakNoiseRadius = 2.5f;
+
+    private const float FinishSlack = 0.05f;     // sunucu: süre kontrolünde yuvarlama payı (gecikme zaten istemci aleyhine)
+    private const float FinishGrace = 5f;        // sunucu: süre dolduktan sonra Finish bu kadar gelmezse deneme düşer
+    private const float ServerTickInterval = 0.25f;
+    private const float ResponseTimeout = 5f;    // istemci: sunucudan cevap gelmezse vazgeç
+    private const float ShowTime = 0.45f;        // istemci: sonuç geldikten sonra kazanan çubuğu gösterme süresi
+
+    // Mesaj kodları
+    private const byte OpBegin = 0, OpFinish = 1, OpCancel = 2;
+    private const byte ResStarted = 0, ResRejected = 1, ResCancelled = 2, ResSuccess = 3, ResBroke = 4;
 
     private CustomMessagingManager regCmm;
     private NetworkManager regNm;
@@ -35,6 +60,8 @@ public class LockpickSystem : MonoBehaviour
     private bool waitRelease;
     private float nextTick;
     private float sentAt = -10f;
+
+    private static readonly RaycastHit[] rayHits = new RaycastHit[16];
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void Boot()
@@ -52,6 +79,7 @@ public class LockpickSystem : MonoBehaviour
         Unregister();
         if (Instance == this) Instance = null;
         IsPicking = false;
+        attempts.Clear();
     }
 
     /// <summary>İtildim vb.: kilit açma baştan (E bırakılıp yeniden basılmalı).</summary>
@@ -59,13 +87,33 @@ public class LockpickSystem : MonoBehaviour
     {
         IsPicking = false;
         if (Instance == null) return;
-        if (Instance.attempting) Instance.waitRelease = true; // yarıda kalan deneme sayılmaz, maymuncuk kırılmaz
-        Instance.CancelAttempt();
+        if (Instance.phase == Phase.Requesting || Instance.phase == Phase.Picking)
+        {
+            Instance.waitRelease = true; // yarıda kalan deneme sayılmaz, maymuncuk kırılmaz
+            Instance.AbortLocal();
+        }
     }
 
     // =====================================================================
-    //  Döngü
+    //  İstemci döngüsü
     // =====================================================================
+
+    private enum Phase : byte
+    {
+        Idle,       // deneme yok
+        Requesting, // Begin yollandı, sunucudan Started bekleniyor
+        Picking,    // çubuklar doluyor (süre sunucudan geldi)
+        Finishing,  // Finish yollandı, sonuç bekleniyor
+        Showing     // sonuç geldi, kazanan çubuk kısa süre gösteriliyor
+    }
+
+    private Phase phase;
+    private float phaseAt;
+    private ushort attemptId;
+    private bool resultSuccess;
+
+    private float elapsed, attemptTime, phaseS, phaseF, capS, capF;
+    private float successBar, failBar, frozenS, frozenF;
 
     private void Update()
     {
@@ -74,75 +122,149 @@ public class LockpickSystem : MonoBehaviour
         if (!active)
         {
             if (regCmm != null) Unregister();
+            attempts.Clear();
             Reset();
             return;
         }
         if (regCmm != nm.CustomMessagingManager) Register(nm);
+        if (nm.IsServer) ServerTick(nm);
 
         target = FindDoor();
         Keyboard kb = Keyboard.current;
         bool held = kb != null && kb.eKey.isPressed;
         if (!held) waitRelease = false;
 
-        PlayerInventory inv = PlayerInventory.Local;
-        bool has = inv != null && inv.HasLockpick;
+        float now = Time.unscaledTime;
 
-        if (target == null || !has || !held || waitRelease || Time.unscaledTime - sentAt < 0.8f)
+        if (phase == Phase.Finishing)
         {
-            CancelAttempt();
+            // Sonuç bekleniyor: E'yi bırakmak artık iptal etmez (bitiş zaten yollandı)
+            if (now - phaseAt > ResponseTimeout) EndLocal();
+            return;
+        }
+        if (phase == Phase.Showing)
+        {
+            float t = Mathf.Clamp01((now - phaseAt) / (ShowTime * 0.6f));
+            successBar = resultSuccess ? Mathf.Lerp(frozenS, 1f, t) : frozenS;
+            failBar = resultSuccess ? frozenF : Mathf.Lerp(frozenF, 1f, t);
+            if (now - phaseAt > ShowTime) EndLocal();
             return;
         }
 
-        if (!attempting) BeginAttempt();
+        PlayerInventory inv = PlayerInventory.Local;
+        bool has = inv != null && inv.HasLockpick;
+
+        if (target == null || !has || !held || waitRelease || now - sentAt < 0.8f)
+        {
+            if (phase != Phase.Idle) AbortLocal();
+            return;
+        }
+
+        if (phase == Phase.Idle)
+        {
+            StartRequest(nm);
+            return;
+        }
+
         IsPicking = true;
+
+        if (phase == Phase.Requesting)
+        {
+            if (now - phaseAt > ResponseTimeout) { waitRelease = true; AbortLocal(); }
+            return;
+        }
+
+        // Phase.Picking
         elapsed += Time.deltaTime;
         float x = Mathf.Clamp01(elapsed / attemptTime);
-        successBar = (willSucceed ? 1f : loserEnd) * Wobble(x, phaseS);
-        failBar = (willSucceed ? loserEnd : 1f) * Wobble(x, phaseF);
+        // Sonuç henüz bilinmiyor (zarı sunucu bitişte atar): iki çubuk başa baş dolar, ikisi de 1'e varmaz.
+        successBar = capS * Wobble(x, phaseS);
+        failBar = capF * Wobble(x, phaseF);
 
         // Kilit kurcalama sesi (yalnızca kendin duyarsın; asıl ses kilit açılınca / kırılınca)
-        if (Time.unscaledTime >= nextTick)
+        if (now >= nextTick)
         {
-            nextTick = Time.unscaledTime + 0.55f;
+            nextTick = now + 0.55f;
             GameAudio.PlayAt(SoundId.UiClick, target.Center, 0.35f, 0.25f);
         }
 
         if (x >= 1f)
         {
-            bool ok = willSucceed;
-            CancelAttempt();
+            frozenS = successBar;
+            frozenF = failBar;
+            phase = Phase.Finishing; // yerel host'ta cevap senkron gelir: önce durumu değiştir
+            phaseAt = now;
+            IsPicking = false;
             waitRelease = true;
-            sentAt = Time.unscaledTime;
-            SendRequest(nm, ok);
+            sentAt = now;
+            SendToServer(OpFinish, attemptId, Vector3.zero);
         }
     }
 
-    // ---------------- Deneme: Başarı ve Kırılma çubukları yarışır (önce dolan kazanır) ----------------
-    // Sonuç deneme başında atılır (kırılma ihtimali UpgradeCatalog.LockpickBreakChance); çubuklar ona göre
-    // dalgalanarak dolar, kaybeden çubuk sona yakın bir yerde kalır.
-
-    private bool attempting, willSucceed;
-    private float elapsed, attemptTime, loserEnd, phaseS, phaseF;
-    private float successBar, failBar;
-
-    private void BeginAttempt()
+    private void StartRequest(NetworkManager nm)
     {
-        attempting = true;
-        willSucceed = UnityEngine.Random.value >= UpgradeCatalog.LockpickBreakChance;
-        attemptTime = UpgradeCatalog.LockpickSeconds * UnityEngine.Random.Range(0.8f, 1.15f);
-        loserEnd = UnityEngine.Random.Range(0.72f, 0.96f);
-        phaseS = UnityEngine.Random.Range(0f, Mathf.PI * 2f);
-        phaseF = UnityEngine.Random.Range(0f, Mathf.PI * 2f);
+        attemptId++;
+        if (attemptId == 0) attemptId = 1;
+        phase = Phase.Requesting; // yerel host'ta Started senkron gelir
+        phaseAt = Time.unscaledTime;
+        elapsed = 0f;
+        successBar = failBar = 0f;
+        IsPicking = true;
+        SendToServer(OpBegin, attemptId, target.Center);
+    }
+
+    /// <summary>Süren denemeyi iptal et (maymuncuk kırılmaz) ve sunucuya bildir.</summary>
+    private void AbortLocal()
+    {
+        bool tellServer = phase == Phase.Requesting || phase == Phase.Picking;
+        ushort id = attemptId;
+        EndLocal();
+        if (tellServer) SendToServer(OpCancel, id, Vector3.zero);
+    }
+
+    private void EndLocal()
+    {
+        phase = Phase.Idle;
+        IsPicking = false;
         elapsed = 0f;
         successBar = failBar = 0f;
     }
 
-    private void CancelAttempt()
+    /// <summary>Sunucudan gelen cevap (uzak istemcide mesajla, host'ta doğrudan).</summary>
+    private void ApplyResult(byte code, ushort id, float duration)
     {
-        attempting = false;
-        IsPicking = false;
-        elapsed = 0f;
-        successBar = failBar = 0f;
+        if (id != attemptId) return; // eski bir denemeye ait
+        switch (code)
+        {
+            case ResStarted:
+                if (phase != Phase.Requesting) return;
+                phase = Phase.Picking;
+                phaseAt = Time.unscaledTime;
+                attemptTime = Mathf.Clamp(duration, 0.5f, 15f);
+                elapsed = 0f;
+                capS = UnityEngine.Random.Range(0.86f, 0.97f);
+                capF = UnityEngine.Random.Range(0.86f, 0.97f);
+                phaseS = UnityEngine.Random.Range(0f, Mathf.PI * 2f);
+                phaseF = UnityEngine.Random.Range(0f, Mathf.PI * 2f);
+                successBar = failBar = 0f;
+                break;
+
+            case ResRejected:
+            case ResCancelled:
+                if (phase == Phase.Idle || phase == Phase.Showing) return;
+                waitRelease = true;
+                EndLocal();
+                break;
+
+            case ResSuccess:
+            case ResBroke:
+                if (phase != Phase.Finishing) return;
+                resultSuccess = code == ResSuccess;
+                phase = Phase.Showing;
+                phaseAt = Time.unscaledTime;
+                IsPicking = false;
+                break;
+        }
     }
 
     /// <summary>0→1 giden ama düzgün olmayan (bazen hızlanan, bazen yavaşlayan) eğri. f(0)=0, f(1)=1, hep artar.</summary>
@@ -156,7 +278,7 @@ public class LockpickSystem : MonoBehaviour
     private void Reset()
     {
         target = null;
-        CancelAttempt();
+        EndLocal();
         waitRelease = false;
     }
 
@@ -167,16 +289,17 @@ public class LockpickSystem : MonoBehaviour
         PlayerStealth me = PlayerStealth.Local;
         Camera cam = Camera.main;
         if (me == null || cam == null || !me.IsSpawned) return null;
-        if (ChatUI.IsTyping || SessionMenuUI.IsPaused || PlayerInventory.IsPanelOpen || WorkbenchUI.IsOpen || BriefingUI.IsOpen) return null;
+        if (ChatUI.IsTyping || SessionMenuUI.IsPaused || PlayerInventory.IsPanelOpen || WorkbenchUI.IsOpen || BriefingUI.IsOpen || PlayerController.InputLocked) return null;
         if (Cursor.lockState != CursorLockMode.Locked || me.IsJailed || me.CurrentHidingSpot != null || PushSystem.LocalKnockedOut) return null;
 
         Ray ray = new Ray(cam.transform.position, cam.transform.forward);
-        RaycastHit[] hits = Physics.RaycastAll(ray, Range + 1.5f, ~0, QueryTriggerInteraction.Ignore);
+        int n = Physics.RaycastNonAlloc(ray, rayHits, Range + 1.5f, ~0, QueryTriggerInteraction.Ignore);
         float best = float.MaxValue;
         Collider first = null;
-        foreach (RaycastHit h in hits)
+        for (int i = 0; i < n; i++)
         {
-            if (h.collider.transform.IsChildOf(me.transform) || h.distance >= best) continue;
+            RaycastHit h = rayHits[i];
+            if (h.collider == null || h.collider.transform.IsChildOf(me.transform) || h.distance >= best) continue;
             best = h.distance;
             first = h.collider;
         }
@@ -199,6 +322,7 @@ public class LockpickSystem : MonoBehaviour
         regNm = nm;
         regCmm = nm.CustomMessagingManager;
         regCmm.RegisterNamedMessageHandler(ReqMsg, OnRequest);
+        regCmm.RegisterNamedMessageHandler(ResMsg, OnResponse);
     }
 
     private void Unregister()
@@ -207,22 +331,29 @@ public class LockpickSystem : MonoBehaviour
         {
             try { regCmm.UnregisterNamedMessageHandler(ReqMsg); }
             catch (Exception) { }
+            try { regCmm.UnregisterNamedMessageHandler(ResMsg); }
+            catch (Exception) { }
         }
         regCmm = null;
         regNm = null;
     }
 
-    private void SendRequest(NetworkManager nm, bool success)
+    private void SendToServer(byte op, ushort id, Vector3 doorPos)
     {
+        NetworkManager nm = regNm != null ? regNm : NetworkManager.Singleton;
+        if (nm == null || !nm.IsListening) return;
         if (nm.IsServer)
         {
-            ServerResult(nm.LocalClientId, success);
+            ServerHandle(nm.LocalClientId, op, id, doorPos);
             return;
         }
-        using (var w = new FastBufferWriter(4, Allocator.Temp))
+        if (regCmm == null) return;
+        using (var w = new FastBufferWriter(32, Allocator.Temp))
         {
-            w.WriteValueSafe((byte)(success ? 1 : 0));
-            regCmm.SendNamedMessage(ReqMsg, NetworkManager.ServerClientId, w, NetworkDelivery.Reliable);
+            w.WriteValueSafe(op);
+            w.WriteValueSafe(id);
+            if (op == OpBegin) w.WriteValueSafe(doorPos);
+            regCmm.SendNamedMessage(ReqMsg, NetworkManager.ServerClientId, w, Delivery);
         }
     }
 
@@ -231,8 +362,24 @@ public class LockpickSystem : MonoBehaviour
         if (regNm == null || !regNm.IsServer) return;
         try
         {
-            reader.ReadValueSafe(out byte ok);
-            ServerResult(sender, ok == 1);
+            reader.ReadValueSafe(out byte op);
+            reader.ReadValueSafe(out ushort id);
+            Vector3 pos = Vector3.zero;
+            if (op == OpBegin) reader.ReadValueSafe(out pos);
+            ServerHandle(sender, op, id, pos);
+        }
+        catch (Exception) { }
+    }
+
+    private void OnResponse(ulong sender, FastBufferReader reader)
+    {
+        if (regNm == null || regNm.IsServer || sender != NetworkManager.ServerClientId) return;
+        try
+        {
+            reader.ReadValueSafe(out byte code);
+            reader.ReadValueSafe(out ushort id);
+            reader.ReadValueSafe(out float duration);
+            ApplyResult(code, id, duration);
         }
         catch (Exception) { }
     }
@@ -241,29 +388,62 @@ public class LockpickSystem : MonoBehaviour
     //  Sunucu
     // =====================================================================
 
-    private void ServerResult(ulong clientId, bool success)
+    private sealed class Attempt
     {
-        NetworkManager nm = regNm != null ? regNm : NetworkManager.Singleton;
-        MuseumSession ms = MuseumSession.Instance;
-        if (nm == null || !nm.IsServer || ms == null || ms.StaffDoorOpen) return;
-        if (!nm.ConnectedClients.TryGetValue(clientId, out NetworkClient client) || client.PlayerObject == null) return;
+        public ushort id;
+        public StaffDoor door;
+        public double start;     // sunucu saati (Time.unscaledTimeAsDouble)
+        public float duration;   // sunucunun seçtiği deneme süresi
+    }
 
-        PlayerInventory inv = client.PlayerObject.GetComponent<PlayerInventory>();
-        PlayerStealth st = client.PlayerObject.GetComponent<PlayerStealth>();
-        if (inv == null || !inv.HasLockpick) return;
-        if (st != null && (st.IsJailed || st.IsHidden)) return;
+    private readonly Dictionary<ulong, Attempt> attempts = new Dictionary<ulong, Attempt>();
+    private readonly List<ulong> removeBuf = new List<ulong>();
+    private float nextServerTick;
 
-        Vector3 pos = client.PlayerObject.transform.position;
-        StaffDoor near = null;
-        foreach (StaffDoor d in StaffDoor.All)
+    private static double ServerNow => Time.unscaledTimeAsDouble;
+
+    private void ServerHandle(ulong clientId, byte op, ushort id, Vector3 doorPos)
+    {
+        switch (op)
         {
-            if (d == null) continue;
-            Vector3 c = d.Center;
-            c.y = pos.y;
-            if (Vector3.Distance(pos, c) <= ServerRange) { near = d; break; }
+            case OpBegin: ServerBegin(clientId, id, doorPos); break;
+            case OpFinish: ServerFinish(clientId, id); break;
+            case OpCancel:
+                if (attempts.TryGetValue(clientId, out Attempt a) && a.id == id) attempts.Remove(clientId);
+                break;
         }
-        if (near == null) return;
+    }
 
+    private void ServerBegin(ulong clientId, ushort id, Vector3 doorPos)
+    {
+        if (attempts.ContainsKey(clientId)) { Respond(clientId, ResRejected, id); return; } // süren denemesi var
+        if (!ServerValidate(clientId, out _, out StaffDoor door)) { Respond(clientId, ResRejected, id); return; }
+
+        // İstemcinin baktığı kapı sunucudaki yakın kapıyla örtüşmeli (NaN → reddedilir)
+        float diff = Vector3.Distance(door.Center, doorPos);
+        if (!(diff <= DoorMatchTolerance)) { Respond(clientId, ResRejected, id); return; }
+
+        float duration = UpgradeCatalog.LockpickSeconds * UnityEngine.Random.Range(0.8f, 1.15f);
+        attempts[clientId] = new Attempt { id = id, door = door, start = ServerNow, duration = duration };
+        Respond(clientId, ResStarted, id, duration);
+    }
+
+    private void ServerFinish(ulong clientId, ushort id)
+    {
+        if (!attempts.TryGetValue(clientId, out Attempt a) || a.id != id) { Respond(clientId, ResRejected, id); return; }
+        attempts.Remove(clientId);
+
+        // Süre dolmadan gelen bitiş: reddedilir, deneme düşer (maymuncuk kırılmaz, kapı açılmaz)
+        if (ServerNow - a.start < a.duration - FinishSlack) { Respond(clientId, ResRejected, id); return; }
+
+        if (!ServerValidate(clientId, out PlayerInventory inv, out StaffDoor near) || near != a.door)
+        {
+            Respond(clientId, ResCancelled, id);
+            return;
+        }
+
+        // Zarı SUNUCU atar
+        bool success = UnityEngine.Random.value >= UpgradeCatalog.LockpickBreakChance;
         if (!success)
         {
             // Maymuncuk kırıldı: bir adet gider, kapı kilitli kalır (küçük bir "çıt" sesi)
@@ -271,13 +451,90 @@ public class LockpickSystem : MonoBehaviour
             NoiseSystem.Emit(near.Center, BreakNoiseRadius);
             inv.ServerPlaySound(SoundId.ItemThud, near.Center);
             inv.ServerNotify("lockpick.broke", inv.LockpickCount.ToString());
+            Respond(clientId, ResBroke, id);
             return;
         }
 
-        ms.ServerOpenStaffDoor();
+        // Başarı: kapı açılır. Maymuncuk harcanmaz (tasarım: yalnızca kırılınca bir adet gider).
+        MuseumSession.Instance.ServerOpenStaffDoor();
         NoiseSystem.Emit(near.Center, UnlockNoiseRadius);
         inv.ServerPlaySound(SoundId.HoldComplete, near.Center);
         inv.ServerNotify("lockpick.done");
+        Respond(clientId, ResSuccess, id);
+    }
+
+    /// <summary>Oyuncu şu an kilit açabilir mi? (bağlı, maymuncuğu var, hapiste/saklı değil, kilitli kapıya yakın)</summary>
+    private bool ServerValidate(ulong clientId, out PlayerInventory inv, out StaffDoor near)
+    {
+        inv = null;
+        near = null;
+        NetworkManager nm = regNm != null ? regNm : NetworkManager.Singleton;
+        MuseumSession ms = MuseumSession.Instance;
+        if (nm == null || !nm.IsServer || ms == null || ms.StaffDoorOpen) return false;
+        if (!nm.ConnectedClients.TryGetValue(clientId, out NetworkClient client) || client.PlayerObject == null) return false;
+
+        inv = client.PlayerObject.GetComponent<PlayerInventory>();
+        PlayerStealth st = client.PlayerObject.GetComponent<PlayerStealth>();
+        if (inv == null || !inv.HasLockpick) return false;
+        if (st != null && (st.IsJailed || st.IsHidden)) return false;
+
+        Vector3 pos = client.PlayerObject.transform.position;
+        float best = float.MaxValue;
+        foreach (StaffDoor d in StaffDoor.All)
+        {
+            if (d == null) continue;
+            Vector3 c = d.Center;
+            c.y = pos.y;
+            float dist = Vector3.Distance(pos, c);
+            if (dist <= ServerRange && dist < best) { best = dist; near = d; }
+        }
+        return near != null;
+    }
+
+    /// <summary>Süren denemeleri denetle: ayrılan oyuncu, uzaklaşma, hapis/saklanma, kapı açıldı, zaman aşımı.</summary>
+    private void ServerTick(NetworkManager nm)
+    {
+        if (attempts.Count == 0) return;
+        float now = Time.unscaledTime;
+        if (now < nextServerTick) return;
+        nextServerTick = now + ServerTickInterval;
+
+        removeBuf.Clear();
+        double t = ServerNow;
+        foreach (KeyValuePair<ulong, Attempt> kv in attempts)
+        {
+            ulong cid = kv.Key;
+            Attempt a = kv.Value;
+            if (!nm.ConnectedClients.ContainsKey(cid)) { removeBuf.Add(cid); continue; } // oyuncu ayrıldı: sessizce sil
+
+            bool expired = t - a.start > a.duration + FinishGrace;
+            bool valid = ServerValidate(cid, out _, out StaffDoor near) && near == a.door;
+            if (expired || !valid)
+            {
+                removeBuf.Add(cid);
+                Respond(cid, ResCancelled, a.id);
+            }
+        }
+        foreach (ulong cid in removeBuf) attempts.Remove(cid);
+    }
+
+    private void Respond(ulong clientId, byte code, ushort id, float duration = 0f)
+    {
+        NetworkManager nm = regNm != null ? regNm : NetworkManager.Singleton;
+        if (nm == null || !nm.IsServer) return;
+        if (clientId == nm.LocalClientId)
+        {
+            ApplyResult(code, id, duration); // host: yerel
+            return;
+        }
+        if (regCmm == null) return;
+        using (var w = new FastBufferWriter(16, Allocator.Temp))
+        {
+            w.WriteValueSafe(code);
+            w.WriteValueSafe(id);
+            w.WriteValueSafe(duration);
+            regCmm.SendNamedMessage(ResMsg, clientId, w, Delivery);
+        }
     }
 
     // =====================================================================
@@ -286,8 +543,13 @@ public class LockpickSystem : MonoBehaviour
 
     private void OnGUI()
     {
-        if (target == null || StaffDoor.Unlocked) return;
         PlayerInventory inv = PlayerInventory.Local;
+        if (phase != Phase.Idle)
+        {
+            DrawRacePanel(inv != null ? inv.LockpickCount : 0);
+            return;
+        }
+        if (target == null || StaffDoor.Unlocked) return;
         bool has = inv != null && inv.HasLockpick;
 
         if (!has)
@@ -295,12 +557,7 @@ public class LockpickSystem : MonoBehaviour
             UIUtil.DrawPrompt(Loc.T("lockpick.need", UpgradeCatalog.LockpickPrice.ToString("N0")), UIUtil.CenterSlot(), new Color(1f, 0.55f, 0.45f));
             return;
         }
-        if (!attempting)
-        {
-            UIUtil.DrawPrompt(Loc.T("lockpick.prompt", inv.LockpickCount), UIUtil.CenterSlot(), Color.white);
-            return;
-        }
-        DrawRacePanel(inv.LockpickCount);
+        UIUtil.DrawPrompt(Loc.T("lockpick.prompt", inv.LockpickCount), UIUtil.CenterSlot(), Color.white);
     }
 
     private GUIStyle titleStyle, barStyle;

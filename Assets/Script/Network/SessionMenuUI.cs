@@ -357,6 +357,11 @@ public class SessionMenuUI : MonoBehaviour
         // --- Sesli sohbet ---
         GUILayout.Space(10f);
         VoiceChat.DrawSettings(sectionStyle, smallStyle, smallButtonStyle);
+        GUILayout.Space(4f);
+        // Yasaklı kelime algılama (model indirme onayı): "Hayır" diyen buradan geri açabilir
+        bool detectOn = VoiceKeywordListener.DetectionEnabled;
+        if (GUILayout.Button(Loc.T(detectOn ? "crimetalk.toggle.on" : "crimetalk.toggle.off"), smallButtonStyle, GUILayout.Height(28f)))
+            VoiceKeywordListener.DownloadConsent = !detectOn;
         GUILayout.Space(6f);
 
         GUILayout.EndScrollView();

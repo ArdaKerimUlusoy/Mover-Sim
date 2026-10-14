@@ -127,7 +127,41 @@ public class PlayerAvatar : MonoBehaviour
         Part(sack, "Bag", PrimitiveType.Sphere, Vector3.zero, new Vector3(0.44f, 0.5f, 0.38f), sackMat);
         Part(sack, "Knot", PrimitiveType.Sphere, new Vector3(0f, 0.30f, 0f), new Vector3(0.16f, 0.14f, 0.16f), sackMat);
         Part(sack, "Rope", PrimitiveType.Cylinder, new Vector3(0f, 0.24f, 0f), new Vector3(0.2f, 0.015f, 0.2f), darkMat);
+
+        // Baygınlık göstergesi: başın üstünde dönen sarı yıldızlar (sadece baygınken görünür)
+        starMat = ArtworkLook.MakeLit(new Color(1f, 0.9f, 0.25f));
+        stars = new GameObject("KnockStars").transform;
+        stars.SetParent(root, false);
+        stars.gameObject.SetActive(false);
+        for (int i = 0; i < 3; i++)
+            Part(stars, "Star" + i, PrimitiveType.Sphere, Vector3.zero, Vector3.one * 0.11f, starMat);
+
+        // Baygın yüz: normal gözler gizlenir, yerine X gözler ve dışarı sarkan dil gelir
+        normalEyes = new GameObject[4];
+        string[] eyeNames = { "EyeL", "EyeR", "PupilL", "PupilR" };
+        for (int i = 0; i < 4; i++) { Transform e = head.Find(eyeNames[i]); normalEyes[i] = e != null ? e.gameObject : null; }
+        xMat = ArtworkLook.MakeLit(new Color(1f, 0.95f, 0.55f));
+        xEyes = Group(head, "XEyes");
+        xEyes.SetActive(false);
+        for (int s = -1; s <= 1; s += 2)
+            for (int d = -1; d <= 1; d += 2)
+            {
+                Part(xEyes.transform, "X", PrimitiveType.Cube, new Vector3(s * 0.13f, 0.20f, 0.325f), new Vector3(0.17f, 0.035f, 0.03f), xMat);
+                xEyes.transform.GetChild(xEyes.transform.childCount - 1).localRotation = Quaternion.Euler(0f, 0f, d * 45f);
+            }
+        tongue = Group(head, "Tongue");
+        tongue.SetActive(false);
+        Part(tongue.transform, "TongueMesh", PrimitiveType.Sphere, new Vector3(0.04f, -0.05f, 0.285f), new Vector3(0.09f, 0.13f, 0.04f), cheekMat);
     }
+
+    // Baygınlık (PlayerStealth.IsKnockedOutNet): önce sendeler, sonra yüzüstü düşer, kalkarken sallanıp silkinir
+    private Transform stars;
+    private Material starMat;
+    private float knockSmooth, lieRaw, downTime, recoverShake;
+    private bool wasKnocked, knockInit;
+    private Material xMat;
+    private GameObject xEyes, tongue;
+    private GameObject[] normalEyes;
 
     private static GameObject Group(Transform parent, string name)
     {
@@ -309,11 +343,122 @@ public class PlayerAvatar : MonoBehaviour
         float s = Mathf.Lerp(0.7f, 1.35f, load);
         sack.localScale = Vector3.Lerp(sack.localScale, new Vector3(s, s, s), 1f - Mathf.Exp(-6f * dt));
         sack.localRotation = Quaternion.Euler(-swing * 0.12f, 0f, Mathf.Sin(phase) * 4f * move);
+
+        ApplyKnockPose(dt);
+    }
+
+    /// <summary>
+    /// Baygınlık (tüm oyuncularda görünür, komik): önce sendeleyip dönerek kollarını savurur, sonra 'pof' diye yüzüstü
+    /// yaylanarak düşer; gözler X, dil dışarıda, başının etrafında yıldızlar döner. Kalkarken sallanır ve silkinir.
+    /// Kök ayak hizasında döner; yatan gövdenin en alt noktası yere (y~0) oturur.
+    /// </summary>
+    private void ApplyKnockPose(float dt)
+    {
+        bool down = stealth != null && stealth.IsSpawned && stealth.IsKnockedOutNet;
+        const float StaggerTime = 0.55f, FallTime = 0.28f;
+        float stag = 0f;
+        if (down)
+        {
+            if (!wasKnocked)
+            {
+                // Yeni baygınlık: ilk karede zaten yatıyorsa (geç katılan) sendelemeyi atla; kalkarken yeniden vurulduysa mevcut pozdan devam et
+                if (!knockInit) { lieRaw = 1f; downTime = 100f; }
+                else downTime = StaggerTime + lieRaw * FallTime;
+                recoverShake = 0f;
+            }
+            downTime += dt;
+            if (downTime >= StaggerTime) lieRaw = Mathf.MoveTowards(lieRaw, 1f, dt / FallTime);
+            if (downTime < StaggerTime) stag = downTime > StaggerTime - 0.1f ? (StaggerTime - downTime) / 0.1f : 1f;
+        }
+        else
+        {
+            downTime = 0f;
+            float before = lieRaw;
+            lieRaw = Mathf.MoveTowards(lieRaw, 0f, dt * 1.8f);
+            if (before > 0f && lieRaw <= 0f) recoverShake = 0.45f;
+        }
+        wasKnocked = down;
+        knockInit = stealth != null && stealth.IsSpawned;
+        knockSmooth = lieRaw;
+        if (recoverShake > 0f) recoverShake -= dt;
+
+        float lie = Mathf.SmoothStep(0f, 1f, lieRaw); // tek, sürekli geçiş (düşüş ve kalkış aynı eğri)
+        float rise = lie;
+        bool active = down || lieRaw > 0f || recoverShake > 0f;
+        if (!active)
+        {
+            if (stars != null && stars.gameObject.activeSelf) stars.gameObject.SetActive(false);
+            if (xEyes != null && xEyes.activeSelf) SetKnockFace(false);
+            if (root.localRotation != Quaternion.identity || root.localScale != Vector3.one) { root.localRotation = Quaternion.identity; root.localPosition = new Vector3(0f, -1f, 0f); root.localScale = Vector3.one; }
+            return;
+        }
+
+        float t = down ? downTime : Time.time;
+        // Sendeleme: dönerek öne arkaya sallanır; düşünce yüzüstü (88 derece, X ekseni)
+        float yaw = down ? 360f * Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(downTime / StaggerTime)) : 0f;
+        float shake = recoverShake > 0f ? Mathf.Sin(Time.time * 50f) * 14f * (recoverShake / 0.45f) : 0f;
+        float wobbleZ = down ? Mathf.Sin(t * 11f) * 13f * stag : Mathf.Sin(Time.time * 9f) * 9f * rise;
+        float wobbleX = down ? Mathf.Sin(t * 8f + 1f) * 9f * stag : 0f;
+        root.localRotation = Quaternion.Euler(88f * lie + wobbleX, yaw + shake, wobbleZ);
+
+        // Yaylanma: yere çarpınca küçük zıplamalar; sonra yatan gövde yere oturur
+        float bounce = 0f;
+        if (down && downTime > StaggerTime + FallTime)
+        {
+            float bt = downTime - StaggerTime - FallTime;
+            bounce = Mathf.Abs(Mathf.Sin(bt * 13f)) * 0.16f * Mathf.Exp(-bt * 4.5f);
+        }
+        float squashHit = down && downTime > StaggerTime + FallTime ? Mathf.Exp(-(downTime - StaggerTime - FallTime) * 9f) * 0.12f : 0f;
+        // Yüzüstü yatınca gövde +Z'ye uzanır: merkeze çek; yüz/karın yarıçapı kadar kaldır (yere gömülmesin)
+        root.localPosition = new Vector3(0f, -1f + 0.27f * lie + bounce, -0.75f * lie);
+        root.localScale = new Vector3(1f + squashHit, 1f - squashHit, 1f + squashHit);
+
+        // Kollar: sendelerken pervane gibi savrulur, yatınca yanlara yayılır
+        float flail = Mathf.Sin(t * 22f) * 115f * stag;
+        Quaternion aL = Quaternion.Euler(Mathf.Lerp(flail, 170f, lie), 0f, Mathf.Lerp(-50f * stag - 12f, -55f, lie));
+        Quaternion aR = Quaternion.Euler(Mathf.Lerp(-flail, 170f, lie), 0f, Mathf.Lerp(50f * stag + 12f, 55f, lie));
+        armL.localRotation = down || lieRaw > 0f ? Quaternion.Slerp(armL.localRotation, aL, Mathf.Max(stag, lie)) : armL.localRotation;
+        armR.localRotation = down || lieRaw > 0f ? Quaternion.Slerp(armR.localRotation, aR, Mathf.Max(stag, lie)) : armR.localRotation;
+        float legSwing = Mathf.Sin(t * 18f) * 30f * stag;
+        legL.localRotation = Quaternion.Slerp(legL.localRotation, Quaternion.Euler(-legSwing, 0f, -12f), Mathf.Max(stag, lie));
+        legR.localRotation = Quaternion.Slerp(legR.localRotation, Quaternion.Euler(legSwing, 0f, 12f), Mathf.Max(stag, lie));
+        head.localRotation = Quaternion.Slerp(head.localRotation, Quaternion.Euler(-20f * lie + Mathf.Sin(t * 7f) * 12f * stag, Mathf.Sin(t * 6f) * 25f * lie, Mathf.Sin(t * 9f) * 14f * stag), Mathf.Max(stag, lie));
+
+        // Yüz: gözler X, dil dışarıda (sendelerken de sersemlemiş görünür)
+        SetKnockFace(down || lieRaw > 0.35f);
+
+        // Yıldızlar: dünya yönüne göre başın üstünde döner (sendeleme sırasında da)
+        if (stars != null)
+        {
+            bool showStars = down || lieRaw > 0.2f;
+            if (stars.gameObject.activeSelf != showStars) stars.gameObject.SetActive(showStars);
+            if (showStars)
+            {
+                float grow = down ? Mathf.Clamp01(downTime * 4f) : lieRaw;
+                Vector3 headWorld = head.position + Vector3.up * 0.5f;
+                for (int i = 0; i < stars.childCount; i++)
+                {
+                    float a = Time.time * 3.6f + i * 2.094f;
+                    Vector3 off = new Vector3(Mathf.Cos(a) * 0.34f, Mathf.Sin(a * 1.9f) * 0.05f, Mathf.Sin(a) * 0.34f);
+                    Transform st = stars.GetChild(i);
+                    st.position = headWorld + off;
+                    st.rotation = Quaternion.identity;
+                    st.localScale = Vector3.one * (0.12f * grow);
+                }
+            }
+        }
+    }
+
+    private void SetKnockFace(bool on)
+    {
+        if (xEyes != null) xEyes.SetActive(on);
+        if (tongue != null) tongue.SetActive(on);
+        if (normalEyes != null) foreach (GameObject g in normalEyes) if (g != null) g.SetActive(!on);
     }
 
     private void OnDestroy()
     {
-        foreach (Material m in new[] { mainMat, hatMat, skinMat, darkMat, whiteMat, sackMat, cheekMat })
+        foreach (Material m in new[] { mainMat, hatMat, skinMat, darkMat, whiteMat, sackMat, cheekMat, starMat, xMat })
             if (m != null) Destroy(m);
     }
 }

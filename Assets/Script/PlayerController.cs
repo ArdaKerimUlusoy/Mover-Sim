@@ -56,6 +56,12 @@ public class PlayerController : MonoBehaviour
 
     /// <summary>Eğiliyor mu? (Güvenlikler eğilen oyuncuyu daha geç fark eder.)</summary>
     public bool IsCrouching => isCrouching;
+
+    /// <summary>Kamyon kalkış / polis / "hepsi yakalandı" sekansı sırasında true: hareket, bakış ve etkileşim durur (MuseumSession ayarlar).</summary>
+    public static bool InputLocked { get; set; }
+    /// <summary>Kamera sarsıntısı şiddeti (0..1, metre cinsinden küçük konum sapması); sekans sırasında MuseumSession ayarlar.</summary>
+    public static float ShakeAmount { get; set; }
+    private Vector3 lastShakeOffset;
     private bool wasGrounded = true;
     private float currentBaseCamY;
     private float currentCamTilt = 0f;
@@ -109,6 +115,19 @@ public class PlayerController : MonoBehaviour
         if (IsKnockedOut || knockAmount > 0.001f)
         {
             HandleKnockedOut();
+            return;
+        }
+        if (InputLocked)
+        {
+            // Sekans: yerinde dur (yer çekimi uygulanır), bakış ve girdi yok; kamera sarsıntısı sürer
+            currentHorizontalVelocity = Vector3.zero;
+            pushVelocity = Vector3.zero;
+            if (characterController != null && characterController.enabled)
+            {
+                verticalVelocity.y = characterController.isGrounded ? -2f : verticalVelocity.y + gravity * Time.deltaTime;
+                characterController.Move(verticalVelocity * Time.deltaTime);
+            }
+            HandleStairStepEffect();
             return;
         }
         HandleMouseLook();
@@ -293,6 +312,12 @@ public class PlayerController : MonoBehaviour
             currentCamTilt = Mathf.Lerp(currentCamTilt, 0f, Time.deltaTime * recoverySpeed);
         }
 
+        // Kamera sarsıntısı: önceki karenin sapmasını geri al, yenisini ekle
+        camPos -= lastShakeOffset;
+        lastShakeOffset = ShakeAmount > 0.0001f
+            ? new Vector3(Random.Range(-1f, 1f), Random.Range(-1f, 1f), 0f) * (ShakeAmount * 0.06f)
+            : Vector3.zero;
+        camPos += lastShakeOffset;
         playerCamera.localPosition = camPos;
     }
 

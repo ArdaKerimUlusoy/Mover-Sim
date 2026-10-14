@@ -100,6 +100,19 @@ public class WorldItem : NetworkBehaviour
         if (artPending && IsSpawned && Time.frameCount % 30 == 0 && ForgeryRegistry.TryGet(forgeryId.Value, out _)) RefreshArtVisual();
     }
 
+    /// <summary>Görev değişince (eser dokuları yenilenince) yerdeki eserin görselini yeniden kurar.</summary>
+    public void RebuildArtVisual()
+    {
+        if (artVisual != null)
+        {
+            artVisual.transform.SetParent(null, false); // Destroy kare sonunda: ölçümlere karışmasın
+            Destroy(artVisual);
+            foreach (Renderer r in GetComponentsInChildren<Renderer>(true)) r.enabled = true; // prefab şekli ölçülebilsin
+        }
+        artVisual = null;
+        if (IsSpawned) RefreshArtVisual();
+    }
+
     private void RefreshArtVisual()
     {
         if (item == null || (forgeryId.Value == 0 && lookKey.Value == 0)) return;

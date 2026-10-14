@@ -141,6 +141,10 @@ public class GuardAI : NetworkBehaviour
     /// <summary>Sesli sohbette söylenen hırsızlık kelimesini duyduğunda: sahte fark etme şansı artar.</summary>
     private const float OverheardDetectBonus = 0.3f;
 
+    private struct OverheardRoll { public float time; public bool caught; }
+    private static readonly System.Collections.Generic.Dictionary<ArtworkDisplay, OverheardRoll> OverheardRolls =
+        new System.Collections.Generic.Dictionary<ArtworkDisplay, OverheardRoll>();
+
     /// <summary>Sunucu: bir oyuncunun hırsızlıkla ilgili konuştuğunu duydu (CrimeTalk).
     /// Konuşanın yanındaki esere gidip inceler; eser değiştirilmişse fark etme şansı artar (fark ederse varınca alarm).
     /// Eser yoksa konuşanın olduğu yere bakar. Duyduysa true döner.</summary>
@@ -154,9 +158,23 @@ public class GuardAI : NetworkBehaviour
 
         if (display != null)
         {
-            inspected.Remove(display); // önünden geçerken bir kez daha bakar
-            bool caught = display.IsSwapped &&
-                          Random.value < Mathf.Clamp01(DetectChance(display.LeftSimilarity) + OverheardDetectBonus);
+            // Sahte fark etme zarı aynı eser için en fazla overheardRollInterval sn'de bir (tüm güvenlikler ortak):
+            // arada gelen bildirimler güvenliği yine yönlendirir ama son zarın sonucunu kullanır (spamle zar attırılamaz).
+            bool caught;
+            float now = Time.time;
+            if (OverheardRolls.TryGetValue(display, out OverheardRoll r) &&
+                now - r.time < CrimeWordSettings.Active.overheardRollInterval)
+            {
+                caught = r.caught && display.IsSwapped;
+            }
+            else
+            {
+                inspected.Remove(display); // önünden geçerken bir kez daha bakar
+                caught = display.IsSwapped &&
+                         Random.value < Mathf.Clamp01(DetectChance(display.LeftSimilarity) + OverheardDetectBonus);
+                if (OverheardRolls.Count > 64) OverheardRolls.Clear(); // eski oturumların (yok edilmiş) eserleri birikmesin
+                OverheardRolls[display] = new OverheardRoll { time = now, caught = caught };
+            }
             ServerInvestigate(display.transform.position, caught, display);
         }
         else
@@ -658,11 +676,17 @@ public class GuardAI : NetworkBehaviour
         return 0.9f;                         // Kaba
     }
 
+    // Kare başı OverlapSphere dizisi ayırmasın (tüm güvenlikler sırayla, ana thread'de ve senkron kullanır).
+    // 64: 1.2 m küre içindeki zemin + duvar + dekor + kendi çarpıştırıcıları için bol pay (taşarsa fazlası görülmez).
+    private static readonly Collider[] doorHits = new Collider[64];
+
     private void OpenNearbyDoors()
     {
-        Collider[] hits = Physics.OverlapSphere(transform.position + transform.forward * 0.8f, 1.2f, ~0, QueryTriggerInteraction.Ignore);
-        foreach (Collider c in hits)
+        int n = Physics.OverlapSphereNonAlloc(transform.position + transform.forward * 0.8f, 1.2f, doorHits, ~0, QueryTriggerInteraction.Ignore);
+        for (int i = 0; i < n; i++)
         {
+            Collider c = doorHits[i];
+            doorHits[i] = null; // sahneden silinen objelere referans tutulmasın
             DoorInteractable door = c.GetComponentInParent<DoorInteractable>();
             if (door != null) door.ServerSetOpen(true);
         }
