@@ -740,3 +740,46 @@ Ses paketinin biçimi değişti. Host ve oyuncuların hepsi aynı sürümü kull
 - `MuseumSession`
 - `BriefingTerminal`
 - `Loc`
+
+## Ek 18: Kelime algılama, dolap arama, dolapta bakış, jop
+
+### Hırsızlık kelimeleri
+- Ayarlar menüsündeki "Hırsızlık kelimeleri" bölümü kaldırıldı.
+- Oyun her zaman Türkçe ve İngilizce kelimeleri birlikte dinler. Arayüz dili fark etmez. Eski "Kapalı" ya da tek dil ayarı kayıtlı olsa bile yok sayılır.
+- Algılama daha iyi:
+  - Her dil için ikinci bir tanıyıcı çalışır. Bu tanıyıcı sadece hırsızlık kelimelerini arar.
+  - "steal", "çalalım" gibi kısa ya da hızlı söylenen kelimeler artık yakalanır.
+- Ses yüksekliği artık her oyuncunun kendi normal sesine göre ölçülür. Mikrofonu kısık olan oyuncu "fısıltı" sayılmaz.
+- Model indirilemediyse oyun yarım dakikada bir yeniden dener.
+- Her oyuncunun bilgisayarında konuşma modeli bir kez indirilir (yaklaşık 80 MB).
+
+### Güvenlikler dolapları açar
+- Bir güvenlik kaybettiği kişiyi ararken yakındaki dolapları büyük ihtimalle açıp bakar.
+- Bir sesi ya da şüpheli bir şeyi incelerken de küçük ihtimalle açıp bakar.
+- Dolapta birini bulursa çıkarır ve yakalar.
+- Kovalarken gözünün önünde saklanırsan zaten gelip açıyordu; bu aynen devam ediyor.
+- Staff Only kapısı: güvenlikler devriyede kapıyı kendileri açıp geçiyor (Ek 15).
+
+### Dolapta fareyle bakış
+- Dolapta saklanırken artık fareyle etrafa bakabilirsin.
+- Dolabın baktığı yönden sağa ve sola 110°'ye kadar dönülebilir.
+- Yürüyemezsin. E ile çıkarsın.
+
+### Güvenliği itmek: jop
+- Aynı güvenliği 20 sn içinde 2–3 kez itersen sana jopla vurur.
+- Yaklaşık 2,5 sn yerde baygın kalırsın:
+  - Ekran kararır ve "Polis sana saldırdı!" yazar.
+  - Hareket edemez, etkileşim yapamazsın.
+  - Elindeki iş (değiştirme, kilit, atölye) bölünür.
+
+### Değişen dosyalar
+- `VoiceKeywordListener`
+- `VoiceChat` (ayar satırı kaldırıldı)
+- `PlayerController`
+- `PlayerStealth`
+- `HidingSpot`
+- `GuardAI`
+- `PushSystem`
+- `PlayerInteractor`
+- `LockpickSystem`
+- `Loc`

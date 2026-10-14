@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using Unity.Collections;
 using Unity.Netcode;
@@ -13,6 +13,8 @@ using UnityEngine.InputSystem;
 ///    yarım haliyle çantasına girer, tezgahta "Devam et" ile sürdürür). Saklanan / hapisteki oyuncu itilmez.
 ///  - Ziyaretçi: savrulur.
 ///  - Güvenlik: savrulur ve seni şüpheyle süzüp yerine bakar (güvenliği itmek dikkat çeker).
+///    Aynı güvenliği kısa sürede 2–3 kez itersen sana JOPLA VURUR: birkaç saniye yerde baygın kalırsın
+///    ("Polis sana saldırdı!"), elindeki iş bölünür.
 ///  - İtmek ses çıkarır (yakındaki güvenlikler duyabilir).
 /// Ağ: istemci → sunucu "SS_PushReq", sunucu → itilen oyuncunun sahibine "SS_Pushed" (ağ nesnesi gerekmez).
 /// Önünde itilecek biri varsa F işaret (ping) koymaz, iter. Sahneye bir şey eklemeye gerek yok.
@@ -26,6 +28,18 @@ public class PushSystem : MonoBehaviour
 
     private const string ReqMsg = "SS_PushReq";
     private const string PushedMsg = "SS_Pushed";
+    private const string KnockMsg = "SS_Knocked";
+
+    // Jop: aynı güvenliği bu süre içinde 2–3 kez itersen vurur
+    private const float StrikeWindow = 20f;
+    private const float KnockSeconds = 2.6f;
+
+    private struct PushCount { public int count, needed; public float last; }
+    private readonly Dictionary<(ulong guard, ulong client), PushCount> guardPushes = new Dictionary<(ulong, ulong), PushCount>();
+
+    /// <summary>Yerel oyuncu jopla vuruldu: bu ana kadar baygın.</summary>
+    public static float KnockedUntil { get; private set; } = -1f;
+    public static bool LocalKnockedOut => Time.time < KnockedUntil;
 
     private const float Range = 2.2f;          // istemci: ne kadar yakındakini itebilirsin
     private const float ServerRange = 3.2f;    // sunucu: hile koruması (gecikme payıyla)
@@ -119,7 +133,7 @@ public class PushSystem : MonoBehaviour
         Camera cam = Camera.main;
         if (me == null || cam == null || !me.IsSpawned) return none;
         if (ChatUI.IsTyping || SessionMenuUI.IsPaused || PlayerInventory.IsPanelOpen || WorkbenchUI.IsOpen || BriefingUI.IsOpen) return none;
-        if (Cursor.lockState != CursorLockMode.Locked || me.IsJailed || me.CurrentHidingSpot != null) return none;
+        if (Cursor.lockState != CursorLockMode.Locked || me.IsJailed || me.CurrentHidingSpot != null || LocalKnockedOut) return none;
         canAct = true;
 
         Vector3 from = me.transform.position;
@@ -197,6 +211,7 @@ public class PushSystem : MonoBehaviour
         regCmm = nm.CustomMessagingManager;
         regCmm.RegisterNamedMessageHandler(ReqMsg, OnRequest);
         regCmm.RegisterNamedMessageHandler(PushedMsg, OnPushed);
+        regCmm.RegisterNamedMessageHandler(KnockMsg, OnKnocked);
     }
 
     private void Unregister()
@@ -207,6 +222,7 @@ public class PushSystem : MonoBehaviour
             {
                 regCmm.UnregisterNamedMessageHandler(ReqMsg);
                 regCmm.UnregisterNamedMessageHandler(PushedMsg);
+                regCmm.UnregisterNamedMessageHandler(KnockMsg);
             }
             catch (Exception) { }
         }
@@ -293,6 +309,13 @@ public class PushSystem : MonoBehaviour
                 hitPos = guard.transform.position;
                 AddShove(guard.GetComponent<NavMeshAgent>(), dir);
                 guard.ServerInvestigate(from, false); // itilen güvenlik dönüp seni süzer
+                if (CountGuardPush(guard.NetworkObjectId, senderClient))
+                {
+                    // Sabrı taştı: jopla vurur
+                    ServerKnockOut(nm, client, pusher, guard);
+                    serverCooldown[senderClient] = Time.time;
+                    return;
+                }
                 break;
             }
 
@@ -314,6 +337,71 @@ public class PushSystem : MonoBehaviour
         NoiseSystem.Emit(hitPos, PushNoiseRadius);
         PlayerInventory inv = client.PlayerObject.GetComponent<PlayerInventory>();
         if (inv != null) inv.ServerPlaySound(SoundId.ItemThud, hitPos);
+    }
+
+    /// <summary>Sunucu: bu güvenliği bu oyuncu kaçıncı kez itti? Sınıra (2 ya da 3) gelince true.</summary>
+    private bool CountGuardPush(ulong guardId, ulong clientId)
+    {
+        var key = (guardId, clientId);
+        if (!guardPushes.TryGetValue(key, out PushCount pc) || Time.time - pc.last > StrikeWindow)
+            pc = new PushCount { count = 0, needed = UnityEngine.Random.Range(2, 4) };
+        pc.count++;
+        pc.last = Time.time;
+        if (pc.count >= pc.needed)
+        {
+            guardPushes.Remove(key);
+            return true;
+        }
+        guardPushes[key] = pc;
+        return false;
+    }
+
+    /// <summary>Sunucu: güvenlik oyuncuya jopla vurur → oyuncu birkaç saniye baygın.</summary>
+    private void ServerKnockOut(NetworkManager nm, NetworkClient client, PlayerStealth victim, GuardAI guard)
+    {
+        Vector3 at = victim.transform.position;
+        NoiseSystem.Emit(at, PushNoiseRadius);
+        PlayerInventory inv = client.PlayerObject.GetComponent<PlayerInventory>();
+        if (inv != null)
+        {
+            inv.ServerPlaySound(SoundId.ItemThud, at);
+            inv.ServerPlaySound(SoundId.GuardAlert, guard.transform.position);
+        }
+        if (victim.OwnerClientId == nm.LocalClientId) ApplyKnockLocally(KnockSeconds);
+        else
+        {
+            using (var w = new FastBufferWriter(8, Allocator.Temp))
+            {
+                w.WriteValueSafe(KnockSeconds);
+                regCmm.SendNamedMessage(KnockMsg, victim.OwnerClientId, w, NetworkDelivery.Reliable);
+            }
+        }
+    }
+
+    private void OnKnocked(ulong sender, FastBufferReader reader)
+    {
+        if (sender != NetworkManager.ServerClientId) return;
+        try
+        {
+            reader.ReadValueSafe(out float seconds);
+            ApplyKnockLocally(Mathf.Clamp(seconds, 0.5f, 6f));
+        }
+        catch (Exception) { }
+    }
+
+    /// <summary>Jopla vuruldum: yaptığım iş bölünür, yere yığılırım, ekranda "Polis sana saldırdı!".</summary>
+    private static void ApplyKnockLocally(float seconds)
+    {
+        PlayerStealth me = PlayerStealth.Local;
+        if (me == null || me.IsJailed || me.CurrentHidingSpot != null) return;
+        if (WorkbenchUI.IsOpen) WorkbenchUI.Interrupt();
+        PlayerInteractor interactor = me.GetComponent<PlayerInteractor>();
+        if (interactor != null) interactor.InterruptHold();
+        LockpickSystem.Interrupt();
+        PlayerController pc = me.GetComponent<PlayerController>();
+        if (pc != null) pc.KnockOut(seconds);
+        KnockedUntil = Time.time + seconds;
+        GameAudio.Play2D(SoundId.ItemThud, 1f);
     }
 
     private void AddShove(NavMeshAgent agent, Vector3 dir)
@@ -382,8 +470,28 @@ public class PushSystem : MonoBehaviour
     //  Arayüz: önünde itilebilecek biri varsa küçük ipucu
     // =====================================================================
 
+    private GUIStyle knockStyle;
+
     private void OnGUI()
     {
+        // Baygınken: ekran kararır, "Polis sana saldırdı!"
+        float knockLeft = KnockedUntil - Time.time;
+        if (knockLeft > -0.6f)
+        {
+            float a = knockLeft > 0f ? 0.55f : 0.55f * (1f + knockLeft / 0.6f); // uyanırken açılır
+            UIUtil.DrawRect(new Rect(0f, 0f, Screen.width, Screen.height), new Color(0.15f, 0f, 0f, Mathf.Clamp01(a)));
+            if (knockLeft > 0f)
+            {
+                if (knockStyle == null)
+                    knockStyle = new GUIStyle(GUI.skin.label) { fontSize = 30, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
+                knockStyle.normal.textColor = new Color(1f, 0.3f, 0.25f);
+                Rect tr = new Rect(0f, Screen.height * 0.38f, Screen.width, 44f);
+                GUI.Label(new Rect(tr.x + 2f, tr.y + 2f, tr.width, tr.height), Loc.T("push.struck"), ShadowOf(knockStyle));
+                GUI.Label(tr, Loc.T("push.struck"), knockStyle);
+            }
+            return;
+        }
+
         if (!HasTargetInFront || current.kind == TargetKind.None) return;
         Camera cam = Camera.main;
         if (cam == null) return;
@@ -397,5 +505,14 @@ public class PushSystem : MonoBehaviour
         Rect r = new Rect(sp.x - 50f, Screen.height - sp.y - 10f, 100f, 20f);
         UIUtil.DrawRect(r, new Color(0f, 0f, 0f, 0.45f));
         GUI.Label(r, Loc.T("push.hint"), hintStyle);
+    }
+
+    private GUIStyle knockShadow;
+
+    private GUIStyle ShadowOf(GUIStyle st)
+    {
+        if (knockShadow == null) knockShadow = new GUIStyle(st);
+        knockShadow.normal.textColor = new Color(0f, 0f, 0f, 0.85f);
+        return knockShadow;
     }
 }

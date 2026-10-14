@@ -40,6 +40,24 @@ public class HidingSpot : Interactable
 
     public bool IsOccupied => occupant.Value != Nobody;
 
+    /// <summary>Sunucu: içinde saklanan oyuncu (yoksa null). Güvenlik dolabı açınca kullanılır.</summary>
+    public PlayerStealth ServerOccupant()
+    {
+        if (occupant.Value == Nobody) return null;
+        foreach (PlayerStealth p in PlayerStealth.All)
+            if (p != null && p.IsSpawned && p.OwnerClientId == occupant.Value) return p;
+        return null;
+    }
+
+    /// <summary>Herkes: dolabı bir güvenlik açtı (kapı sesi).</summary>
+    public void ServerPlayOpened()
+    {
+        if (IsServer) OpenedRpc();
+    }
+
+    [Rpc(SendTo.Everyone)]
+    private void OpenedRpc() => GameAudio.PlayAt(SoundId.DoorOpen, transform.position, 0.8f);
+
     public override void OnNetworkSpawn()
     {
         if (IsServer) NetworkManager.OnClientDisconnectCallback += OnClientDisconnected;

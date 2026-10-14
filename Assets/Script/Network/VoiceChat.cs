@@ -916,6 +916,5 @@ public class VoiceChat : MonoBehaviour
         float gt = GUILayout.HorizontalSlider(Gate, 0f, 0.1f);
         if (!Mathf.Approximately(gt, Gate)) Gate = gt;
 
-        VoiceKeywordListener.DrawSettings(small, button); // hırsızlık kelimeleri (güvenlik duyar)
     }
 }

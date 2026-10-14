@@ -77,6 +77,14 @@ public class GuardAI : NetworkBehaviour
     // Kovalama / arama
     private float searchUntil = -1f;        // > şimdi: kaybettiği kişiyi arıyor (Investigate durumunda)
     private HidingSpot huntSpot;            // kovaladığı kişinin saklandığı dolap (gördüyse)
+
+    // Ararken / incelerken yakındaki dolapları açıp bakar (içinde biri varsa yakalar)
+    private HidingSpot closetTarget;
+    private float closetGiveUp;
+    private readonly HashSet<HidingSpot> checkedClosets = new HashSet<HidingSpot>();
+    private const float ClosetSearchRange = 6f;
+    private const float ClosetChanceWhileSearching = 0.8f; // kaybettiği kişiyi ararken
+    private const float ClosetChanceWhileInvestigating = 0.3f; // ses / şüphe incelerken
     private Vector3 focusVelocity;
     private Vector3 focusPrevPos;
     private float focusPrevTime = -1f;
@@ -430,9 +438,12 @@ public class GuardAI : NetworkBehaviour
     {
         if (seen != null && seen.SuspiciousLevel > 0f)
         {
+            closetTarget = null;
             BeginSuspicious(seen);
             return;
         }
+
+        if (closetTarget != null) { TickCloset(); return; }
 
         if (lookAroundUntil < 0f)
         {
@@ -440,6 +451,9 @@ public class GuardAI : NetworkBehaviour
             {
                 agent.ResetPath();
                 lookAroundUntil = Time.time + (searchUntil > Time.time ? lookAroundSeconds * 0.5f : lookAroundSeconds);
+
+                // Yakında dolap varsa açıp bakabilir
+                if (!investigateIsFake && TryPickCloset()) return;
 
                 if (investigateIsFake && SecurityManager.Instance != null)
                 {
@@ -545,6 +559,52 @@ public class GuardAI : NetworkBehaviour
                 if (TryPickSearchPoint(out Vector3 next)) agent.SetDestination(next);
             }
         }
+    }
+
+    /// <summary>Yakındaki, henüz bakmadığı bir dolabı seçer (ararken büyük, incelerken küçük ihtimalle).</summary>
+    private bool TryPickCloset()
+    {
+        bool searching = searchUntil > Time.time;
+        if (!searching) checkedClosets.Clear(); // yeni bir inceleme: dolaplara yeniden bakılabilir
+        HidingSpot best = null;
+        float bestD = ClosetSearchRange;
+        foreach (HidingSpot h in HidingSpot.All)
+        {
+            if (h == null || !h.IsSpawned || !h.gameObject.activeInHierarchy || checkedClosets.Contains(h)) continue;
+            float d = Vector3.Distance(transform.position, h.transform.position);
+            if (d < bestD) { bestD = d; best = h; }
+        }
+        if (best == null) return false;
+        checkedClosets.Add(best);
+        if (Random.value > (searching ? ClosetChanceWhileSearching : ClosetChanceWhileInvestigating)) return false;
+        closetTarget = best;
+        closetGiveUp = Time.time + 6f;
+        MoveTo(best.transform.position, investigateSpeed);
+        return true;
+    }
+
+    /// <summary>Dolaba yürür, açar: içinde biri varsa çıkarır ve yakalar. Sonra etrafa bakmaya devam eder.</summary>
+    private void TickCloset()
+    {
+        HidingSpot h = closetTarget;
+        if (h == null || !h.IsSpawned || Time.time > closetGiveUp) { closetTarget = null; return; }
+        if (Vector3.Distance(transform.position, h.transform.position) > 1.9f)
+        {
+            if (!agent.pathPending && !agent.hasPath) MoveTo(h.transform.position, investigateSpeed);
+            return;
+        }
+
+        agent.ResetPath();
+        FaceTowards(h.transform.position);
+        closetTarget = null;
+        h.ServerPlayOpened();
+        PlayerStealth hider = h.ServerOccupant();
+        if (hider != null && h.ServerEvict(hider))
+        {
+            PlaySoundRpc(SoundId.GuardAlert, transform.position);
+            hider.ServerCatch(); // dolapta saklanırken bulundu
+        }
+        lookAroundUntil = Time.time + 1.2f;
     }
 
     /// <summary>Son görüldüğü yerin çevresinde (gittiği yöne ağırlıklı) yürünebilir rastgele bir nokta.</summary>

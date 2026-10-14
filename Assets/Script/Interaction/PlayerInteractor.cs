@@ -50,7 +50,8 @@ public class PlayerInteractor : MonoBehaviour
 
     private bool InputBlocked =>
         ChatUI.IsTyping || SessionMenuUI.IsPaused || PlayerInventory.IsPanelOpen ||
-        Cursor.lockState != CursorLockMode.Locked || (carrier != null && carrier.IsHolding);
+        Cursor.lockState != CursorLockMode.Locked || (carrier != null && carrier.IsHolding) ||
+        PushSystem.LocalKnockedOut; // güvenlik jopla vurdu: baygın
 
     private void Update()
     {

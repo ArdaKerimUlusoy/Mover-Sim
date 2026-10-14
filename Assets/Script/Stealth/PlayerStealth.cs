@@ -276,7 +276,8 @@ public class PlayerStealth : NetworkBehaviour
         CurrentHidingSpot = spot;
         bool hiding = spot != null;
 
-        if (controller != null) controller.enabled = !hiding;
+        // Dolapta yürüyemez ama fareyle etrafa bakabilir (sabit açı yok)
+        if (controller != null) { controller.enabled = true; controller.SetLookOnly(hiding, yaw); }
         if (characterController != null) characterController.enabled = false;
         transform.SetPositionAndRotation(pos, Quaternion.Euler(0f, yaw, 0f));
         if (characterController != null) characterController.enabled = !hiding;

@@ -21,7 +21,10 @@ using UnityEngine.Networking;
 ///  - Sadece SESİN GERÇEKTEN GİTTİĞİ anlar dinlenir (V basılıyken ya da açık mikrofonda eşik geçilince): VoiceChat'in
 ///    gönderdiği 16 kHz ses buraya da gelir. Tanıma ayrı bir iş parçacığında, oyuncunun kendi bilgisayarında yapılır;
 ///    ağdan sadece bulunan kelime sunucuya gider.
-///  - Esc → Ayarlar → Sesli sohbet altında: Kapalı / Türkçe + İngilizce / Sadece Türkçe / Sadece İngilizce.
+///  - Her zaman Türkçe + İngilizce birlikte dinlenir (arayüz dili ne olursa olsun); ayar yok.
+///  - Her dil için İKİ tanıyıcı çalışır: serbest (her şeyi yazıya döker) + KELİME LİSTELİ (sadece hırsızlık kelimelerini
+///    arar, gerisi "[unk]"). Kelime listeli tanıyıcı kısa / hızlı söylenen "steal", "çalalım" gibi kelimeleri çok daha iyi yakalar.
+///  - Ses yüksekliği her oyuncunun KENDİ normal konuşmasına göre ölçülür (mikrofonu kısık olan oyuncu "fısıltı" sayılmaz).
 ///  - Şu an yalnızca Windows'ta çalışır (Assets/Plugins/x86_64/libvosk.dll). Diğer sistemlerde sessizce kapalı kalır.
 /// Sahneye bir şey eklemeye gerek yok: oyun açılınca kendiliğinden oluşur.
 /// </summary>
@@ -41,24 +44,37 @@ public class VoiceKeywordListener : MonoBehaviour
     // PlayerPrefs sadece ana iş parçacığında okunabilir: tanıma iş parçacığı bu kopyayı kullanır
     private static volatile int modeCache = -1;
 
+    /// <summary>Artık ayar yok: her zaman Türkçe + İngilizce (eski kayıtlı "Kapalı" / tek dil ayarı yok sayılır).</summary>
     public static Mode CurrentMode
     {
-        get
-        {
-            if (modeCache < 0) modeCache = Mathf.Clamp(PlayerPrefs.GetInt(KeyMode, (int)Mode.Both), 0, 3);
-            return (Mode)modeCache;
-        }
-        set
-        {
-            modeCache = (int)value;
-            PlayerPrefs.SetInt(KeyMode, (int)value);
-        }
+        get { modeCache = (int)Mode.Both; return Mode.Both; }
+        set { modeCache = (int)Mode.Both; }
     }
 
-    private static bool Wants(int lang)
+    private static bool Wants(int lang) => true;
+
+    // Kelime listeli tanıyıcının dinlediği kelimeler (modelin sözlüğünde olmayanları Vosk kendisi atlar)
+    private static readonly string[][] GrammarWords =
     {
-        Mode m = (Mode)Mathf.Max(0, modeCache);
-        return m == Mode.Both || (lang == 0 && m == Mode.Turkish) || (lang == 1 && m == Mode.English);
+        new[]
+        {
+            "çaldım", "çaldık", "çaldın", "çaldı", "çalalım", "çalacağım", "çalacağız", "çalıyorum", "çalıyoruz", "çalmak", "çalın",
+            "çalıntı", "hırsız", "hırsızlık", "soygun", "soyalım", "soyduk", "soydum", "değiştirdim", "değiştirdik", "değiştirelim",
+            "değiştir", "değiştiriyorum", "sahte", "sahtesi", "aşırdım", "arakladım", "yürüttüm",
+        },
+        new[]
+        {
+            "steal", "stealing", "stole", "stolen", "swap", "swapped", "swapping", "fake", "forgery", "forged", "heist",
+            "rob", "robbed", "robbery", "thief", "thieves", "loot", "looted",
+        },
+    };
+
+    private static string GrammarJson(int lang)
+    {
+        var sb = new StringBuilder("[");
+        foreach (string w in GrammarWords[lang]) sb.Append('"').Append(w).Append("\", ");
+        sb.Append("\"[unk]\"]");
+        return sb.ToString();
     }
 
     // ---------------- Durum ----------------
@@ -74,6 +90,7 @@ public class VoiceKeywordListener : MonoBehaviour
         public string path;
         public IntPtr model = IntPtr.Zero;
         public IntPtr rec = IntPtr.Zero;
+        public IntPtr grm = IntPtr.Zero;   // kelime listeli tanıyıcı (yoksa Zero)
         public UnityWebRequest req;
         public string zipPath;
         public readonly HashSet<string> said = new HashSet<string>(); // bu cümlede zaten bildirilenler
@@ -95,6 +112,7 @@ public class VoiceKeywordListener : MonoBehaviour
     // Ağ
     private CustomMessagingManager regCmm;
     private float nextSend;
+    private float nextRetry;
 
     // Ekranda (sadece kendine): algılanan kelime
     private string shownWord = "";
@@ -139,14 +157,17 @@ public class VoiceKeywordListener : MonoBehaviour
     private readonly float[] recentTimes = new float[40];
     private int recentHead;
 
-    /// <summary>Son ~1.2 sn'deki en yüksek ses (0 = fısıltı, 1 = bağırma).</summary>
+    // Bu oyuncunun normal konuşma seviyesi (zamanla öğrenilir): mikrofonu kısık / yüksek olan herkes için adil
+    private float typicalLevel = 0.55f;
+
+    /// <summary>Son ~1.2 sn'deki en yüksek ses, oyuncunun KENDİ normal sesine göre (0 = fısıltı, 0.5 = normal, 1 = bağırma).</summary>
     private float RecentLoudness()
     {
         float best = 0f, now = Time.unscaledTime;
         for (int i = 0; i < recentLevels.Length; i++)
             if (now - recentTimes[i] < 1.2f && recentLevels[i] > best) best = recentLevels[i];
-        // VoiceChat'in mikrofon seviyesiyle aynı ölçek; 0.3 altı fısıltı, 0.9 üstü bağırma
-        return Mathf.InverseLerp(0.3f, 0.9f, best);
+        float t = Mathf.Max(0.15f, typicalLevel);
+        return Mathf.Clamp01(Mathf.InverseLerp(t * 0.55f, t * 1.45f, best));
     }
 
     private void OnSpeechFrame(float[] samples, int count)
@@ -155,7 +176,9 @@ public class VoiceKeywordListener : MonoBehaviour
         double sum = 0;
         for (int i = 0; i < count; i++) sum += samples[i] * samples[i];
         float rms = count > 0 ? (float)Math.Sqrt(sum / count) : 0f;
-        recentLevels[recentHead] = Mathf.Clamp01(Mathf.Sqrt(rms) * 2.2f);
+        float lvl = Mathf.Clamp01(Mathf.Sqrt(rms) * 2.2f);
+        recentLevels[recentHead] = lvl;
+        if (lvl > 0.12f) typicalLevel = Mathf.Lerp(typicalLevel, lvl, 0.01f); // konuşurken yavaşça öğren
         recentTimes[recentHead] = Time.unscaledTime;
         recentHead = (recentHead + 1) % recentLevels.Length;
 
@@ -180,10 +203,17 @@ public class VoiceKeywordListener : MonoBehaviour
         if (inSession) { if (regCmm != nm.CustomMessagingManager) RegisterMessages(nm); }
         else if (regCmm != null) UnregisterMessages();
 
-        if (CurrentMode == Mode.Off || !SupportedPlatform)
+        if (!SupportedPlatform)
         {
             if (running) StopWorker();
             return;
+        }
+
+        // İndirme başarısız olduysa (ör. o an internet yoktu) yarım dakikada bir yeniden dene
+        if (Time.unscaledTime >= nextRetry)
+        {
+            nextRetry = Time.unscaledTime + 30f;
+            RetryFailed();
         }
 
         // Oyundayken ve sesli sohbet varken modelleri hazırla (indirilmemişse indir)
@@ -352,8 +382,13 @@ public class VoiceKeywordListener : MonoBehaviour
         if (model == IntPtr.Zero) throw new Exception("model yüklenemedi: " + dir);
         IntPtr rec = Native.vosk_recognizer_new(model, VoiceChat.Rate);
         if (rec == IntPtr.Zero) { Native.vosk_model_free(model); throw new Exception("tanıyıcı oluşturulamadı"); }
+        // Kelime listeli tanıyıcı (olmazsa sadece serbest tanıyıcıyla devam)
+        IntPtr grm = IntPtr.Zero;
+        try { grm = Native.vosk_recognizer_new_grm(model, VoiceChat.Rate, Utf8(GrammarJson(Array.IndexOf(ModelNames, l.name) == 1 ? 1 : 0))); }
+        catch (Exception) { grm = IntPtr.Zero; }
         l.model = model;
         l.rec = rec;
+        l.grm = grm;
         l.state = ModelState.Ready;
     }
 
@@ -415,6 +450,7 @@ public class VoiceKeywordListener : MonoBehaviour
         [DllImport(Lib)] public static extern IntPtr vosk_model_new(byte[] path);
         [DllImport(Lib)] public static extern void vosk_model_free(IntPtr model);
         [DllImport(Lib)] public static extern IntPtr vosk_recognizer_new(IntPtr model, float sampleRate);
+        [DllImport(Lib)] public static extern IntPtr vosk_recognizer_new_grm(IntPtr model, float sampleRate, byte[] grammar);
         [DllImport(Lib)] public static extern void vosk_recognizer_free(IntPtr rec);
         [DllImport(Lib)] public static extern int vosk_recognizer_accept_waveform_s(IntPtr rec, short[] data, int length);
         [DllImport(Lib)] public static extern IntPtr vosk_recognizer_result(IntPtr rec);
@@ -460,6 +496,7 @@ public class VoiceKeywordListener : MonoBehaviour
                         LangModel l = langs[i];
                         if (l.state != ModelState.Ready || !Wants(i)) continue;
                         Scan(l, Native.vosk_recognizer_final_result(l.rec), "text");
+                        if (l.grm != IntPtr.Zero) Scan(l, Native.vosk_recognizer_final_result(l.grm), "text");
                         l.said.Clear();
                     }
                     inUtterance = false;
@@ -483,7 +520,16 @@ public class VoiceKeywordListener : MonoBehaviour
                     }
                     else if (partialCounter % 2 == 0) // ~80 ms'de bir ara sonuç: kelime söylenir söylenmez yakalansın
                     {
-                        Scan(l, Native.vosk_recognizer_partial_result(l.rec), "partial"); // ~160 ms'de bir ara sonuç
+                        Scan(l, Native.vosk_recognizer_partial_result(l.rec), "partial");
+                    }
+
+                    // Kelime listeli tanıyıcı: sadece hırsızlık kelimelerini arar (kısa / hızlı söylenenleri de yakalar)
+                    if (l.grm != IntPtr.Zero)
+                    {
+                        if (Native.vosk_recognizer_accept_waveform_s(l.grm, pcm, pcm.Length) != 0)
+                            Scan(l, Native.vosk_recognizer_result(l.grm), "text");
+                        else if (partialCounter % 2 == 1)
+                            Scan(l, Native.vosk_recognizer_partial_result(l.grm), "partial");
                     }
                 }
                 catch (Exception)
@@ -570,7 +616,7 @@ public class VoiceKeywordListener : MonoBehaviour
 
     private void OnGUI()
     {
-        if (CurrentMode == Mode.Off || PlayerStealth.Local == null || SessionMenuUI.IsPaused) return;
+        if (PlayerStealth.Local == null || SessionMenuUI.IsPaused) return;
         if (WorkbenchUI.IsOpen || BriefingUI.IsOpen) return;
         if (style == null)
         {
@@ -625,36 +671,7 @@ public class VoiceKeywordListener : MonoBehaviour
         return parts.Count == 0 ? null : string.Join("   ", parts);
     }
 
-    /// <summary>Esc menüsü (VoiceChat.DrawSettings'in sonunda çağrılır).</summary>
-    public static void DrawSettings(GUIStyle small, GUIStyle button)
-    {
-        GUILayout.Space(6f);
-        GUILayout.Label(Loc.T("crimetalk.section"), small);
-
-        Mode m = CurrentMode;
-        GUILayout.BeginHorizontal();
-        Color old = GUI.backgroundColor;
-        foreach (Mode opt in new[] { Mode.Off, Mode.Both, Mode.Turkish, Mode.English })
-        {
-            GUI.backgroundColor = m == opt ? new Color(1f, 0.8f, 0.3f) : old;
-            if (GUILayout.Button(Loc.T("crimetalk.mode." + opt.ToString().ToLowerInvariant()), button, GUILayout.Height(26f)))
-            {
-                CurrentMode = opt;
-                if (Instance != null) Instance.RetryFailed();
-            }
-        }
-        GUI.backgroundColor = old;
-        GUILayout.EndHorizontal();
-
-        if (Instance != null && CurrentMode != Mode.Off)
-        {
-            string s = Instance.StatusLine(false);
-            if (!string.IsNullOrEmpty(s)) GUILayout.Label(s, small);
-        }
-        GUILayout.Label(Loc.T("crimetalk.help"), small);
-    }
-
-    /// <summary>Ayar değişince başarısız indirmeleri yeniden dene.</summary>
+    /// <summary>Başarısız indirmeleri yeniden dene.</summary>
     private void RetryFailed()
     {
         foreach (LangModel l in langs) if (l.state == ModelState.Failed && l.model == IntPtr.Zero) { l.state = ModelState.Missing; l.error = ""; }

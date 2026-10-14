@@ -76,12 +76,65 @@ public class PlayerController : MonoBehaviour
         Cursor.visible = false;
     }
 
+    // Dolapta saklanırken: yürüyemez ama fareyle etrafa bakabilir (dolabın baktığı yönün sağına / soluna sınırlı)
+    private bool lookOnly;
+    private float lookCenterYaw;
+    private const float HideYawLimit = 110f;
+
+    // Güvenlik jopla vurdu: birkaç saniye yerde baygın (PushSystem)
+    private float knockedUntil = -1f;
+    private float knockAmount;
+
+    /// <summary>Baygın mı (yerde)?</summary>
+    public bool IsKnockedOut => Time.time < knockedUntil;
+
+    /// <summary>Saklanma (PlayerStealth): true = sadece fareyle bakış, merkez yön verilir.</summary>
+    public void SetLookOnly(bool on, float centerYaw)
+    {
+        lookOnly = on;
+        lookCenterYaw = centerYaw;
+        rotationX = 0f;
+    }
+
+    /// <summary>Jopla vuruldu: birkaç saniye yere yığılır (hareket ve bakış yok).</summary>
+    public void KnockOut(float seconds)
+    {
+        knockedUntil = Mathf.Max(knockedUntil, Time.time + seconds);
+        pushVelocity = Vector3.zero;
+        currentHorizontalVelocity = Vector3.zero;
+    }
+
     private void Update()
     {
+        if (IsKnockedOut || knockAmount > 0.001f)
+        {
+            HandleKnockedOut();
+            return;
+        }
         HandleMouseLook();
+        if (lookOnly) return; // dolapta: sadece bakış
         HandleCrouch();
         HandleMovement();
         HandleStairStepEffect();
+    }
+
+    /// <summary>Baygınken kamera yere düşer ve yana yatar; süre bitince yavaşça kalkar.</summary>
+    private void HandleKnockedOut()
+    {
+        bool down = IsKnockedOut;
+        knockAmount = Mathf.MoveTowards(knockAmount, down ? 1f : 0f, Time.deltaTime * (down ? 4f : 1.6f));
+        if (characterController != null && characterController.enabled)
+        {
+            verticalVelocity.y += Physics.gravity.y * Time.deltaTime;
+            if (characterController.isGrounded && verticalVelocity.y < 0f) verticalVelocity.y = -2f;
+            characterController.Move(verticalVelocity * Time.deltaTime);
+        }
+        if (playerCamera == null) return;
+        float k = Mathf.SmoothStep(0f, 1f, knockAmount);
+        Vector3 lp = playerCamera.localPosition;
+        lp.y = Mathf.Lerp(currentBaseCamY, 0.3f, k);
+        playerCamera.localPosition = lp;
+        playerCamera.localRotation = Quaternion.Euler(Mathf.Lerp(rotationX, -10f, k), 0f, Mathf.Lerp(0f, 75f, k));
     }
 
     private void HandleMovement()
@@ -255,6 +308,14 @@ public class PlayerController : MonoBehaviour
         rotationX = Mathf.Clamp(rotationX, -lookXLimit, lookXLimit);
 
         playerCamera.localRotation = Quaternion.Euler(rotationX + currentCamTilt, 0f, 0f);
+        if (lookOnly)
+        {
+            // Dolaptan dışarı: sağa / sola bakış sınırlı (arkaya, dolabın duvarına dönmesin)
+            float rel = Mathf.DeltaAngle(lookCenterYaw, transform.eulerAngles.y) + mouseDelta.x;
+            rel = Mathf.Clamp(rel, -HideYawLimit, HideYawLimit);
+            transform.rotation = Quaternion.Euler(0f, lookCenterYaw + rel, 0f);
+            return;
+        }
         transform.Rotate(Vector3.up * mouseDelta.x);
     }
 }

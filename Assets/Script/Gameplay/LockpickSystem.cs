@@ -168,7 +168,7 @@ public class LockpickSystem : MonoBehaviour
         Camera cam = Camera.main;
         if (me == null || cam == null || !me.IsSpawned) return null;
         if (ChatUI.IsTyping || SessionMenuUI.IsPaused || PlayerInventory.IsPanelOpen || WorkbenchUI.IsOpen || BriefingUI.IsOpen) return null;
-        if (Cursor.lockState != CursorLockMode.Locked || me.IsJailed || me.CurrentHidingSpot != null) return null;
+        if (Cursor.lockState != CursorLockMode.Locked || me.IsJailed || me.CurrentHidingSpot != null || PushSystem.LocalKnockedOut) return null;
 
         Ray ray = new Ray(cam.transform.position, cam.transform.forward);
         RaycastHit[] hits = Physics.RaycastAll(ray, Range + 1.5f, ~0, QueryTriggerInteraction.Ignore);

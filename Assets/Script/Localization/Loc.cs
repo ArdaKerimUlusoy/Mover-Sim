@@ -427,6 +427,7 @@ public static class Loc
         { "bench.resume",        new[] { "Continue: {0} (now {1}%)", "Devam et: {0} (şu an %{1})" } },
         { "push.hint",           new[] { "[F] Push", "[F] İt" } },
         { "push.pushed",         new[] { "Someone pushed you!", "Biri seni itti!" } },
+        { "push.struck",         new[] { "The police attacked you!", "Polis sana saldırdı!" } },
         { "drop.hint",           new[] { "Q: put it down", "Q: yere bırak" } },
         { "bench.choosehint",    new[] { "Click or press 1-9.  Esc: close.  You don't need the original: forge first, swap it in the museum later.", "Tıkla ya da 1-9.  Esc: kapat.  Orijinal gerekmez: önce sahteyi yap, sonra müzede değiştir." } },
         { "bench.wheel",         new[] { "potter's wheel", "çömlek çarkı" } },
