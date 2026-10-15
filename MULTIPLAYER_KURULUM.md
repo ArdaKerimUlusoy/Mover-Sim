@@ -821,3 +821,36 @@ Ses paketinin biçimi değişti. Host ve oyuncuların hepsi aynı sürümü kull
 - `StaffDoor`
 - `MuseumLayoutStaffDoor`
 - `MuseumLayout` (devriyeden Staff odası çıkarıldı)
+
+## Ek 20: Tanık ziyaretçiyi F ile bayıltma
+
+### Nasıl çalışır
+- Bir ziyaretçi seni suç işlerken görünce başında "!" çıkar. Sonra güvenliğe koşar ya da bağırır.
+- O güvenliğe ulaşmadan önce yanına gidip **F'ye bir kez** basarsan bayılır:
+  - Sırtüstü yere yığılır ve başında "zZ" görünür. Herkes onu yerde yatarken görür.
+  - Gördüğünü unutur ve şikayet edemez.
+  - 5 sn sonra kalkar ve sakin gezmeye devam eder. Seni yeniden suç işlerken görmezse şikayet etmez; görürse tekrar "!" olur.
+- Yazılar:
+  - Tanık bir ziyaretçiye bakınca ipucu "[F] İt" yerine "[F] Bayılt" olur.
+  - Bayıltınca ekranda "Tanığı bayılttın — seni şikayet edemez!" yazar.
+- Sakin, hiçbir şey görmemiş ziyaretçi eskisi gibi sadece savrulur.
+
+### Dikkat
+- Bayıltma sesi çıkar. Yakındaki güvenlik bunu duyabilir.
+- Alarm zaten çaldıysa (tanık güvenliğe ulaştıysa) artık geç.
+- Bayılma süresi `VisitorManager.KnockSeconds` değeridir.
+
+### Değişen dosyalar
+- `VisitorManager`
+- `VisitorLook` (yere yatma görünümü)
+- `PushSystem`
+- `Loc`
+
+## Ek 21: Şüphe barı bitince aranma da biter
+
+- Güvenliklerin gözünden kaçıp şüphe barı tamamen sıfırlanınca aranma ve "tanınan suçlu" durumu da silinir.
+  - Güvenliklerin önüne geri çıkınca seni yeniden kovalamazlar.
+  - Seni kovalayan güvenlikler de bırakır.
+- Ancak yeniden şüphe çekecek bir şey yaparsan tekrar şüphelenirler. Örnekler: eser değiştirmek, eser taşımak, yasak alana girmek.
+- Bar, görülmediğin her saniye biraz azalır. Görüldüğün an azalma durur.
+- Değişen dosya: `PlayerStealth` (`ServerTick`).

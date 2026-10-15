@@ -10,6 +10,8 @@ using UnityEngine.AI;
 ///   - Bir oyuncuyu suç işlerken (eser değiştirirken, çantadan çalarken, kilit / konsol kurcalarken) görürlerse
 ///     başlarında "!" çıkar, en yakın güvenliğe koşup haber verirler → alarm çalar, güvenlikler hırsızı kovalar.
 ///     Yakında güvenlik yoksa bağırırlar (birkaç saniye sonra alarm).
+///   - Seni gören ("!") ya da güvenliğe koşan ziyaretçiyi F ile bir kez itersen BAYILIR: yere yığılır, gördüğünü
+///     unutur, şikayet edemez (5 sn sonra kalkar, sakin gezmeye devam eder; seni YENİDEN suç işlerken görürse tekrar şikayet eder). Sakin ziyaretçi sadece savrulur.
 /// MuseumSession'ın objesine kendiliğinden eklenir.
 /// </summary>
 public class VisitorManager : MonoBehaviour
@@ -20,7 +22,10 @@ public class VisitorManager : MonoBehaviour
     private const float SightRange = 9f;
     private const float SightAngle = 140f;
 
-    private enum Mode : byte { Walk, Look, Witness, Report, Cooldown }
+    private enum Mode : byte { Walk, Look, Witness, Report, Cooldown, Knocked }
+
+    /// <summary>F ile bayıltılan ziyaretçi bu kadar sn yerde kalır.</summary>
+    public const float KnockSeconds = 5f;
 
     private sealed class Visitor
     {
@@ -62,6 +67,32 @@ public class VisitorManager : MonoBehaviour
             if (d < best) { best = d; id = v.id; pos = v.t.position; }
         }
         return best < float.MaxValue;
+    }
+
+    /// <summary>Herkes: bu ziyaretçi bir suç gördü mü (başında "!")? F ile itilince bayılır. (İtme ipucu için.)</summary>
+    public bool IsWitness(byte id)
+    {
+        foreach (Visitor v in visitors)
+            if (v.id == id && v.look != null) return v.look.State == VisitorLook.StateWitness || v.look.State == VisitorLook.StateReport;
+        return false;
+    }
+
+    /// <summary>Sunucu: itilen ziyaretçi bir tanıksa (suçu gördü / güvenliğe koşuyor) bayılır ve gördüğünü unutur.
+    /// Bayıldıysa true.</summary>
+    public bool ServerKnockOut(byte id)
+    {
+        foreach (Visitor v in visitors)
+        {
+            if (v.id != id || v.agent == null) continue;
+            if (v.mode != Mode.Witness && v.mode != Mode.Report) return false;
+            v.mode = Mode.Knocked;
+            v.until = Time.time + KnockSeconds;
+            v.culprit = null;
+            v.targetGuard = null;
+            if (v.agent.isOnNavMesh) { v.agent.ResetPath(); v.agent.isStopped = true; }
+            return true;
+        }
+        return false;
     }
 
     /// <summary>Sunucu: ziyaretçinin NavMeshAgent'ı (itilince kaydırmak için). Yoksa null.</summary>
@@ -235,6 +266,16 @@ public class VisitorManager : MonoBehaviour
                 case Mode.Cooldown:
                     if (now >= v.until) { v.mode = Mode.Look; v.until = now + 1f; }
                     break;
+
+                case Mode.Knocked:
+                    // Yerde baygın: kalkınca gördüğünü hatırlamaz, sakin gezmeye döner
+                    if (now >= v.until)
+                    {
+                        v.agent.isStopped = false;
+                        v.mode = Mode.Cooldown;
+                        v.until = now + 2f;
+                    }
+                    break;
             }
         }
     }
@@ -305,7 +346,8 @@ public class VisitorManager : MonoBehaviour
             WriteShort(data, ref o, p.y);
             WriteShort(data, ref o, p.z);
             data[o++] = (byte)Mathf.RoundToInt(Mathf.Repeat(v.t.eulerAngles.y, 360f) / 360f * 255f);
-            byte state = v.mode == Mode.Witness ? VisitorLook.StateWitness : v.mode == Mode.Report ? VisitorLook.StateReport : VisitorLook.StateCalm;
+            byte state = v.mode == Mode.Witness ? VisitorLook.StateWitness : v.mode == Mode.Report ? VisitorLook.StateReport
+                       : v.mode == Mode.Knocked ? VisitorLook.StateKnocked : VisitorLook.StateCalm;
             data[o++] = state;
             if (v.look != null) v.look.State = state;
         }

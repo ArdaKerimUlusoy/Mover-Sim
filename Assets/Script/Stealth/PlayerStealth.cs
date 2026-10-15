@@ -211,6 +211,10 @@ public class PlayerStealth : NetworkBehaviour
         if (!seen && Time.time - lastSeenTime > decayDelay && suspicion.Value > 0f)
         {
             suspicion.Value = Mathf.Max(0f, suspicion.Value - decayPerSecond * Time.deltaTime);
+
+            // Şüphe barı tamamen bitti (gözden uzak kalarak kurtuldu): aranma / tanınma da biter, kovalayan güvenlikler
+            // bırakır. Bir daha görüldüğünde yeniden şüphe çekecek bir şey yapana kadar normal ziyaretçidir.
+            if (suspicion.Value <= 0f) ServerClearHeat();
         }
     }
 

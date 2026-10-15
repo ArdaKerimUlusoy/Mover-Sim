@@ -443,6 +443,8 @@ public static class Loc
         { "bench.choose",        new[] { "What will you forge?", "Neyin sahtesini yapacaksın?" } },
         { "bench.resume",        new[] { "Continue: {0} (now {1}%)", "Devam et: {0} (şu an %{1})" } },
         { "push.hint",           new[] { "[F] Push", "[F] İt" } },
+        { "push.knockhint",      new[] { "[F] Knock out", "[F] Bayılt" } },
+        { "push.visitorko",      new[] { "You knocked out the witness — they can't report you!", "Tanığı bayılttın — seni şikayet edemez!" } },
         { "push.pushed",         new[] { "Someone pushed you!", "Biri seni itti!" } },
         { "push.struck",         new[] { "The police attacked you!", "Polis sana saldırdı!" } },
         { "drop.hint",           new[] { "Q: put it down", "Q: yere bırak" } },

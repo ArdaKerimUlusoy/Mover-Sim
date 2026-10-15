@@ -9,7 +9,7 @@ using UnityEngine.Rendering;
 /// </summary>
 public class VisitorLook : MonoBehaviour
 {
-    public const byte StateCalm = 0, StateWitness = 1, StateReport = 2;
+    public const byte StateCalm = 0, StateWitness = 1, StateReport = 2, StateKnocked = 3; // 3: F ile bayıltıldı (yerde yatar)
 
     private static readonly Color[] Skins =
     {
@@ -36,6 +36,8 @@ public class VisitorLook : MonoBehaviour
     private float stateSince;
     private byte shownState;
     private GUIStyle iconStyle;
+    private Transform avatarRoot;  // bayılınca bütün beden yere yatar
+    private float knock;           // 0 ayakta, 1 yerde
 
     public void Build(int seed, int id)
     {
@@ -61,6 +63,7 @@ public class VisitorLook : MonoBehaviour
         Transform root = new GameObject("VisitorAvatar").transform;
         root.SetParent(transform, false);
         root.localScale = new Vector3(1f, height, 1f);
+        avatarRoot = root;
 
         body = new GameObject("Body").transform;
         body.SetParent(root, false);
@@ -189,6 +192,25 @@ public class VisitorLook : MonoBehaviour
         if (speed > 20f) speed = 0f;
         speedSmooth = Mathf.Lerp(speedSmooth, speed, 1f - Mathf.Exp(-8f * dt));
 
+        // Bayıltıldı: sırtüstü yere düşer, kendine gelince yavaşça kalkar
+        bool knocked = State == StateKnocked;
+        knock = Mathf.MoveTowards(knock, knocked ? 1f : 0f, dt * (knocked ? 4f : 1.5f));
+        if (avatarRoot != null)
+        {
+            float k = Mathf.SmoothStep(0f, 1f, knock);
+            avatarRoot.localRotation = Quaternion.Euler(-84f * k, 0f, 0f);
+            avatarRoot.localPosition = new Vector3(0f, 0.22f * k, 0f);
+        }
+        if (knocked)
+        {
+            armL.localRotation = Quaternion.Euler(-20f, 0f, -40f);
+            armR.localRotation = Quaternion.Euler(-20f, 0f, 40f);
+            legL.localRotation = legR.localRotation = Quaternion.identity;
+            head.localRotation = Quaternion.Euler(0f, 0f, 25f);
+            if (State != shownState) { shownState = State; stateSince = Time.unscaledTime; }
+            return;
+        }
+
         float move = Mathf.Clamp01(speedSmooth / 4f);
         phase += speedSmooth * 2.3f * dt;
         float swing = Mathf.Sin(phase) * Mathf.Lerp(28f, 50f, Mathf.Clamp01(speedSmooth / 4f - 0.3f)) * Mathf.Clamp01(speedSmooth / 1f);
@@ -217,10 +239,17 @@ public class VisitorLook : MonoBehaviour
         float pop = t < 0.25f ? Mathf.Lerp(1.8f, 1f, t / 0.25f) : 1f;
         iconStyle.fontSize = Mathf.RoundToInt(38f * pop);
         Rect r = new Rect(sp.x - 30f, Screen.height - sp.y - 40f, 60f, 60f);
+        string icon = State == StateKnocked ? "zZ" : "!";
+        if (State == StateKnocked)
+        {
+            iconStyle.fontSize = Mathf.RoundToInt(22f * pop);
+            r.y += 40f; // yerde yatıyor: simge daha aşağıda
+        }
         iconStyle.normal.textColor = new Color(0f, 0f, 0f, 0.8f);
-        GUI.Label(new Rect(r.x + 2f, r.y + 2f, r.width, r.height), "!", iconStyle);
-        iconStyle.normal.textColor = State == StateReport ? new Color(1f, 0.55f, 0.15f) : new Color(1f, 0.9f, 0.3f);
-        GUI.Label(r, "!", iconStyle);
+        GUI.Label(new Rect(r.x + 2f, r.y + 2f, r.width, r.height), icon, iconStyle);
+        iconStyle.normal.textColor = State == StateKnocked ? new Color(0.8f, 0.85f, 1f)
+                                   : State == StateReport ? new Color(1f, 0.55f, 0.15f) : new Color(1f, 0.9f, 0.3f);
+        GUI.Label(r, icon, iconStyle);
     }
 
     private void OnDestroy()

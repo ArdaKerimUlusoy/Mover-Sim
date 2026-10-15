@@ -325,6 +325,19 @@ public class PushSystem : MonoBehaviour
                 NavMeshAgent agent = vm != null ? vm.ServerAgent((byte)id) : null;
                 if (agent == null || Vector3.Distance(from, agent.transform.position) > ServerRange) return;
                 hitPos = agent.transform.position;
+                // Seni gören / güvenliğe koşan ziyaretçi: tek itişte bayılır, şikayet edemez (savrulmaz, yere yığılır)
+                if (vm.ServerKnockOut((byte)id))
+                {
+                    serverCooldown[senderClient] = Time.time;
+                    NoiseSystem.Emit(hitPos, PushNoiseRadius * 0.6f);
+                    PlayerInventory kinv = client.PlayerObject.GetComponent<PlayerInventory>();
+                    if (kinv != null)
+                    {
+                        kinv.ServerPlaySound(SoundId.ItemThud, hitPos);
+                        kinv.ServerNotify("push.visitorko");
+                    }
+                    return;
+                }
                 AddShove(agent, dir);
                 break;
             }
@@ -504,7 +517,9 @@ public class PushSystem : MonoBehaviour
         }
         Rect r = new Rect(sp.x - 50f, Screen.height - sp.y - 10f, 100f, 20f);
         UIUtil.DrawRect(r, new Color(0f, 0f, 0f, 0.45f));
-        GUI.Label(r, Loc.T("push.hint"), hintStyle);
+        bool ko = current.kind == TargetKind.Visitor && VisitorManager.Instance != null && VisitorManager.Instance.IsWitness((byte)current.id);
+        if (ko) { r.x -= 20f; r.width += 40f; } // "[F] Bayılt" daha uzun
+        GUI.Label(r, Loc.T(ko ? "push.knockhint" : "push.hint"), hintStyle);
     }
 
     private GUIStyle knockShadow;
