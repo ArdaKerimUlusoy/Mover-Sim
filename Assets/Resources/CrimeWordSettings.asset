@@ -15,12 +15,12 @@ MonoBehaviour:
   balance: 0.5
   manualDetails: 0
   partialEnabled: 1
-  partialStableUpdates: 3
-  partialStableSeconds: 0.2
-  partialTailExtraSeconds: 0.175
+  partialStableUpdates: 2
+  partialStableSeconds: 0.15
+  partialTailExtraSeconds: 0.125
   partialRequireAgreement: 1
-  freeMinConf: 0.71500003
-  grammarMinConf: 0.825
+  freeMinConf: 0.675
+  grammarMinConf: 0.76
   shortWordExtraConf: 0.04
   minSimilarity: 0.65
   freeOverrideConf: 0.85
@@ -29,6 +29,22 @@ MonoBehaviour:
   echoRelativeLevel: 0.7
   languageArbitration: 0
   languageMargin: 0.15
+  soundAlikes:
+  - still=steal
+  - steel=steal
+  - steele=steal
+  - stil=steal
+  - stiil=steal
+  - stell=steal
+  - steals=steal
+  - stilling=stealing
+  - steeling=stealing
+  - swop=swap
+  - swopped=swapped
+  soundAlikesStandalone: 0
+  logRecognition: 0
   doubleCountSeconds: 0.8
   clientSendMinInterval: 0.25
   serverMinInterval: 0.5
+  serverVoiceRecentSeconds: 2.5
+  overheardRollInterval: 5

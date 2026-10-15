@@ -975,10 +975,9 @@ public partial class MuseumLayout : MonoBehaviour
             {
                 DoorEdge d = doors[di];
                 PRoom o = rooms[d.a == a.id ? d.b : d.a];
-                if (o.role != "security") neigh.Add(o);
+                if (o.role != "security" && o.role != "staff") neigh.Add(o); // Staff Only kilitli: güvenlik giremez
             }
-            if (staff != null && neigh.Contains(staff) && g == 1) b = staff;
-            else if (neigh.Count > 0) b = neigh[rng.Next(neigh.Count)];
+            if (neigh.Count > 0) b = neigh[rng.Next(neigh.Count)];
 
             var pts = new List<Vector2>();
             AddRoomLoop(a, pts, rng);

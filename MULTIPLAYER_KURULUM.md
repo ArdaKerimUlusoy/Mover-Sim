@@ -783,3 +783,41 @@ Ses paketinin biçimi değişti. Host ve oyuncuların hepsi aynı sürümü kull
 - `PlayerInteractor`
 - `LockpickSystem`
 - `Loc`
+
+## Ek 19: Güvenlik duyma mesafesi, saklanma, hapis kaçışı, Staff kapısı, takılma
+
+### Hırsızlık kelimesini duyma mesafesi
+- Mesafeler büyütüldü:
+  - Fısıltı: 3–6 m. Arkadaşının kulağına söylersen duyulmaz.
+  - Normal konuşma: yaklaşık 15 m.
+  - Bağırma: 22 m.
+- Arada duvar varsa bunun %40'ı geçerli.
+- Konuşanın 6 m yakınında bir eser varsa güvenlik o esere gider. Yoksa doğrudan **konuşanın yanına** gelir, böylece duyduğu görülür.
+
+### Kaçarken saklanma
+- Kovalanırken dolaba ya da perdeye saklanırsan güvenlik seni ancak **kendi gözüyle** saklanırken gördüyse bulur.
+- Kameranın görmesi ya da başka bir güvenliğin telsiz haberi artık saklandığın yeri ele vermez.
+
+### Hapisten kurtarma
+- Kurtarırken (E basılıyken ya da kapı açıldığı anda) bir **güvenlik ya da kamera seni görürse** alarm çalar ve kurtaran aranır.
+- Kimse görmeden açarsan **sessiz kaçış** olur: alarm çalmaz, polis peşinize düşmez.
+- Kapalı kameralar görmez.
+
+### Staff Only kapısı
+- Güvenlikler kapıyı hiçbir şekilde açamaz ve geçemez.
+- Kilitliyken kapı NavMesh'te yolu keser (`NavMeshObstacle`). Güvenliklerin devriyesinde Staff odası artık yok.
+- Maymuncukla açılınca yol açılır. Bundan sonra güvenlik seni kovalarken içeri girebilir.
+
+### Güvenliklerin yüz yüze takılması
+- Her güvenliğin yol verme önceliği farklı. Karşılaşınca biri yol veriyor.
+- Yürümesi gerekirken yaklaşık 1 sn yerinde sayan güvenlik yana çekilir.
+- Yine geçemezse devriyede sıradaki noktaya, incelemede bulunduğu yere geçer.
+
+### Değişen dosyalar
+- `CrimeTalk`
+- `GuardAI`
+- `JailCell`
+- `RoomCamera`
+- `StaffDoor`
+- `MuseumLayoutStaffDoor`
+- `MuseumLayout` (devriyeden Staff odası çıkarıldı)

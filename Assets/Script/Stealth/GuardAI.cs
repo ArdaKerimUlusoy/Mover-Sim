@@ -77,6 +77,12 @@ public class GuardAI : NetworkBehaviour
     // Kovalama / arama
     private float searchUntil = -1f;        // > şimdi: kaybettiği kişiyi arıyor (Investigate durumunda)
     private HidingSpot huntSpot;            // kovaladığı kişinin saklandığı dolap (gördüyse)
+    private float lastOwnSight = -100f;     // kovaladığı kişiyi KENDİ GÖZÜYLE en son ne zaman gördü (kamera / telsiz sayılmaz)
+
+    // Takılma: iki güvenlik yüz yüze gelip kilitlenirse yana çekilir, olmazsa başka noktaya gider
+    private float stuckTime;
+    private float sidestepUntil = -1f;
+    private Vector3 sidestepDir;
 
     // Ararken / incelerken yakındaki dolapları açıp bakar (içinde biri varsa yakalar)
     private HidingSpot closetTarget;
@@ -100,6 +106,10 @@ public class GuardAI : NetworkBehaviour
         agent.enabled = false; // NavMesh hazır olana kadar
         if (cone == null) cone = GetComponentInChildren<VisionConeVisual>();
         if (GetComponent<GuardLook>() == null) gameObject.AddComponent<GuardLook>(); // kapsül yerine üniformalı bekçi
+
+        // Karşılaşan iki güvenlik birbirine yol versin: her birinin önceliği farklı (eşit öncelikte ikisi de beklerdi)
+        agent.avoidancePriority = 20 + Mathf.Abs(name.GetHashCode() % 30);
+        agent.obstacleAvoidanceType = ObstacleAvoidanceType.HighQualityObstacleAvoidance;
     }
 
     public override void OnNetworkSpawn()
@@ -344,6 +354,7 @@ public class GuardAI : NetworkBehaviour
         }
         if (!agent.isOnNavMesh) return;
 
+        if (UpdateUnstuck()) return;
         OpenNearbyDoors();
         PlayerStealth seen = LookForPlayers();
         CheckForFakes();
@@ -513,12 +524,14 @@ public class GuardAI : NetworkBehaviour
             focus = seen;
             lastFocusSeen = Time.time;
         }
+        if (seen != null && seen == focus) lastOwnSight = Time.time; // kendi gözüyle gördü
         if (focus != null && (!focus.IsSpawned || focus.IsJailed)) { focus = null; huntSpot = null; }
 
-        // Gözünün önünde dolaba / perdeye saklandıysa: oraya gider, açar ve yakalar
+        // KENDİ GÖZÜNÜN önünde dolaba / perdeye saklandıysa: oraya gider, açar ve yakalar.
+        // Kamera ya da başka güvenliğin telsiz haberi sayılmaz: saklanırken sadece bu güvenliğin görüşü önemli.
         if (focus != null && focus.IsHidden)
         {
-            if (huntSpot == null && Time.time - lastFocusSeen < 2f) huntSpot = HidingSpot.FindOccupiedBy(focus);
+            if (huntSpot == null && Time.time - lastOwnSight < 1.2f) huntSpot = HidingSpot.FindOccupiedBy(focus);
             if (huntSpot != null)
             {
                 MoveTo(huntSpot.transform.position, chaseSpeed);
@@ -623,6 +636,71 @@ public class GuardAI : NetworkBehaviour
             hider.ServerCatch(); // dolapta saklanırken bulundu
         }
         lookAroundUntil = Time.time + 1.2f;
+    }
+
+    /// <summary>Sunucu: bu güvenlik oyuncuyu şu an kendi gözüyle görüyor mu? (Hapis kurtarma vb. için.)</summary>
+    public bool ServerCanSee(PlayerStealth p)
+    {
+        if (!IsServer || !Online || p == null || !p.IsSpawned) return false;
+        float range = viewRange * (p.IsCrouching ? 0.75f : 1f);
+        return Vision.CanSee(Eye, transform.forward, range, viewAngle, p);
+    }
+
+    /// <summary>
+    /// Yürümesi gerekirken ~1 sn yerinde saydıysa (çoğunlukla dar kapıda başka bir güvenlikle / ziyaretçiyle yüz yüze):
+    /// kısa bir an sağa çekilir; yine de ilerleyemezse devriyede sıradaki noktaya, incelemede bulunduğu yere geçer.
+    /// true: bu karede sadece yana çekiliyor (diğer işler bekler).
+    /// </summary>
+    private bool UpdateUnstuck()
+    {
+        if (Time.time < sidestepUntil)
+        {
+            agent.Move(sidestepDir * (1.6f * Time.deltaTime));
+            return true;
+        }
+
+        bool wantsToMove = agent.hasPath && !agent.pathPending && agent.remainingDistance > agent.stoppingDistance + 0.4f &&
+                           !agent.isStopped;
+        if (!wantsToMove || agent.velocity.sqrMagnitude > 0.09f) { stuckTime = 0f; return false; }
+
+        stuckTime += Time.deltaTime;
+        if (stuckTime < 0.9f) return false;
+
+        if (stuckTime < 2.6f)
+        {
+            // Yana çekil: sağ ya da sol (önünde kim varsa onun tersine), yürünebilir tarafa
+            Vector3 side = transform.right;
+            GuardAI other = NearestGuard(1.8f);
+            if (other != null && Vector3.Dot(other.transform.position - transform.position, side) > 0f) side = -side;
+            if (!NavMesh.SamplePosition(transform.position + side * 0.8f, out NavMeshHit h, 0.4f, NavMesh.AllAreas)) side = -side;
+            sidestepDir = side;
+            sidestepUntil = Time.time + 0.45f;
+            stuckTime = 1.7f; // bir kez daha denemeye vakit kalsın
+            return true;
+        }
+
+        // Hâlâ ilerleyemiyor: hedefi bırak
+        stuckTime = 0f;
+        if (state.Value == State.Patrol)
+        {
+            if (waypoints != null && waypoints.Length > 0) waypointIndex = (waypointIndex + 1) % waypoints.Length;
+            GoToWaypoint();
+        }
+        else if (state.Value == State.Investigate) { agent.ResetPath(); if (lookAroundUntil < 0f) lookAroundUntil = Time.time + 1f; }
+        return false;
+    }
+
+    private GuardAI NearestGuard(float within)
+    {
+        GuardAI best = null;
+        float bestD = within;
+        foreach (GuardAI g in SecurityManager.Guards)
+        {
+            if (g == null || g == this || !g.Online) continue;
+            float d = Vector3.Distance(g.transform.position, transform.position);
+            if (d < bestD) { bestD = d; best = g; }
+        }
+        return best;
     }
 
     /// <summary>Son görüldüğü yerin çevresinde (gittiği yöne ağırlıklı) yürünebilir rastgele bir nokta.</summary>

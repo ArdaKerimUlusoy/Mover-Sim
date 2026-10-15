@@ -3,8 +3,8 @@ using UnityEngine;
 
 /// <summary>
 /// Staff Only odasının kilitli kapısı (MuseumLayout her haritada kurar, ağ nesnesi yoktur).
-/// Durum MuseumSession.StaffDoorOpen'dan okunur (herkeste aynı). Kilitliyken oyuncu geçemez;
-/// yakındaki güvenlik için kanat görsel olarak açılır (güvenlikler NavMesh'te zaten geçer).
+/// Durum MuseumSession.StaffDoorOpen'dan okunur (herkeste aynı). Kilitliyken ne oyuncu ne güvenlik geçebilir
+/// (güvenlikler kapıyı açamaz; NavMeshObstacle yolu keser). Sadece maymuncukla açılır.
 /// Açma işi: LockpickSystem.
 /// </summary>
 public class StaffDoor : MonoBehaviour
@@ -126,9 +126,15 @@ public class StaffDoor : MonoBehaviour
     private void Refresh(bool snap)
     {
         bool unlocked = Unlocked;
-        bool wantOpen = unlocked || GuardNear();
+        bool wantOpen = unlocked; // güvenlikler kapıyı açamaz: sadece maymuncukla açılır
 
-        if (block != null && block.enabled == unlocked) block.enabled = !unlocked;
+        if (block != null && block.enabled == unlocked)
+        {
+            block.enabled = !unlocked;
+            // Kilitliyken güvenlikler de geçemez (NavMesh'te delik); açılınca yol açılır
+            UnityEngine.AI.NavMeshObstacle ob = block.GetComponent<UnityEngine.AI.NavMeshObstacle>();
+            if (ob != null) ob.enabled = !unlocked;
+        }
 
         if (wantOpen != lastWantOpen && !snap)
             GameAudio.PlayAt(wantOpen ? SoundId.DoorOpen : SoundId.DoorClose, Center, 0.6f);

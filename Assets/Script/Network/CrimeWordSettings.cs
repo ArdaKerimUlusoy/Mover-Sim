@@ -18,7 +18,7 @@ public class CrimeWordSettings : ScriptableObject
     // ---------------- Denge ----------------
     [Header("Denge (ana ayar)")]
     [Tooltip("0 = EN HIZLI / EN HASSAS: kelime ara sonuçta ilk göründüğü an algılanır, eşikler düşük (yanlış alarm riski yüksek).\n" +
-             "0.5 = önerilen: kelime ~0.2-0.4 sn kararlı görünmeli ve iki tanıyıcı (kelime listeli + serbest) uyuşmalı.\n" +
+             "0.5 = önerilen: kelime ~0.1-0.3 sn kararlı görünmeli ve iki tanıyıcı (kelime listeli + serbest) uyuşmalı.\n" +
              "1 = EN GÜVENLİ / EN GEÇ: ara sonuç kullanılmaz, sadece cümle bitince (~0.5-1 sn sonra) yüksek güvenli kesin sonuç.")]
     [Range(0f, 1f)] public float balance = 0.5f;
 
@@ -81,6 +81,44 @@ public class CrimeWordSettings : ScriptableObject
     [Tooltip("Dil hakemliği açıksa: diğer dilin ortalama güveni bu kadar yüksekse veto edilir.")]
     [Range(0f, 1f)] public float languageMargin = 0.15f;
 
+    // ---------------- Aksan (Denge'den bağımsız) ----------------
+    [Header("Aksan / sesteş kelimeler (Denge'den bağımsız)")]
+    [Tooltip("Serbest tanıyıcının aksan yüzünden yanlış yazdığı kelimeler: \"duyulan=yasaklı\" (ör. \"still=steal\").\n" +
+             "Kelime listeli tanıyıcı yasaklı kelimeyi duyup serbest tanıyıcı bunlardan birini yazdıysa ÇELİŞKİ SAYILMAZ, uyum sayılır.\n" +
+             "Ayrıca İngilizcede ünlüler (a e i o u y) aksanla çok kaydığı için ünsüz iskeleti aynı olan kelimeler de uyumlu sayılır " +
+             "(steal = still = steel = stil: hepsi \"stl\").\n" +
+             "Tanıyıcının ne yazdığını görmek için aşağıdaki 'Tanıma günlüğü'nü açın, kaçırılan kelimeyi buraya ekleyin.")]
+    public string[] soundAlikes =
+    {
+        "still=steal", "steel=steal", "steele=steal", "stil=steal", "stiil=steal", "stell=steal", "steals=steal",
+        "stilling=stealing", "steeling=stealing",
+        "swop=swap", "swopped=swapped",
+    };
+
+    [Tooltip("Kapalı (önerilen): yukarıdaki kelimeler TEK BAŞINA algılatmaz; sadece kelime listeli tanıyıcı yasaklı kelimeyi duyunca onu onaylar.\n" +
+             "Açık: serbest tanıyıcı \"still\" yazınca bile yasaklı sayılır (aksanlı oyuncuda en hassas hali; ama İngilizce konuşan biri " +
+             "\"still\" dediğinde de yakalanır).")]
+    public bool soundAlikesStandalone = false;
+
+    // ---------------- Ek yasaklı kelimeler ----------------
+    [Header("Ek yasaklı kelimeler (koda dokunmadan)")]
+    [Tooltip("Türkçe tanıyıcının yasaklı sayacağı ek kelimeler (tek kelime, küçük harf). 5+ harfliler kök gibi davranır: " +
+             "\"kaçır\" → kaçırdım, kaçıralım... Daha kısalar birebir eşleşir.\n" +
+             "Kelime listeli tanıyıcıya model YÜKLENİRKEN eklenir: değiştirince Play'i durdurup yeniden başlatın.")]
+    public string[] extraTurkishWords = { };
+
+    [Tooltip("İngilizce tanıyıcının yasaklı sayacağı ek kelimeler (tek kelime, küçük harf). 5+ harfliler kök gibi davranır: " +
+             "\"smuggle\" → smuggle, smuggled, smuggles. Daha kısalar birebir. Kelime listeli tanıyıcı yalnızca yazdığınız GERÇEK " +
+             "kelimeleri dinler, bu yüzden sık kullanılan biçimleri ayrı ayrı ekleyin (smuggle, smuggled, smuggling).\n" +
+             "Model yüklenirken eklenir: değiştirince Play'i yeniden başlatın. (change / replace zaten kodda var.)")]
+    public string[] extraEnglishWords = { };
+
+    // ---------------- Hata ayıklama ----------------
+    [Header("Hata ayıklama")]
+    [Tooltip("Açık: tanıyıcıların duyduğu her cümle, algılanan ve REDDEDİLEN kelimeler (nedeniyle) Console'a yazılır. " +
+             "\"steal\" dediğinde tanıyıcı ne anlıyor görmek için açın (oyun dağıtılırken kapatın).")]
+    public bool logRecognition = false;
+
     // ---------------- Tekrar / gönderim (Denge'den bağımsız) ----------------
     [Header("Tekrar ve gönderim (Denge'den bağımsız)")]
     [Tooltip("Çift sayım koruması (sn): AYNI söyleyişin hem ara hem kesin sonuçtan (ya da iki tanıyıcıdan) iki kez sayılmasını önler. " +
@@ -106,7 +144,7 @@ public class CrimeWordSettings : ScriptableObject
     /// <summary>İş parçacığı güvenli, değişmez anlık kopya (tanıma iş parçacığı bunu okur).</summary>
     public sealed class Values
     {
-        public bool partialEnabled, partialRequireAgreement, languageArbitration;
+        public bool partialEnabled, partialRequireAgreement, languageArbitration, logRecognition;
         public int partialStableUpdates;
         public float partialStableSeconds, partialTailExtraSeconds;
         public float freeMinConf, grammarMinConf, shortWordExtraConf, minSimilarity, freeOverrideConf;
@@ -118,13 +156,15 @@ public class CrimeWordSettings : ScriptableObject
     public static void DeriveFromBalance(float b, Values v)
     {
         b = Mathf.Clamp01(b);
+        // Anında algılama için bekleme süreleri kısaltıldı (0.5'te ~0.15 sn): kısa tek kelimelik cümlelerde ("çalıyorum.")
+        // ara sonuç kararlı sayılmadan cümle bitiyor ve kelime kaçıyordu. Yanlış alarmı asıl iki tanıyıcı uyumu önler.
         v.partialEnabled = b < 0.95f;
-        v.partialStableUpdates = Mathf.RoundToInt(Mathf.Lerp(1f, 5f, b));
-        v.partialStableSeconds = Mathf.Lerp(0f, 0.40f, b);
-        v.partialTailExtraSeconds = Mathf.Lerp(0f, 0.35f, b);
+        v.partialStableUpdates = Mathf.RoundToInt(Mathf.Lerp(1f, 4f, b));
+        v.partialStableSeconds = Mathf.Lerp(0f, 0.30f, b);
+        v.partialTailExtraSeconds = Mathf.Lerp(0f, 0.25f, b);
         v.partialRequireAgreement = b >= 0.4f;
-        v.freeMinConf = Mathf.Lerp(0.55f, 0.88f, b);
-        v.grammarMinConf = Mathf.Lerp(0.70f, 0.95f, b);
+        v.freeMinConf = Mathf.Lerp(0.50f, 0.85f, b);
+        v.grammarMinConf = Mathf.Lerp(0.60f, 0.92f, b);
         v.shortWordExtraConf = Mathf.Lerp(0f, 0.08f, b);
         v.minSimilarity = Mathf.Lerp(0.50f, 0.80f, b);
         v.freeOverrideConf = Mathf.Lerp(0.95f, 0.75f, b);
@@ -148,6 +188,7 @@ public class CrimeWordSettings : ScriptableObject
         if (!manualDetails) DeriveFromBalance(balance, v);
         v.languageArbitration = languageArbitration;
         v.languageMargin = languageMargin;
+        v.logRecognition = logRecognition;
         v.doubleCountSeconds = doubleCountSeconds;
         v.clientSendMinInterval = clientSendMinInterval;
         v.serverMinInterval = serverMinInterval;

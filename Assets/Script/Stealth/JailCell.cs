@@ -5,6 +5,7 @@ using UnityEngine;
 /// Müzenin hapsi (GDD Bölüm 6'nın basit hali): güvenliğe yakalanan oyuncu buraya kapatılır.
 ///  - Yakalanan oyuncunun çantasındaki orijinaller kaidelerine geri döner (PlayerStealth.ServerCatch).
 ///  - Hapisteki oyuncu parmaklıkların arkasında bekler; bir arkadaşı dışarıdan E basılı tutarak kurtarabilir.
+///    Kurtarırken bir güvenlik ya da kamera GÖRÜRSE alarm çalar ve kurtaran aranır; kimse görmezse sessiz kaçış (alarm yok).
 ///  - TEK KİŞİLİK oyunda süre dolunca kendiliğinden çıkar (oyun kilitlenmesin). Birden fazla oyuncu varken otomatik çıkış YOKTUR:
 ///    yalnızca arkadaşı kurtarabilir (hepsi yakalanırsa koşu biter: MuseumSession.ServerCheckAllCaught).
 /// Kurulum: hapis kapısı objesine NetworkObject + bu bileşen. Kapının "ileri" yönü hücrenin DIŞINA bakar.
@@ -23,6 +24,18 @@ public class JailCell : Interactable
     [SerializeField] private float attemptAlertCooldown = 4f;
 
     private float nextAttemptAlert;
+    private float rescueSeenAt = -100f; // kurtaran en son ne zaman güvenlik / kameraya görüldü (kurtarma sırasında)
+
+    /// <summary>Sunucu: bu oyuncuyu şu an bir güvenlik ya da kamera görüyor mu?</summary>
+    public static bool SeenBySecurity(PlayerStealth p)
+    {
+        if (p == null) return false;
+        foreach (GuardAI g in SecurityManager.Guards)
+            if (g != null && g.ServerCanSee(p)) return true;
+        foreach (RoomCamera c in RoomCamera.All)
+            if (c != null && c.ServerCanSee(p)) return true;
+        return false;
+    }
 
     private void OnEnable() => Instance = this;
     private void OnDisable() { if (Instance == this) Instance = null; }
@@ -66,9 +79,12 @@ public class JailCell : Interactable
     {
         if (!AnyPrisoner() || Time.time < nextAttemptAlert) return;
         if (!TryGetNearbyPlayer(rpcParams.Receive.SenderClientId, out NetworkObject playerObj, 2f)) return;
-        nextAttemptAlert = Time.time + attemptAlertCooldown;
 
         PlayerStealth rescuer = playerObj.GetComponent<PlayerStealth>();
+        // Kimse görmüyorsa kilidi sessizce kurcalar: güvenlikler gelmez, alarm yok
+        if (!SeenBySecurity(rescuer)) return;
+        rescueSeenAt = Time.time;
+        nextAttemptAlert = Time.time + attemptAlertCooldown;
         if (SecurityManager.Instance != null) SecurityManager.Instance.ServerReportJailbreakAttempt(transform.position, rescuer);
         PlayerNetworkSetup ps = playerObj.GetComponent<PlayerNetworkSetup>();
         if (ChatManager.Instance != null) ChatManager.Instance.ServerSystemMessage("jail.attempt", ps != null ? ps.PlayerName : "", "");
@@ -90,7 +106,11 @@ public class JailCell : Interactable
             ServerRelease(p); // hapisten çıkan normal ziyaretçiye döner (aranmaz, tanınmaz)
         }
 
-        // Hapisten kaçırma: alarm yeniden çalar, kurtaran da aranır
+        // Hapisten kaçırma: SADECE bir güvenlik ya da kamera gördüyse (şimdi ya da kilidi kurcalarken) alarm çalar ve kurtaran
+        // aranır. Kimse görmeden açtıysa sessiz kaçış: alarm yok, polis peşinize düşmez.
+        bool seen = SeenBySecurity(rescuerStealth) || Time.time - rescueSeenAt < rescueHoldSeconds + 1f;
+        rescueSeenAt = -100f;
+        if (!seen) return;
         if (rescuerStealth != null) rescuerStealth.ServerMarkOffender();
         if (SecurityManager.Instance != null) SecurityManager.Instance.ServerTriggerAlarm(transform.position, "alarm.jailbreak", rescuerStealth);
     }

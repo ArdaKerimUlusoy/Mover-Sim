@@ -5,8 +5,8 @@ using UnityEngine;
 /// MuseumLayout'un parçası: Staff Only odasının kapısına KİLİTLİ bir kapı kurar (her haritada tohumdan, ağ nesnesi yok).
 ///  - Kilitliyken oyuncular geçemez; garajdan maymuncuk alan oyuncu E'yi basılı tutup açar (LockpickSystem).
 ///  - Açılınca bütün görev boyunca açık kalır (durum MuseumSession'da, herkese eşitlenir).
-///  - Güvenlikler devriyede kapıyı kendileri açıp geçer (yalnızca görsel; oyuncular arkalarından geçemez).
-///  - NavMesh'e katılmaz: güvenliklerin yolu kesilmez.
+///  - Güvenlikler kapıyı HİÇBİR ŞEKİLDE açamaz / geçemez: kilitliyken NavMesh'te delik açar (NavMeshObstacle).
+///    Maymuncukla açılınca delik kalkar, güvenlikler de girebilir.
 ///  - Dışarıdan belli olsun diye: kırmızı tabela, yanıp sönen kırmızı lamba, yerde sarı-siyah şerit, üstünde "STAFF ONLY" yazısı.
 /// </summary>
 public partial class MuseumLayout
@@ -31,6 +31,13 @@ public partial class MuseumLayout
         block.transform.localPosition = new Vector3(0f, 1.4f, 0f);
         BoxCollider bc = block.AddComponent<BoxCollider>();
         bc.size = d.vertical ? new Vector3(0.16f, 2.8f, 2.4f) : new Vector3(2.4f, 2.8f, 0.16f);
+        // Kilitliyken güvenlikler de geçemez: NavMesh'te delik açar (açılınca StaffDoor kapatır)
+        UnityEngine.AI.NavMeshObstacle obstacle = block.AddComponent<UnityEngine.AI.NavMeshObstacle>();
+        obstacle.shape = UnityEngine.AI.NavMeshObstacleShape.Box;
+        obstacle.center = Vector3.zero;
+        obstacle.size = d.vertical ? new Vector3(0.4f, 2.8f, 2.6f) : new Vector3(2.6f, 2.8f, 0.4f);
+        obstacle.carving = true;
+        obstacle.carveOnlyStationary = false;
 
         // Menteşe kapının bir yanında; kanat menteşenin çocuğu
         Transform hinge = NewGroup(root, "StaffDoorHinge");

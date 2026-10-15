@@ -27,6 +27,9 @@ using UnityEngine.Networking;
 ///    güven eşikli sonuç (ilkinin kaçırdıklarını yakalar). Aynı söyleyiş iki kez sayılmaz (ReportGuard).
 ///  - Hız ↔ yanlış alarm dengesi: Assets/Resources/CrimeWordSettings.asset ("Denge" kaydırıcısı; Tools/Sahte Şaheser/Voice Filter Settings).
 ///  - Uzatılan kelimeler ("çaaaal", "hırsıııız", "steeeal") harf tekrarları sıkıştırılarak eşleşir.
+///  - AKSAN: Türk aksanıyla "steal" serbest tanıyıcıda "still/steel" çıkar. Kelime listeli tanıyıcı "steal" duyduysa bunlar
+///    çelişki değil ONAY sayılır (CrimeWordSettings.soundAlikes + İngilizcede ünsüz iskeleti: steal = still = "stl").
+///  - Sorun ayıklama: CrimeWordSettings > "Tanıma günlüğü" açılınca tanıyıcıların ne duyduğu ve neyi neden reddettiği Console'a yazılır.
 ///  - Algılanınca ekranda yazı çıkmaz; sadece sesli sohbetin alttaki kırmızı mikrofon kutusu yanar.
 ///  - Şu an yalnızca Windows'ta çalışır (Assets/Plugins/x86_64/libvosk.dll). Diğer sistemlerde sessizce kapalı kalır.
 /// Sahneye bir şey eklemeye gerek yok: oyun açılınca kendiliğinden oluşur.
@@ -87,6 +90,9 @@ public class VoiceKeywordListener : MonoBehaviour
         {
             "çal", "çalın", "çalar", "çalan", "çaldır", "çaldırdım", "çaldım", "çaldık", "çaldın", "çaldı", "çalalım",
             "çalacağım", "çalacağız", "çalıyorum", "çalıyoruz", "çalmak", "çalıp", "çalındı", "çalınmış", "çalıntı",
+            // Konuşma dili (günlükte görüldü: "çalıcam" → liste "çalacağız", serbest "çalı cam"); sözlükte olmayanı Vosk atlar
+            "çalıcam", "çalcam", "çalacam", "çalıcaz", "çalcaz", "çalacaz", "çalıcan", "çalıyom", "çalıyoz", "çalarım",
+            "çalarız", "çalsana", "çalsak", "çalmışım", "çalmıştık", "çalmaya", "çalmam",
             "hırsız", "hırsızlık", "soygun", "soyalım", "soyduk", "soydum", "değiştirdim", "değiştirdik", "değiştirelim",
             "değiştir", "değiştiriyorum", "sahte", "sahtesi", "aşırdım", "arakladım", "yürüttüm",
         },
@@ -94,6 +100,7 @@ public class VoiceKeywordListener : MonoBehaviour
         {
             "steal", "steals", "stealing", "stole", "stolen", "swap", "swapped", "swapping", "fake", "forgery", "forged",
             "heist", "rob", "robs", "robbed", "robbing", "robber", "robbery", "thief", "thieves", "loot", "looted", "looting",
+            "change", "changed", "changes", "changing", "replace", "replaced", "replacing",
         },
     };
 
@@ -101,6 +108,8 @@ public class VoiceKeywordListener : MonoBehaviour
     {
         var sb = new StringBuilder("[");
         foreach (string w in GrammarWords[lang]) sb.Append('"').Append(w).Append("\", ");
+        // CrimeWordSettings'teki ek kelimeler (model yüklenirken okunur: değiştirince Play'i yeniden başlatın)
+        foreach (string w in CrimeWords.ExtraGrammar(lang)) sb.Append('"').Append(w.Replace("\"", "")).Append("\", ");
         sb.Append("\"[unk]\"]");
         return sb.ToString();
     }
@@ -156,6 +165,7 @@ public class VoiceKeywordListener : MonoBehaviour
     {
         public VoskWord w;
         public bool grammar;    // kelime listeli tanıyıcıdan mı
+        public bool stretched;  // kelime belirgin şekilde uzatılarak söylendi ("çaaaaaal")
         public float level;     // kelime anındaki en yüksek ses seviyesi (-1 bilinmiyor)
     }
 
@@ -210,7 +220,7 @@ public class VoiceKeywordListener : MonoBehaviour
         streamingRoot = Path.Combine(Application.streamingAssetsPath, "Vosk");
         pluginDir = Path.Combine(Application.dataPath, "Plugins", "x86_64");
         for (int i = 0; i < 2; i++) langs[i] = new LangModel { name = ModelNames[i], index = i };
-        tuning = CrimeWordSettings.Active.Resolve();
+        RefreshTuning();
         VoiceChat.LocalSpeechFrame += OnSpeechFrame;
     }
 
@@ -308,8 +318,12 @@ public class VoiceKeywordListener : MonoBehaviour
         if (Time.unscaledTime >= nextTuningRefresh)
         {
             nextTuningRefresh = Time.unscaledTime + 0.5f;
-            tuning = CrimeWordSettings.Active.Resolve();
+            RefreshTuning();
         }
+
+        // Tanıma günlüğü (CrimeWordSettings.logRecognition): iş parçacığının yazdıkları ana iş parçacığında Console'a
+        int logged = 0;
+        while (logged++ < 50 && logQueue.TryDequeue(out string msg)) Debug.Log("[CrimeTalk] " + msg);
 
         if (!SupportedPlatform)
         {
@@ -352,6 +366,34 @@ public class VoiceKeywordListener : MonoBehaviour
                 SendToServer(nm, word, shownLoud);
             }
         }
+    }
+
+    private void RefreshTuning()
+    {
+        CrimeWordSettings s = CrimeWordSettings.Active;
+        tuning = s.Resolve();
+        CrimeWords.SetSoundAlikes(s.soundAlikes, s.soundAlikesStandalone);
+        CrimeWords.SetExtraWords(s.extraTurkishWords, s.extraEnglishWords);
+    }
+
+    // ---------------- Tanıma günlüğü ----------------
+    private readonly ConcurrentQueue<string> logQueue = new ConcurrentQueue<string>();
+
+    /// <summary>İş parçacığından: günlük açıksa Console'a yazılmak üzere sıraya alır.</summary>
+    private void Log(CrimeWordSettings.Values v, string msg)
+    {
+        if (v == null || !v.logRecognition || logQueue.Count > 200) return;
+        logQueue.Enqueue(msg);
+    }
+
+    private static string Lang(int i) => i == 0 ? "TR" : "EN";
+
+    private static string Describe(List<VoskWord> words)
+    {
+        if (words == null || words.Count == 0) return "(boş)";
+        var sb = new StringBuilder();
+        foreach (VoskWord w in words) sb.Append(w.word).Append('(').Append(w.conf.ToString("0.00")).Append(") ");
+        return sb.ToString().TrimEnd();
     }
 
     private static bool SupportedPlatform
@@ -963,8 +1005,14 @@ public class VoiceKeywordListener : MonoBehaviour
         if (grmText != null)
             foreach (PartialHit h in l.grmTrack.Update(grmTokens, l.index, now, v.partialStableUpdates, v.partialStableSeconds, v.partialTailExtraSeconds))
             {
-                // Kelime listeli tanıyıcı her sesi listeye zorlar: serbest tanıyıcı da benzer bir şey duymuş olmalı
-                if (!l.freeSeen.Agrees(h.word, now, AgreementWindow, v.minSimilarity, l.index, false)) continue;
+                // Kelime listeli tanıyıcı her sesi listeye zorlar: serbest tanıyıcı da benzer bir şey duymuş olmalı.
+                // İstisna, uzatma: kelime uzun süredir ara sonuçta ve serbest tanıyıcının şu anki ara metni sadece
+                // kelimenin parçalarından oluşuyor ("çaaaaaal" söylenirken serbest: "ça" / "çağ a")
+                bool agree = l.freeSeen.Agrees(h.word, now, AgreementWindow, v.minSimilarity, l.index, false);
+                if (!agree && freeText != null && now - h.firstSeen >= VoskJson.StretchSeconds(h.word) &&
+                    VoskJson.AllFragments(freeTokens, h.word))
+                    agree = true;
+                if (!agree) continue;
                 if (ReportPartial(l, h, KindGrammarPartial, now, v)) l.grmTrack.MarkFired(h.key);
             }
     }
@@ -1039,12 +1087,20 @@ public class VoiceKeywordListener : MonoBehaviour
     /// <summary>Kelime listeli tanıyıcının kesin sonucu: güveni yeterli suç kelimeleri doğrulama sırasına girer.</summary>
     private void TakeGrammar(LangModel l, IntPtr json, CrimeWordSettings.Values v)
     {
-        foreach (VoskWord w in SafeWords(json))
+        List<VoskWord> words = SafeWords(json);
+        bool any = false;
+        foreach (VoskWord w in words)
         {
             if (w.word == "[unk]" || !CrimeWords.IsCrimeWord(w.word, l.index)) continue;
-            if (w.conf < NeededConf(w, v.grammarMinConf, v)) continue;
-            AddPending(l, w, true, v);
+            any = true;
+            float need = NeededConf(w, v.grammarMinConf, v);
+            // Uzatılan kelimede Vosk'un güveni düşer (model "çaaaaaal" gibi bir ses görmemiştir): eşik biraz gevşer
+            bool stretched = w.end - w.start >= VoskJson.StretchSeconds(w.word);
+            if (stretched) need = Math.Max(0.4f, need - 0.15f);
+            if (w.conf < need) { Log(v, $"{Lang(l.index)} liste: '{w.word}' reddedildi (güven {w.conf:0.00} < {need:0.00}{(stretched ? ", uzatılmış" : "")})"); continue; }
+            AddPending(l, w, true, v, stretched);
         }
+        if (any) Log(v, $"{Lang(l.index)} liste duydu: {Describe(words)}");
     }
 
     /// <summary>Serbest tanıyıcının kesin sonucu: kelimeleri hatırla (doğrulama + dil hakemliği için), suç kelimelerini sıraya al.</summary>
@@ -1059,18 +1115,39 @@ public class VoiceKeywordListener : MonoBehaviour
             l.recentFree.Add(w);
             if (CrimeWords.IsCrimeWord(w.word, l.index) && w.conf >= NeededConf(w, v.freeMinConf, v)) AddPending(l, w, false, v);
         }
+        // Serbest tanıyıcı sözlüğünde olmayan kelimeyi BÖLEREK yazar ("çalıcam" → "çalı cam", "çaaal" → "ça al"): tek tek
+        // suç olmayan 2-3 ardışık kelime birleşince yasaklı köke çıkıyorsa o da aday (güveni en düşük parçanınki).
+        for (int a = 0; a < words.Count; a++)
+        {
+            if (CrimeWords.IsCrimeWord(words[a].word, l.index)) continue;
+            string joined = words[a].word;
+            float conf = words[a].conf;
+            for (int b = a + 1; b < words.Count && b < a + 4; b++)
+            {
+                if (CrimeWords.IsCrimeWord(words[b].word, l.index)) break;
+                joined += words[b].word;
+                conf = Math.Min(conf, words[b].conf);
+                if (!CrimeWords.IsCrimeWord(joined, l.index) || CrimeWords.IsKnownConfuser(joined, l.index)) continue;
+                var jw = new VoskWord { word = joined, conf = conf, start = words[a].start, end = words[b].end };
+                if (jw.conf >= NeededConf(jw, v.freeMinConf, v)) AddPending(l, jw, false, v);
+                else Log(v, $"{Lang(l.index)} serbest: birleşik '{joined}' reddedildi (güven {conf:0.00})");
+                a = b; // bu parçalar kullanıldı
+                break;
+            }
+        }
+        if (words.Count > 0) Log(v, $"{Lang(l.index)} serbest duydu: {Describe(words)}");
         l.freeSeen.Add(tokens, StreamNow, true); // kesinleşen kelimeler de ara sonuç uyumunda kullanılır
         l.freeCovered = l.fed / (double)VoiceChat.Rate;
         double keepFrom = l.freeCovered - 20.0;
         l.recentFree.RemoveAll(x => x.end < keepFrom);
     }
 
-    private void AddPending(LangModel l, VoskWord w, bool grammar, CrimeWordSettings.Values v)
+    private void AddPending(LangModel l, VoskWord w, bool grammar, CrimeWordSettings.Values v, bool stretched = false)
     {
         float level = WordLevel(l, w, out bool echo);
-        if (!LoudEnough(level, echo, v)) return;
+        if (!LoudEnough(level, echo, v)) { Log(v, $"{Lang(l.index)}: '{w.word}' reddedildi (ses çok kısık: {level:0.00}{(echo ? ", hoparlör sızıntısı" : "")})"); return; }
         if (l.pending.Count >= 32) l.pending.RemoveAt(0);
-        l.pending.Add(new Hit { w = w, grammar = grammar, level = level });
+        l.pending.Add(new Hit { w = w, grammar = grammar, level = level, stretched = stretched });
     }
 
     /// <summary>Bekleyen adaylar: kendi dilinin serbest tanıyıcısı (dil hakemliği açıksa diğer dilinki de) o anı kesinleştirince karar verilir.</summary>
@@ -1088,12 +1165,40 @@ public class VoiceKeywordListener : MonoBehaviour
             List<VoskWord> own = VoskJson.Overlapping(l.recentFree, h.w, 0.25);
             if (h.grammar)
             {
-                // Zorlanmış eşleşme mi? Serbest tanıyıcı aynı anda benzer bir şey duymuş olmalı
-                if (VoskJson.BestSimilarity(own, h.w.word, out VoskWord alt) < VoskJson.RequiredSimilarity(h.w.word, v.minSimilarity)) continue;
-                // Serbest tanıyıcı oraya EMİNCE başka (suç olmayan) bir kelime yazdıysa (aldım / sahne / çalışalım / face)
-                // kelime listeli tanıyıcı sesi zorlamıştır: sayma
-                if (alt.word != null && alt.conf >= v.freeOverrideConf && !CrimeWords.IsCrimeWord(alt.word, lang)
-                    && !CrimeWords.IsHomophone(alt.word)) continue;
+                // Zorlanmış eşleşme mi? Serbest tanıyıcı aynı anda benzer bir şey duymuş olmalı. Harf benzerliği YA DA aksan
+                // eşleşmesi yeterli: Türk aksanıyla "steal" serbest tanıyıcıda "still" çıkar (harf benzerliği 0.6, eşiğin altında
+                // kalıyordu ve kelime HİÇ algılanmıyordu).
+                float sim = VoskJson.BestSimilarity(own, h.w.word, out VoskWord alt);
+                // GÜÇLÜ uyum: serbest tanıyıcının 1-3 ardışık kelimesi birleşince aynı yasaklı köke çıkıyor ("çalı cam" →
+                // "çalıcam" = çal), aksan karşılığı ("still", "still all"), ya da uzatma/ğ farkı atılınca aynı ("çağ al" → "çal").
+                // Bu durumda veto da uygulanmaz (serbest tanıyıcı aslında aynı kelimeyi bölerek yazmış).
+                bool strong = VoskJson.StrongAgree(own, h.w.word, lang);
+                // Uzatılmış söyleyiş: serbest tanıyıcı ya hiçbir şey yazmaz ya da sadece kelimenin PARÇALARINI yazar
+                // ("ça", "a", "al", "çağ"): başka bir kelime (çay, kal, aldım) yazmadıysa kabul
+                if (!strong && h.stretched && VoskJson.AllFragments(own, h.w.word))
+                {
+                    strong = true;
+                    Log(v, $"{Lang(lang)} liste: '{h.w.word}' uzatılmış söyleyiş olarak kabul (serbest: {Describe(own)})");
+                }
+                if (!strong && sim < VoskJson.RequiredSimilarity(h.w.word, v.minSimilarity))
+                {
+                    Log(v, $"{Lang(lang)} liste: '{h.w.word}' reddedildi (serbest tanıyıcı başka şey duydu: {Describe(own)}). " +
+                           "Aksandan kaynaklanıyorsa CrimeWordSettings > Aksan listesine ekleyin.");
+                    continue;
+                }
+                // Serbest tanıyıcı oraya EMİNCE başka (suç olmayan) bir kelime yazdıysa (aldım / sahne / face) kelime listeli
+                // tanıyıcı sesi zorlamıştır: sayma. Aksan karşılığı ("still" ↔ steal) çelişki değildir. Bilinen karışıklar
+                // (çalışıyorum ↔ çalıyorum) için daha düşük güven de yeter.
+                if (!strong && alt.word != null && !CrimeWords.IsCrimeWord(alt.word, lang) && !CrimeWords.IsHomophone(alt.word)
+                    && !CrimeWords.SoundsLike(alt.word, h.w.word, lang))
+                {
+                    bool confuser = CrimeWords.IsKnownConfuser(alt.word, lang);
+                    if (alt.conf >= v.freeOverrideConf || (confuser && alt.conf >= 0.5f))
+                    {
+                        Log(v, $"{Lang(lang)} liste: '{h.w.word}' reddedildi (serbest tanıyıcı emin: '{alt.word}' {alt.conf:0.00})");
+                        continue;
+                    }
+                }
             }
             if (otherOn)
             {
@@ -1112,6 +1217,8 @@ public class VoiceKeywordListener : MonoBehaviour
     {
         if (!guard.TryAdd(lang, lang * 4 + kind, group, time, v.doubleCountSeconds, utteranceIndex)) return;
         found.Enqueue(new Found { word = word, level = level });
+        string how = kind == KindFreePartial ? "anında/serbest" : kind == KindGrammarPartial ? "anında/liste" : kind == KindFreeFinal ? "cümle sonu/serbest" : "cümle sonu/liste";
+        Log(v, $">>> ALGILANDI {Lang(lang)} '{word}' ({how}, ses {level:0.00})");
     }
 
     // =====================================================================
@@ -1335,6 +1442,8 @@ public static class CrimeWords
         R("thief", "thief"), R("thiev", "thief"),
         R("loot", "loot"),
         R("nicked", "nick"),
+        R("change", "change"), R("changing", "change"),   // change / changed / changes / changing (değiştir)
+        R("replac", "replace"),                           // replace / replaced / replacing
     };
 
     // İngilizce: tam kelime olarak sayılanlar (önek olsa robot/robe/robin/swapnil... karışırdı)
@@ -1349,7 +1458,9 @@ public static class CrimeWords
     public static bool IsCrimeWord(string raw, int lang) => GroupOf(raw, lang) != null;
 
     /// <summary>Kelimenin suç grubu ("cal", "steal" ...) ya da suç kelimesi değilse null.</summary>
-    public static string GroupOf(string raw, int lang)
+    public static string GroupOf(string raw, int lang) => GroupCore(raw, lang, alikesStandalone);
+
+    private static string GroupCore(string raw, int lang, bool useAlikes)
     {
         if (string.IsNullOrEmpty(raw)) return null;
         string w = Fold(raw.Trim(' ', '\t', ',', '.', '!', '?', '\'', '"'));
@@ -1368,7 +1479,143 @@ public static class CrimeWords
                 foreach (Root r in EnglishExact) if (RunMatch(runs, Runs(r.text), false)) return r.group;
             }
         }
+        // Ayarlardan eklenen kelimeler (5+ harf: kök gibi, ekleriyle de; daha kısa: birebir)
+        Root[][] ex = extra;
+        for (int li = 0; li < 2; li++)
+        {
+            if ((li == 0 && lang == 1) || (li == 1 && lang == 0)) continue;
+            foreach (Root r in ex[li])
+                if (RunMatch(runs, Runs(r.text), Squeeze(r.text).Length >= 5)) return r.group;
+        }
+        // İsteğe bağlı: aksan karşılıkları ("still") tek başına da yasaklı sayılır (CrimeWordSettings.soundAlikesStandalone)
+        if (useAlikes) return AlikeGroup(w);
         return null;
+    }
+
+    // ---------------- Ayarlardan eklenen yasaklı kelimeler ----------------
+    private static volatile Root[][] extra = { new Root[0], new Root[0] };
+    private static volatile string[][] extraGrammar = { new string[0], new string[0] };
+
+    /// <summary>CrimeWordSettings.extraTurkishWords / extraEnglishWords. Ana iş parçacığından çağrılır.</summary>
+    public static void SetExtraWords(string[] turkish, string[] english)
+    {
+        var roots = new Root[2][];
+        var gram = new string[2][];
+        string[][] src = { turkish ?? new string[0], english ?? new string[0] };
+        for (int li = 0; li < 2; li++)
+        {
+            var r = new List<Root>();
+            var g = new List<string>();
+            foreach (string raw in src[li])
+            {
+                if (string.IsNullOrEmpty(raw)) continue;
+                string t = raw.Trim();
+                string f = Fold(t);
+                if (f.Length < 3 || f.IndexOf(' ') >= 0) continue;
+                r.Add(R(f, f));
+                g.Add(li == 0 ? t.Replace('I', 'ı').Replace('İ', 'i').ToLowerInvariant() : t.ToLowerInvariant());
+            }
+            roots[li] = r.ToArray();
+            gram[li] = g.ToArray();
+        }
+        extra = roots;
+        extraGrammar = gram;
+    }
+
+    public static string[] ExtraGrammar(int lang) => extraGrammar[lang];
+
+    // ---------------- Aksan / sesteş eşleşme ----------------
+    // Anahtar: Squeeze(Fold(duyulan)), değer: yasaklı kelimenin grubu. Ana iş parçacığı referansı komple değiştirir
+    // (iş parçacığı eski ya da yeni sözlüğü görür, yarım sözlük görmez).
+    private static volatile Dictionary<string, string> alikes = new Dictionary<string, string>();
+    private static volatile bool alikesStandalone;
+
+    /// <summary>CrimeWordSettings.soundAlikes ("duyulan=yasaklı" satırları). Ana iş parçacığından çağrılır.</summary>
+    public static void SetSoundAlikes(string[] entries, bool standalone)
+    {
+        var d = new Dictionary<string, string>();
+        if (entries != null)
+        {
+            foreach (string e in entries)
+            {
+                if (string.IsNullOrEmpty(e)) continue;
+                int eq = e.IndexOf('=');
+                if (eq <= 0 || eq >= e.Length - 1) continue;
+                string heard = Squeeze(Fold(e.Substring(0, eq).Trim()));
+                string g = GroupOfNoAlike(e.Substring(eq + 1).Trim());
+                if (heard.Length < 3 || g == null) continue;
+                d[heard] = g;
+            }
+        }
+        alikes = d;
+        alikesStandalone = standalone;
+    }
+
+    private static string GroupOfNoAlike(string raw) => GroupCore(raw, -1, false);
+
+    /// <summary>Aksan listesi hariç, verilen dilde grubu (uyum kontrolleri için).</summary>
+    public static string GroupOfStrict(string raw, int lang) => GroupCore(raw, lang, false);
+
+    /// <summary>
+    /// Uzatmaya dayanıklı gevşek biçim: Türkçe sadeleştirme + "ğ" atılır (Türkçede ğ ünlüyü uzatır: uzatılmış "çaaal"ı
+    /// tanıyıcı "çağ al" yazar) + tekrarlar sıkıştırılır. "çağ al" → "cal", "çaa al" → "cal", "steeal" → "steal".
+    /// </summary>
+    public static string Loose(string raw)
+    {
+        if (string.IsNullOrEmpty(raw)) return "";
+        var sb = new StringBuilder(raw.Length);
+        foreach (char ch in raw) if (ch != 'ğ' && ch != 'Ğ' && ch != ' ' && ch != '\'') sb.Append(ch);
+        return Squeeze(Fold(sb.ToString()));
+    }
+
+    /// <summary>Kelime aksan listesinde varsa yasaklı grubu, yoksa null.</summary>
+    public static string AlikeGroup(string raw)
+    {
+        if (string.IsNullOrEmpty(raw)) return null;
+        Dictionary<string, string> d = alikes;
+        return d.TryGetValue(Squeeze(Fold(raw.Trim(' ', '\t', ',', '.', '!', '?', '\'', '"'))), out string g) ? g : null;
+    }
+
+    /// <summary>
+    /// Ünsüz iskeleti: ünlüler (a e i o u y; Türkçe harfler sadeleştirildikten sonra) atılır, tekrarlar sıkıştırılır.
+    /// steal / still / steel / stil → "stl". Aksanlı İngilizcede ünlüler kayar, ünsüzler genelde yerinde kalır.
+    /// </summary>
+    public static string Skeleton(string raw)
+    {
+        string f = Squeeze(Fold(raw ?? ""));
+        var sb = new StringBuilder(f.Length);
+        foreach (char ch in f) if ("aeiouy".IndexOf(ch) < 0 && char.IsLetter(ch)) sb.Append(ch);
+        return Squeeze(sb.ToString());
+    }
+
+    /// <summary>
+    /// Serbest tanıyıcının yazdığı "heard", kelime listeli tanıyıcının bulduğu yasaklı "target"ın aksanlı söylenişi olabilir mi:
+    /// aksan listesinde aynı gruba bağlıysa ya da (yalnızca İngilizce tanıyıcıda) ünsüz iskeletleri aynıysa (en az 3 ünsüz).
+    /// Türkçede kullanılmaz: Türkçe konuşan Türkçe kelimede ünlü kaydırmaz, iskelet eşleşmesi "sahte" ↔ "şahit" gibi yanlış alarma yol açardı.
+    /// </summary>
+    public static bool SoundsLike(string heard, string target, int lang)
+    {
+        if (string.IsNullOrEmpty(heard) || string.IsNullOrEmpty(target) || heard == "[unk]") return false;
+        string tg = GroupOfNoAlike(target);
+        if (tg == null) return false;
+        string ag = AlikeGroup(heard);
+        if (ag != null && ag == tg) return true;
+        if (lang == 1)
+        {
+            string st = Skeleton(target);
+            if (st.Length >= 3 && Skeleton(heard) == st) return true;
+        }
+        return false;
+    }
+
+    /// <summary>Bilinen karışık kelime mi (çalış*, çalgı, soyadı, stealth...): yasaklı kelimeye benzer ama değil.</summary>
+    public static bool IsKnownConfuser(string raw, int lang)
+    {
+        if (string.IsNullOrEmpty(raw)) return false;
+        Run[] runs = Runs(Fold(raw.Trim(' ', '\t', ',', '.', '!', '?', '\'', '"')));
+        if (lang != 1 && (AnyPrefix(runs, TurkishExclude) || AnyExact(runs, TurkishExcludeExact))) return true;
+        if (lang != 0 && AnyPrefix(runs, EnglishExclude)) return true;
+        return false;
     }
 
     // Sesçe suç kelimesiyle aynı olan, serbest tanıyıcının sık yazdığı kelimeler (steal ↔ steel): doğrulamada çelişki sayılmaz
@@ -1578,25 +1825,32 @@ public sealed class RecentTokens
         for (int a = 0; a < tokens.Length; a++)
         {
             if (tokens[a] == "[unk]") continue;
-            string joined = "";
-            for (int b = a; b < tokens.Length && b < a + (joins ? 3 : 1); b++)
+            string joined = "", joinedRaw = "";
+            for (int b = a; b < tokens.Length && b < a + (joins ? 5 : 1); b++)
             {
                 if (tokens[b] == "[unk]") break;
                 joined += CrimeWords.Fold(tokens[b]);
-                seen[joined] = now;
+                joinedRaw += tokens[b];
+                if (b < a + 3) seen[joined] = now;          // harf benzerliği için en fazla 3 kelime
+                loose[CrimeWords.Loose(joinedRaw)] = now;   // uzatma: "çağ al" / "ça a a al" → "cal" (5 kelimeye kadar)
             }
         }
-        if (seen.Count > 256) Purge(now, 3.0);
+        if (seen.Count > 256 || loose.Count > 256) Purge(now, 3.0);
     }
 
     /// <summary>Cümle bitti: önceki cümlenin kelimeleri yeni cümlenin adayını onaylamasın.</summary>
-    public void Clear() => seen.Clear();
+    public void Clear() { seen.Clear(); loose.Clear(); }
+
+    private readonly Dictionary<string, double> loose = new Dictionary<string, double>();
 
     private void Purge(double now, double maxAge)
     {
-        old.Clear();
-        foreach (KeyValuePair<string, double> kv in seen) if (now - kv.Value > maxAge) old.Add(kv.Key);
-        foreach (string k in old) seen.Remove(k);
+        foreach (Dictionary<string, double> d in new[] { seen, loose })
+        {
+            old.Clear();
+            foreach (KeyValuePair<string, double> kv in d) if (now - kv.Value > maxAge) old.Add(kv.Key);
+            foreach (string k in old) d.Remove(k);
+        }
     }
 
     /// <summary>Son "window" sn içinde hedefe benzer (≥ minSim) bir şey duyuldu mu. crimeOnly: sadece suç kelimeleri sayılır.</summary>
@@ -1614,7 +1868,20 @@ public sealed class RecentTokens
                 if (g == null) continue;
                 if (g == tg) return true;
             }
+            // Bilinen karışık kelime ("çalışıyorum") kelime listelinin "çalıyorum"unu ONAYLAMAZ (harfçe benzese de)
+            else if (CrimeWords.IsKnownConfuser(kv.Key, lang)) continue;
+            // Bölünmüş kelime: "çalı"+"cam" = "çalıcam" → kelime listelinin "çalacağız"ı ile aynı kök (cal)
+            else if (tg != null && CrimeWords.GroupOfStrict(kv.Key, lang) == tg) return true;
             if (VoskJson.Similarity(kv.Key, t) >= minSim) return true;
+            // Aksan: serbest tanıyıcı "still" (ya da uzatınca "still all") yazdı, kelime listeli "steal" duydu → uyumlu
+            if (!crimeOnly && CrimeWords.SoundsLike(kv.Key, target, lang)) return true;
+        }
+        // Uzatma: gevşek biçim birebir aynı ("çağ al" ↔ çal, "steeal" ↔ steal)
+        if (!crimeOnly)
+        {
+            string tl = CrimeWords.Loose(target);
+            foreach (KeyValuePair<string, double> kv in loose)
+                if (now - kv.Value <= window && kv.Key == tl) return true;
         }
         return false;
     }
@@ -1788,6 +2055,65 @@ public static class VoskJson
             if (w.start < target.end + pad && w.end > target.start - pad && w.word != "[unk]") res.Add(w);
         res.Sort((a, b) => a.start.CompareTo(b.start));
         return res;
+    }
+
+    /// <summary>
+    /// Güçlü uyum: serbest tanıyıcının 1-3 ardışık kelimesi (birleşik) kelime listelinin bulduğu "target" ile
+    ///  (a) aynı yasaklı köke çıkıyor ("çalı"+"cam" = çalıcam ↔ çalacağız, ikisi de "cal"),
+    ///  (b) aksan karşılığı ("still", "still"+"all" ↔ steal),
+    ///  (c) gevşek biçimi birebir aynı (uzatma: "çağ"+"al" ↔ çal, "steeal" ↔ steal).
+    /// Bilinen karışık kelimeler (çalışıyorum, stealth) sayılmaz.
+    /// </summary>
+    public static bool StrongAgree(List<VoskWord> free, string target, int lang)
+    {
+        string tg = CrimeWords.GroupOfStrict(target, lang);
+        if (tg == null) return false;
+        string tl = CrimeWords.Loose(target);
+        for (int a = 0; a < free.Count; a++)
+        {
+            string joined = "";
+            for (int b = a; b < free.Count && b < a + 5; b++)
+            {
+                if (free[b].word == "[unk]") break;
+                joined += free[b].word;
+                if (CrimeWords.IsKnownConfuser(joined, lang)) continue;
+                if (CrimeWords.GroupOfStrict(joined, lang) == tg) return true;
+                if (CrimeWords.SoundsLike(joined, target, lang)) return true;
+                if (CrimeWords.Loose(joined) == tl) return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>Bu kelime ne kadar uzun sürerse "uzatılmış" sayılır (sn): "çal" ≥ 0.6, "çalıyorum" ≥ 1.35.</summary>
+    public static double StretchSeconds(string target) =>
+        Math.Max(0.6, 0.15 * CrimeWords.Squeeze(CrimeWords.Fold(target ?? "")).Length);
+
+    /// <summary>
+    /// "word", "target"ın uzatılırken bölünmüş bir PARÇASI olabilir mi: gevşek biçiminin (ğ atılmış, tekrarlar sıkışmış)
+    /// her harfi hedefte var ve hedeften uzun değil. "ça", "a", "al", "çağ", "aa" → çal'ın parçası; "çay", "kal", "aldım" değil.
+    /// </summary>
+    public static bool IsFragmentOf(string word, string target)
+    {
+        if (string.IsNullOrEmpty(word) || word == "[unk]") return true;
+        string w = CrimeWords.Loose(word), t = CrimeWords.Loose(target);
+        if (w.Length == 0) return true;
+        if (w.Length > t.Length) return false;
+        foreach (char ch in w) if (t.IndexOf(ch) < 0) return false;
+        return true;
+    }
+
+    public static bool AllFragments(List<VoskWord> free, string target)
+    {
+        foreach (VoskWord w in free) if (!IsFragmentOf(w.word, target)) return false;
+        return true;
+    }
+
+    public static bool AllFragments(string[] tokens, string target)
+    {
+        if (tokens == null) return true;
+        foreach (string t in tokens) if (!IsFragmentOf(t, target)) return false;
+        return true;
     }
 
     public static float MeanConf(List<VoskWord> words)

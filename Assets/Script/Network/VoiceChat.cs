@@ -506,6 +506,9 @@ public class VoiceChat : MonoBehaviour
             // Konuşma yeni başladıysa bir önceki 40 ms'yi de gönder: ilk hece kesilmez
             if (!wasTx && hasPrevFrame)
             {
+                // Kelime algılayıcıya (sadece ona, ağa değil) daha uzun ön kayıt: "s", "ç", "ş" gibi yumuşak başlangıçlar
+                // eşiğin altında kalıyor, 40 ms'lik ön kayıt yetmiyordu ("steal" → "teal/still", "çal" → "al").
+                FeedListenerPreRoll();
                 System.Array.Copy(frame, swapFrame, FrameSamples);
                 System.Array.Copy(prevFrame, frame, FrameSamples);
                 SendFrame();
@@ -514,8 +517,36 @@ public class VoiceChat : MonoBehaviour
             SendFrame();
         }
         wasTx = tx;
+        if (tx) preRollCount = 0; // konuşma sürerken ön kayıt tutulmaz (bir sonraki başlangıçta eski konuşma tekrar verilmesin)
+        else PushPreRoll();
         System.Array.Copy(frame, prevFrame, FrameSamples);
         hasPrevFrame = true;
+    }
+
+    // ---------------- Kelime algılayıcı ön kaydı ----------------
+    private const int ListenerPreRollFrames = 6; // 6 × 40 ms = 240 ms (en yenisi zaten prevFrame olarak gönderilir)
+    private readonly float[][] preRoll = new float[ListenerPreRollFrames][];
+    private int preRollHead, preRollCount;
+
+    private void PushPreRoll()
+    {
+        if (preRoll[preRollHead] == null) preRoll[preRollHead] = new float[FrameSamples];
+        System.Array.Copy(frame, preRoll[preRollHead], FrameSamples);
+        preRollHead = (preRollHead + 1) % ListenerPreRollFrames;
+        if (preRollCount < ListenerPreRollFrames) preRollCount++;
+    }
+
+    /// <summary>Konuşma başlarken: ön kayıttaki (prevFrame hariç) eski paketleri eskiden yeniye yalnızca LocalSpeechFrame'e verir.</summary>
+    private void FeedListenerPreRoll()
+    {
+        if (LocalSpeechFrame == null) { preRollCount = 0; return; }
+        // En yeni kayıt = prevFrame (hemen ardından SendFrame ile zaten gidiyor): onu atla
+        for (int n = preRollCount - 1; n >= 1; n--)
+        {
+            int k = (preRollHead - 1 - n + ListenerPreRollFrames * 2) % ListenerPreRollFrames;
+            LocalSpeechFrame(preRoll[k], FrameSamples);
+        }
+        preRollCount = 0;
     }
 
     // =====================================================================

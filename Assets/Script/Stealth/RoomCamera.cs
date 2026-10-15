@@ -27,6 +27,19 @@ public class RoomCamera : MonoBehaviour
     private bool shownOnline = true;
     private Material bodyMat, lensMat;
 
+    /// <summary>Sahnedeki bütün oda kameraları (hapis kurtarma gibi "biri gördü mü?" kontrolleri için).</summary>
+    public static readonly System.Collections.Generic.List<RoomCamera> All = new System.Collections.Generic.List<RoomCamera>();
+    private void OnEnable() { if (!All.Contains(this)) All.Add(this); }
+    private void OnDisable() => All.Remove(this);
+
+    /// <summary>Sunucu: bu kamera oyuncuyu şu an görüyor mu? (Kapalıysa / bu görevde yoksa görmez.)</summary>
+    public bool ServerCanSee(PlayerStealth p)
+    {
+        if (p == null || !p.IsSpawned || !MuseumSession.IsLevelActive(requiredLevel)) return false;
+        if (SecurityManager.Instance != null && SecurityManager.Instance.CamerasDisabled) return false;
+        return Vision.CanSee(transform.position, Forward, viewRange, viewAngle, p);
+    }
+
     /// <summary>Kamerayı kurar: duvara takılı kol + dönen kafa + yerdeki görüş konisi.</summary>
     public static RoomCamera Create(Transform parent, string name, Vector3 localPos, float yaw, int level, float range, Color bodyColor)
     {
