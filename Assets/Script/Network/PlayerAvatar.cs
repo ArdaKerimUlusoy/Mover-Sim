@@ -33,6 +33,9 @@ public class PlayerAvatar : MonoBehaviour
     private float lastY;
     private bool ownerApplied;
 
+    /// <summary>Kafa (kayıt kamerasının ışığı buraya takılır).</summary>
+    public Transform HeadBone => head;
+
     private void Awake()
     {
         netSetup = GetComponent<PlayerNetworkSetup>();

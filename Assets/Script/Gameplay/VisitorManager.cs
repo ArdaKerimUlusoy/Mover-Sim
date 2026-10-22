@@ -39,6 +39,7 @@ public class VisitorManager : MonoBehaviour
         public PlayerStealth culprit;
         public Vector3 crimePos;
         public GuardAI targetGuard;
+        public bool recordReport; // suç değil: uzun süre kayıt yapan birinin kırmızı ışığını gördü
         // istemci: hedef konum
         public Vector3 netPos;
         public float netYaw;
@@ -200,6 +201,8 @@ public class VisitorManager : MonoBehaviour
             {
                 v.nextSight = now + 0.25f;
                 PlayerStealth seen = SeeCrime(v);
+                v.recordReport = false;
+                if (seen == null && (seen = SeeRecorder(v)) != null) v.recordReport = true; // kayıt ışığını gördü
                 if (seen != null && (sm == null || !sm.AlarmActive))
                 {
                     v.mode = Mode.Witness;
@@ -285,6 +288,15 @@ public class VisitorManager : MonoBehaviour
         SecurityManager sm = SecurityManager.Instance;
         if (sm == null || sm.AlarmActive) return;
         PlayerStealth culprit = v.culprit != null && v.culprit.IsSpawned && !v.culprit.IsJailed ? v.culprit : null;
+        if (v.recordReport)
+        {
+            // "Şu adam her şeyi kaydediyor!": alarm yok; şüphesi artar, güvenlik bakmaya gelir
+            if (culprit == null) return;
+            culprit.ServerAddSuspicion(0.35f);
+            if (v.targetGuard != null && v.targetGuard.Online) v.targetGuard.ServerInvestigate(culprit.transform.position, false);
+            else sm.ServerReportSighting(culprit.transform.position);
+            return;
+        }
         sm.ServerTriggerAlarm(culprit != null ? culprit.transform.position : v.crimePos, "alarm.witness", culprit);
     }
 
@@ -312,6 +324,18 @@ public class VisitorManager : MonoBehaviour
         {
             if (p == null || !p.IsSpawned || !p.IsDoingCrime || p.IsHidden || p.IsJailed) continue;
             if (Vision.CanSee(eye, v.t.forward, SightRange, SightAngle, p)) return p;
+        }
+        return null;
+    }
+
+    /// <summary>Uzun süredir (göze batacak kadar) kayıt yapan, kırmızı kayıt ışığı yanan biri görüş alanında mı?</summary>
+    private static PlayerStealth SeeRecorder(Visitor v)
+    {
+        Vector3 eye = v.t.position + Vector3.up * 1.6f;
+        foreach (PlayerStealth p in PlayerStealth.All)
+        {
+            if (p == null || !p.IsSpawned || !p.IsRecordingConspicuous || p.IsHidden || p.IsJailed) continue;
+            if (Vision.CanSee(eye, v.t.forward, SightRange * 0.8f, SightAngle, p)) return p;
         }
         return null;
     }

@@ -4,7 +4,8 @@ using UnityEngine.InputSystem;
 
 /// <summary>
 /// Tezgahta tablo sahtesi çizmek için ekran tuvali.
-/// Solda tuval (üstünde saydam yeşil kontur rehberi), sağda orijinal tablo referansı.
+/// Solda tuval (üstünde saydam yeşil kontur rehberi), sağda KAMYON EKRANI: orijinal artık gösterilmez,
+/// müzedeki arkadaşın kayıt kamerasından gelen canlı yayına bakarak çizersin (LiveFeed). En solda kat planı.
 ///   Sol tık sürükle : fırça
 ///   Shift + sol tık : kova (alanı doldur)
 ///   Tekerlek        : fırça boyutu
@@ -22,6 +23,8 @@ public class CanvasPainter
     public int RegionsTotal { get; private set; }
     public bool ShowGuide = true;
     public int BrushSize = 5;
+    /// <summary>true: orijinal yerine canlı yayın (kamyon ekranı) gösterilir.</summary>
+    public bool UseLiveFeed = true;
     public int PaletteIndex { get; private set; }
 
     private readonly Texture2D reference;
@@ -85,7 +88,7 @@ public class CanvasPainter
         float availW = Screen.width - 60f;
         float ch = Mathf.Min(Screen.height * 0.6f, availW * 0.66f * H / W);
         float cw = ch * W / H;
-        float rw = cw * 0.42f, rh = rw * H / W;
+        float rw = cw * (UseLiveFeed ? 0.55f : 0.42f), rh = rw * H / W;
         float total = cw + 28f + rw;
         float x0 = (Screen.width - total) * 0.5f;
         float y0 = Screen.height * 0.17f;
@@ -96,6 +99,7 @@ public class CanvasPainter
     public void Tick(Mouse mouse, Keyboard kb)
     {
         Layout();
+        if (UseLiveFeed) LiveFeed.Request();
         if (kb != null)
         {
             for (int i = 0; i < palette.Length && i < 9; i++)
@@ -249,11 +253,25 @@ public class CanvasPainter
         GUI.DrawTexture(canvasRect, canvas, ScaleMode.StretchToFill, false);
         if (ShowGuide) GUI.DrawTexture(canvasRect, guide, ScaleMode.StretchToFill, true);
 
-        // Referans
-        GUI.Label(new Rect(refRect.x, refRect.y - 28, refRect.width, 24), Loc.T("bench.original"), titleStyle);
-        Rect rframe = new Rect(refRect.x - 6, refRect.y - 6, refRect.width + 12, refRect.height + 12);
-        GUI.DrawTexture(rframe, Texture2D.whiteTexture, ScaleMode.StretchToFill, false, 0, new Color(0.55f, 0.38f, 0.12f), 0, 3);
-        GUI.DrawTexture(refRect, reference, ScaleMode.StretchToFill, false);
+        // Referans: kamyon ekranı (canlı yayın) — ya da eski usul orijinal
+        if (UseLiveFeed)
+        {
+            LiveFeed.Draw(refRect);
+            // Solda boş yer varsa kat planı
+            float planW = canvasRect.x - 46f;
+            if (planW >= 180f)
+            {
+                float planH = Mathf.Min(planW * 0.72f, canvasRect.height);
+                FloorPlanUI.Draw(new Rect(16f, canvasRect.y, planW, planH), planW >= 300f);
+            }
+        }
+        else
+        {
+            GUI.Label(new Rect(refRect.x, refRect.y - 28, refRect.width, 24), Loc.T("bench.original"), titleStyle);
+            Rect rframe = new Rect(refRect.x - 6, refRect.y - 6, refRect.width + 12, refRect.height + 12);
+            GUI.DrawTexture(rframe, Texture2D.whiteTexture, ScaleMode.StretchToFill, false, 0, new Color(0.55f, 0.38f, 0.12f), 0, 3);
+            GUI.DrawTexture(refRect, reference, ScaleMode.StretchToFill, false);
+        }
 
         // Palet
         float by = refRect.yMax + 24;

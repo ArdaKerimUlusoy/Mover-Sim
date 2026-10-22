@@ -601,7 +601,7 @@ public class GuardAI : NetworkBehaviour
         float bestD = ClosetSearchRange;
         foreach (HidingSpot h in HidingSpot.All)
         {
-            if (h == null || !h.IsSpawned || !h.gameObject.activeInHierarchy || checkedClosets.Contains(h)) continue;
+            if (h == null || !h.IsSpawned || !h.gameObject.activeInHierarchy || !h.IsPainted || checkedClosets.Contains(h)) continue;
             float d = Vector3.Distance(transform.position, h.transform.position);
             if (d < bestD) { bestD = d; best = h; }
         }

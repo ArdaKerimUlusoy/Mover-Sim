@@ -13,6 +13,10 @@ public class BriefingTerminal : Interactable
 {
     [SerializeField] private float hologramHeight = 0.35f;
 
+    /// <summary>Brifingde eserlerin görünüşü (dönen hologram, resimler) gösterilsin mi? Kapalı: kamyondaki kişi
+    /// orijinali yalnızca müzedeki arkadaşının canlı yayınından görür (LiveFeed). Adlar / değerler / plan görünür.</summary>
+    public static readonly bool ShowOriginals = false;
+
     private GameObject hologram;
     private int builtVersion = -1;
     private int holoIndex;
@@ -31,6 +35,12 @@ public class BriefingTerminal : Interactable
     {
         MuseumSession ms = MuseumSession.Instance;
         if (ms == null || !ms.Ready) return;
+
+        if (!ShowOriginals)
+        {
+            if (hologram != null) { Destroy(hologram); hologram = null; }
+            return;
+        }
 
         if (builtVersion != MuseumSession.LookVersion)
         {
@@ -189,8 +199,16 @@ public class BriefingUI : MonoBehaviour
 
             GUILayout.BeginHorizontal(UIUtil.BoxStyle);
             Rect img = GUILayoutUtility.GetRect(72f, 72f, GUILayout.Width(kind == ArtKind.Painting ? 96f : 72f), GUILayout.Height(72f));
-            Texture2D iconTex = kind != ArtKind.None ? IconFor(ms, d, kind) : d.Artwork.icon;
-            if (iconTex != null) GUI.DrawTexture(img, iconTex, ScaleMode.ScaleToFit);
+            if (BriefingTerminal.ShowOriginals || kind == ArtKind.None)
+            {
+                Texture2D iconTex = kind != ArtKind.None ? IconFor(ms, d, kind) : d.Artwork.icon;
+                if (iconTex != null) GUI.DrawTexture(img, iconTex, ScaleMode.ScaleToFit);
+            }
+            else
+            {
+                UIUtil.DrawRect(img, new Color(0.15f, 0.17f, 0.2f));
+                GUI.Label(img, "?", UIUtil.TitleStyle); // görünüşü canlı yayından öğrenilir
+            }
 
             GUILayout.BeginVertical();
             GUILayout.Label(ms.ArtworkName(d), UIUtil.RowStyle);

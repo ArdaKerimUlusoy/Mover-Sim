@@ -37,6 +37,35 @@ public class SecurityManager : NetworkBehaviour
         if (ChatManager.Instance != null) ChatManager.Instance.ServerSystemMessage("console.used", who, Mathf.RoundToInt(seconds).ToString());
     }
 
+    // ---------------- Boya spreyiyle kör edilen oda kameraları ----------------
+    // Oda kameraları ağ nesnesi değil (herkes aynı adla kurar): adı + sunucu saatine göre bitiş anı herkese RPC ile gider.
+    private readonly Dictionary<string, double> blindedCameras = new Dictionary<string, double>();
+
+    /// <summary>Bu oda kamerasının lensi boyalı mı? (Herkeste aynı.)</summary>
+    public bool IsCameraBlinded(string cameraName) =>
+        IsSpawned && cameraName != null && blindedCameras.TryGetValue(cameraName, out double until) && Now < until;
+
+    public float CameraBlindRemaining(string cameraName) =>
+        IsSpawned && cameraName != null && blindedCameras.TryGetValue(cameraName, out double until) ? Mathf.Max(0f, (float)(until - Now)) : 0f;
+
+    /// <summary>Sunucu: kameranın lensine boya sıkıldı, bir süre kör.</summary>
+    public void ServerBlindCamera(string cameraName, float seconds, string who)
+    {
+        if (!IsServer || string.IsNullOrEmpty(cameraName)) return;
+        CameraBlindedRpc(cameraName, Now + seconds);
+    }
+
+    [Rpc(SendTo.Everyone)]
+    private void CameraBlindedRpc(string cameraName, double until)
+    {
+        blindedCameras[cameraName] = until;
+        RoomCamera cam = RoomCamera.Find(cameraName);
+        if (cam != null) GameAudio.PlayAt(SoundId.UiClick, cam.transform.position, 0.8f);
+    }
+
+    [Rpc(SendTo.Everyone)]
+    private void ClearBlindedRpc() => blindedCameras.Clear();
+
     private float nextSirenTime;
 
     public bool AlarmActive => alarmActive.Value;
@@ -134,6 +163,7 @@ public class SecurityManager : NetworkBehaviour
         alarmEndsAt.Value = 0;
         camerasOffUntil.Value = 0;
         consoleReadyAt.Value = 0;
+        ClearBlindedRpc(); // yeni müzede kameraların lensleri temiz
         foreach (PlayerStealth p in PlayerStealth.All) if (p != null && p.IsSpawned) p.ServerClearHeat();
         foreach (GuardAI g in Guards) if (g != null) g.ServerResetForLayout();
     }

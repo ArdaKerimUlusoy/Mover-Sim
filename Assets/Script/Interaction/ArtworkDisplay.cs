@@ -97,6 +97,8 @@ public class ArtworkDisplay : Interactable
 
     private void Update()
     {
+        if (IsServer && IsSpawned) ServerTickBadFake();
+
         // Verisi henüz gelmemiş sahte: ara ara yeniden dene
         if (visualPending && IsSpawned && Time.frameCount % 30 == 0 && ForgeryRegistry.TryGet(leftForgeryId.Value, out _)) ForceRefreshVisual();
     }
@@ -113,6 +115,7 @@ public class ArtworkDisplay : Interactable
     {
         if (!IsServer) return;
         swapped.Value = false;
+        badFakeAlarmAt = -1f;
         leftSimilarity.Value = InventorySlot.NoSimilarity;
         leftForgeryId.Value = 0;
         if (ItemDatabase.Instance != null) shownItem.Value = ItemDatabase.Instance.IndexOf(artwork);
@@ -127,7 +130,30 @@ public class ArtworkDisplay : Interactable
     }
 
     /// <summary>Ekranda görünen ad: temalı müzede vazo/tablonun kendi adı.</summary>
-    private string ShownName => MuseumSession.Instance != null ? MuseumSession.Instance.ArtworkName(this) : artwork.DisplayName;
+    private string ShownName => ArtNames.MuseumName(this); // müzede: bazı eserlerin tabelası soluk (tam ad kamyondaki planda)
+
+    // ---------------- Kalitesiz sahte: birkaç saniye sonra fark edilir ----------------
+    /// <summary>Bu benzerliğin altındaki sahteler değiştirildikten birkaç sn sonra NPC'lerce fark edilir, alarm çalar.</summary>
+    public const byte BadFakeThreshold = 60;
+    private float badFakeAlarmAt = -1f;
+    private ulong badFakeCulprit = ulong.MaxValue;
+
+    private void ServerTickBadFake()
+    {
+        if (badFakeAlarmAt < 0f || Time.time < badFakeAlarmAt) return;
+        badFakeAlarmAt = -1f;
+        if (!swapped.Value || leftSimilarity.Value >= BadFakeThreshold) return; // orijinal geri kondu / iyi sahte
+        SecurityManager sm = SecurityManager.Instance;
+        if (sm == null) return;
+
+        PlayerStealth culprit = null;
+        foreach (PlayerStealth p in PlayerStealth.All)
+            if (p != null && p.IsSpawned && p.OwnerClientId == badFakeCulprit && !p.IsJailed) { culprit = p; break; }
+
+        if (MuseumSession.Instance != null && MuseumSession.Instance.SequenceActive) return;
+        if (culprit != null && (TruckZone.Instance != null && TruckZone.Instance.Contains(culprit.transform.position))) culprit = null; // kamyona kaçtı: kimse aranmaz
+        sm.ServerTriggerAlarm(transform.position, "alarm.badfake", culprit);
+    }
 
     // ---------------- Etkileşim ----------------
 
@@ -190,6 +216,14 @@ public class ArtworkDisplay : Interactable
         inv.ServerPlaySound(SoundId.Swap, transform.position);
         inv.ServerNotify("display.done", artwork);
         NoiseSystem.Emit(transform.position, swapNoiseRadius);
+
+        // %60 altı kalitesiz sahte: ziyaretçiler / görevliler birkaç saniye içinde fark eder → alarm (kaçış zorlaşır)
+        if (sim < BadFakeThreshold || sim == InventorySlot.NoSimilarity)
+        {
+            badFakeAlarmAt = Time.time + Random.Range(3.5f, 6f);
+            badFakeCulprit = clientId;
+            inv.ServerNotify("display.badfake");
+        }
 
         // Değiştirmeyi tam bir güvenliğin / kameranın gözü önünde bitirdiyse: anında alarm
         PlayerStealth stealth = player.GetComponent<PlayerStealth>();

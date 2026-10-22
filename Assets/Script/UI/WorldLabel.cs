@@ -24,7 +24,7 @@ public class WorldLabel : MonoBehaviour
     private void OnGUI()
     {
         Camera cam = Camera.main;
-        if (cam == null || SessionMenuUI.IsPaused) return;
+        if (cam == null || SessionMenuUI.IsPaused || WorkbenchUI.IsOpen || FloorPlanUI.IsOpen) return;
 
         Vector3 screen = cam.WorldToScreenPoint(transform.position + Vector3.up * height);
         if (screen.z <= 0f || screen.z > maxDistance) return;

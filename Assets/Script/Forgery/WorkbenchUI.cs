@@ -16,6 +16,10 @@ using UnityEngine.InputSystem;
 /// </summary>
 public class WorkbenchUI : MonoBehaviour
 {
+    /// <summary>true: orijinal eser yanda GÖSTERİLMEZ; müzedeki arkadaşın kayıt kamerasından gelen canlı yayına
+    /// (kamyon ekranı, LiveFeed) bakarak çalışırsın. Yanında kat planı da durur. false: eski usul yanda orijinal.</summary>
+    public static readonly bool UseLiveFeed = true;
+
     public static bool IsOpen { get; private set; }
     private static WorkbenchUI current;
 
@@ -219,7 +223,7 @@ public class WorkbenchUI : MonoBehaviour
         {
             case ArtKind.Painting:
                 painting = ArtworkLook.Painting(seed, theme, o.display.name);
-                painter = new CanvasPainter(painting);
+                painter = new CanvasPainter(painting) { UseLiveFeed = WorkbenchUI.UseLiveFeed };
                 if (o.resumeId != 0 && ForgeryRegistry.TryGet(o.resumeId, out ForgeryData rp)) painter.LoadFrom(rp);
                 if (cam != null) cam.transform.LookAt(work + Vector3.up * 0.3f);
                 phase = Phase.Canvas;
@@ -239,8 +243,11 @@ public class WorkbenchUI : MonoBehaviour
                 // Tezgah üstünde yan yana: solda senin kalıbın, sağda orijinal
                 side = cam != null ? Vector3.ProjectOnPlane(cam.transform.right, Vector3.up).normalized : Vector3.right;
                 previewPos = work - side * 0.28f;
-                reference = ArtworkLook.BuildBustVisual(bust);
-                reference.transform.position = work + side * 0.28f;
+                if (!UseLiveFeed)
+                {
+                    reference = ArtworkLook.BuildBustVisual(bust);
+                    reference.transform.position = work + side * 0.28f;
+                }
                 previewDirty = true;
                 phase = Phase.Bust;
                 return;
@@ -260,9 +267,12 @@ public class WorkbenchUI : MonoBehaviour
                 if (cam != null) cam.transform.LookAt(work + Vector3.up * 0.3f);
                 side = cam != null ? Vector3.ProjectOnPlane(cam.transform.right, Vector3.up).normalized : Vector3.right;
                 previewPos = work - side * 0.3f;
-                reference = ArtworkLook.BuildJewelVisual(jewel);
-                reference.transform.position = work + side * 0.3f;
-                reference.transform.localScale = Vector3.one * 2.2f; // küçük eşya: büyüteçle bakar gibi
+                if (!UseLiveFeed)
+                {
+                    reference = ArtworkLook.BuildJewelVisual(jewel);
+                    reference.transform.position = work + side * 0.3f;
+                    reference.transform.localScale = Vector3.one * 2.2f; // küçük eşya: büyüteçle bakar gibi
+                }
                 previewDirty = true;
                 phase = Phase.Jewel;
                 return;
@@ -295,8 +305,11 @@ public class WorkbenchUI : MonoBehaviour
         mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
 
         // Yanına orijinalin görsel kopyası (referans)
-        reference = ArtworkLook.BuildVaseVisual(vase);
-        reference.transform.position = work + side * (vase.maxRadius * 3.6f);
+        if (!UseLiveFeed)
+        {
+            reference = ArtworkLook.BuildVaseVisual(vase);
+            reference.transform.position = work + side * (vase.maxRadius * 3.6f);
+        }
 
         phase = Phase.Sculpt;
         shapeScore = clay.ShapeScore(vase);
@@ -307,6 +320,8 @@ public class WorkbenchUI : MonoBehaviour
     {
         Keyboard kb = Keyboard.current;
         if (kb == null) return;
+
+        if (UseLiveFeed && phase != Phase.Choose) LiveFeed.Request();
 
         if (kb.escapeKey.wasPressedThisFrame)
         {
@@ -508,7 +523,7 @@ public class WorkbenchUI : MonoBehaviour
                 painter.Draw(Loc.T("bench.canvastitle", painting.Name));
                 DrawFooter(true);
                 return;
-            case Phase.Bust: DrawBust(); DrawFooter(true); return;
+            case Phase.Bust: DrawBust(); DrawSideFeed(); DrawFooter(true); return;
             case Phase.Jewel: DrawJewel(); DrawFooter(true); return;
         }
 
@@ -552,7 +567,19 @@ public class WorkbenchUI : MonoBehaviour
             SimilarityLabel();
         }
         GUILayout.EndArea();
+        DrawSideFeed();
         DrawFooter(phase == Phase.Paint);
+    }
+
+    /// <summary>Sağ üstte kamyon ekranı (canlı yayın), altında kat planı. Vazo ve büstte orijinal yerine bu kullanılır.</summary>
+    private void DrawSideFeed()
+    {
+        if (!UseLiveFeed) return;
+        float w = Mathf.Clamp(Screen.width * 0.3f, 260f, 520f);
+        Rect feed = new Rect(Screen.width - w - 20f, 40f, w, w * 0.75f);
+        LiveFeed.Draw(feed);
+        float planH = Mathf.Min(w * 0.7f, Screen.height - feed.yMax - 110f);
+        if (planH > 120f) FloorPlanUI.Draw(new Rect(feed.x, feed.yMax + 14f, w, planH), w >= 360f);
     }
 
     private void DrawChoose()
@@ -806,11 +833,19 @@ public class WorkbenchUI : MonoBehaviour
         ringCenter = new Vector2(workRect.x + workRect.width * 0.42f, workRect.y + workRect.height * 0.52f);
         Color metalC = ArtworkLook.JewelMetals[Mathf.Clamp(craft.metal, 0, ArtworkLook.JewelMetals.Length - 1)];
 
-        // Orijinalin şeması (sağ üst)
-        Vector2 refC = new Vector2(workRect.xMax - 120f, workRect.y + 130f);
-        GUI.Label(new Rect(refC.x - 90f, refC.y - 118f, 180f, 24f), Loc.T("bench.original"), big);
-        JewelCraft orig = JewelCraft.FromLook(jewel);
-        DrawRingDiagram(refC, 70f, orig, 1f);
+        // Orijinalin şeması (sağ üst) — ya da kamyon ekranı (canlı yayın)
+        if (UseLiveFeed)
+        {
+            float fw = Mathf.Clamp(workRect.width * 0.34f, 240f, 420f);
+            LiveFeed.Draw(new Rect(workRect.xMax - fw - 12f, workRect.y + 34f, fw, fw * 0.75f));
+        }
+        else
+        {
+            Vector2 refC = new Vector2(workRect.xMax - 120f, workRect.y + 130f);
+            GUI.Label(new Rect(refC.x - 90f, refC.y - 118f, 180f, 24f), Loc.T("bench.original"), big);
+            JewelCraft orig = JewelCraft.FromLook(jewel);
+            DrawRingDiagram(refC, 70f, orig, 1f);
+        }
 
         if (jewelStep == 0)
         {

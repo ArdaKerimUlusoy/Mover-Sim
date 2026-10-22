@@ -30,6 +30,22 @@ public class RoomCamera : MonoBehaviour
     /// <summary>Sahnedeki bütün oda kameraları (hapis kurtarma gibi "biri gördü mü?" kontrolleri için).</summary>
     public static readonly System.Collections.Generic.List<RoomCamera> All = new System.Collections.Generic.List<RoomCamera>();
     private void OnEnable() { if (!All.Contains(this)) All.Add(this); }
+
+    /// <summary>Adıyla oda kamerası (boya spreyi RPC'si adı taşır).</summary>
+    public static RoomCamera Find(string cameraName)
+    {
+        foreach (RoomCamera c in All) if (c != null && c.name == cameraName) return c;
+        return null;
+    }
+
+    /// <summary>Lensine boya sıkıldı mı (kör)?</summary>
+    public bool Blinded => SecurityManager.Instance != null && SecurityManager.Instance.IsCameraBlinded(name);
+
+    /// <summary>Lensin dünya konumu (boya spreyi buraya nişan alır).</summary>
+    public Vector3 LensPosition => lensDot != null ? lensDot.position : (head != null ? head.position : transform.position);
+
+    private Transform paintBlob;
+    private Material paintMat;
     private void OnDisable() => All.Remove(this);
 
     /// <summary>Sunucu: bu kamera oyuncuyu şu an görüyor mu? (Kapalıysa / bu görevde yoksa görmez.)</summary>
@@ -37,6 +53,7 @@ public class RoomCamera : MonoBehaviour
     {
         if (p == null || !p.IsSpawned || !MuseumSession.IsLevelActive(requiredLevel)) return false;
         if (SecurityManager.Instance != null && SecurityManager.Instance.CamerasDisabled) return false;
+        if (Blinded) return false; // lensi boyalı
         return Vision.CanSee(transform.position, Forward, viewRange, viewAngle, p);
     }
 
@@ -71,6 +88,11 @@ public class RoomCamera : MonoBehaviour
         Piece(head, "Hood", PrimitiveType.Cube, new Vector3(0f, 0.12f, 0.1f), new Vector3(0.28f, 0.04f, 0.5f), bodyMat);
         lensDot = Piece(head, "Lens", PrimitiveType.Cylinder, new Vector3(0f, 0f, 0.29f), new Vector3(0.13f, 0.02f, 0.13f), lensMat);
         lensDot.localRotation = Quaternion.Euler(90f, 0f, 0f);
+
+        // Lense sıkılan boya (kör edilince görünür)
+        paintMat = ArtworkLook.MakeLit(new Color(0.15f, 0.75f, 0.25f));
+        paintBlob = Piece(head, "PaintBlob", PrimitiveType.Sphere, new Vector3(0f, 0f, 0.3f), new Vector3(0.26f, 0.24f, 0.12f), paintMat);
+        paintBlob.gameObject.SetActive(false);
 
         GameObject coneGo = new GameObject("VisionCone");
         coneGo.transform.SetParent(transform, false);
@@ -116,7 +138,9 @@ public class RoomCamera : MonoBehaviour
         if (head != null) head.rotation = Quaternion.LookRotation(fwd + Vector3.down * 0.45f);
 
         bool alerted = false;
-        bool off = SecurityManager.Instance != null && SecurityManager.Instance.CamerasDisabled; // güvenlik odasından kapatıldı
+        bool blinded = Blinded;
+        if (paintBlob != null && paintBlob.gameObject.activeSelf != blinded) paintBlob.gameObject.SetActive(blinded);
+        bool off = blinded || (SecurityManager.Instance != null && SecurityManager.Instance.CamerasDisabled); // lensi boyalı / kapatıldı
         NetworkManager nm = NetworkManager.Singleton;
         if (!off && nm != null && nm.IsListening && nm.IsServer)
         {
@@ -156,5 +180,6 @@ public class RoomCamera : MonoBehaviour
     {
         if (bodyMat != null) Destroy(bodyMat);
         if (lensMat != null) Destroy(lensMat);
+        if (paintMat != null) Destroy(paintMat);
     }
 }

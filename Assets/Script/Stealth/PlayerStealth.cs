@@ -11,7 +11,7 @@ using UnityEngine;
 ///   - alarm sırasında aranan kişiyken
 /// Şüphe 0→1 dolar; dolunca alarm çalar. Görülmeyince yavaşça azalır.
 /// </summary>
-public class PlayerStealth : NetworkBehaviour
+public partial class PlayerStealth : NetworkBehaviour
 {
     public static readonly List<PlayerStealth> All = new List<PlayerStealth>();
     public static PlayerStealth Local { get; private set; }
@@ -97,6 +97,7 @@ public class PlayerStealth : NetworkBehaviour
     {
         if (!All.Contains(this)) All.Add(this);
         if (IsOwner) Local = this;
+        if (IsServer) ServerInitCamcorder();
         hidden.OnValueChanged += OnHiddenChanged;
         ApplyHiddenVisuals(hidden.Value);
     }
@@ -134,7 +135,8 @@ public class PlayerStealth : NetworkBehaviour
             if (knockedOut.Value != k) knockedOut.Value = k;
         }
 
-        if (IsServer) ServerTick();
+        if (IsServer) { ServerTick(); ServerTickCamcorder(); }
+        TickRecLight();
     }
 
     // ---------------- Sunucu ----------------
@@ -152,6 +154,8 @@ public class PlayerStealth : NetworkBehaviour
             if (IsWanted) level += 1.5f;
             if (IsKnownOffender) level += 1f; // yakalanıp kaçan oyuncuyu güvenlikler tanır
             if (IsOverheard) level += 0.75f;  // "çaldım" dediği duyuldu: görülünce şüphe çeker
+            if (IsRecordingConspicuous) level += 1f;   // kayıt ışığı yanarak uzun süre kayıt alıyor
+            if (IsLingeringConspicuous) level += 0.6f; // bir eserin dibinde çok uzun dikiliyor
             return level;
         }
     }

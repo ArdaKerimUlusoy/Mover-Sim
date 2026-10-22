@@ -30,6 +30,57 @@ public partial class MuseumLayout : MonoBehaviour
 
     public static MuseumLayout Instance { get; private set; }
 
+    /// <summary>Kamera odası (kameraları kapatan konsol) olsun mu? İstek üzerine kapalı: kameraların lensine boya sıkılır.</summary>
+    public static readonly bool SecurityRoomEnabled = false;
+
+    // ---------------- Kat planı (kamyondaki FloorPlanUI okur; dünya koordinatı, XZ düzlemi) ----------------
+    public struct PlanRoom
+    {
+        public int id;
+        public Rect rect;     // x = dünya X, y = dünya Z
+        public string role;   // lobby, gallery, staff, security
+    }
+    public struct PlanDoor
+    {
+        public Vector2 center; // dünya XZ
+        public bool vertical;  // true: kapı x = sabit duvarda (geçiş doğu-batı yönünde)
+    }
+    public readonly List<PlanRoom> PlanRooms = new List<PlanRoom>();
+    public readonly List<PlanDoor> PlanDoors = new List<PlanDoor>();
+    /// <summary>Müzenin dış sınırı (dünya XZ).</summary>
+    public Rect PlanBounds { get; private set; }
+    /// <summary>Ana giriş (dünya XZ).</summary>
+    public Vector2 PlanEntrance { get; private set; }
+
+    private Rect WorldRect(Vector2 min, Vector2 max)
+    {
+        Vector3 a = W(min), b = W(max);
+        return Rect.MinMaxRect(Mathf.Min(a.x, b.x), Mathf.Min(a.z, b.z), Mathf.Max(a.x, b.x), Mathf.Max(a.z, b.z));
+    }
+
+    private void BuildPlanData()
+    {
+        PlanRooms.Clear();
+        PlanDoors.Clear();
+        foreach (PRoom r in rooms) PlanRooms.Add(new PlanRoom { id = r.id, rect = WorldRect(r.Min, r.Max), role = r.role });
+        foreach (DoorEdge d in doors)
+        {
+            Vector3 c = W(d.Center);
+            PlanDoors.Add(new PlanDoor { center = new Vector2(c.x, c.z), vertical = d.vertical });
+        }
+        PlanBounds = WorldRect(new Vector2(X0, Z0), new Vector2(X0 + NX * Cell, Z0 + NZ * Cell));
+        Vector3 e = W(new Vector2(X0, Z0 + 8f * Cell));
+        PlanEntrance = new Vector2(e.x, e.z);
+    }
+
+    /// <summary>Bir dünya noktası hangi odada? (Plan yoksa -1.)</summary>
+    public int RoomAt(Vector3 world)
+    {
+        for (int i = 0; i < PlanRooms.Count; i++)
+            if (PlanRooms[i].rect.Contains(new Vector2(world.x, world.z))) return PlanRooms[i].id;
+        return -1;
+    }
+
     /// <summary>Ziyaretçilerin gezeceği noktalar (dünya koordinatı) — VisitorManager kullanır.</summary>
     public readonly List<Vector3> VisitorPoints = new List<Vector3>();
     /// <summary>Lobi ortası (dünya) — ziyaretçiler buradan başlar.</summary>
@@ -196,14 +247,8 @@ public partial class MuseumLayout : MonoBehaviour
         Shuffle(deadEnds, rng);
         if (deadEnds.Count == 0) foreach (PRoom r in rooms) if (r.role == "gallery" && r.Area <= 60) deadEnds.Add(r);
         if (deadEnds.Count > 0) deadEnds[0].role = "staff";
-        if (deadEnds.Count > 1) deadEnds[1].role = "security";
-        if (deadEnds.Count == 1)
-        {
-            // İkinci çıkmaz oda yoksa en küçük galeri güvenlik odası olur
-            PRoom smallest = null;
-            foreach (PRoom r in rooms) if (r.role == "gallery" && (smallest == null || r.Area < smallest.Area)) smallest = r;
-            if (smallest != null) smallest.role = "security";
-        }
+        // Güvenlik (kamera) odası KALDIRILDI: kameralar artık boya spreyiyle tek tek kör edilir (SprayTool).
+        if (SecurityRoomEnabled && deadEnds.Count > 1) deadEnds[1].role = "security";
 
         // Ekstra kapılar (özel odalar hariç): kovalamacada döngü yapılabilsin
         foreach (long k in pairs)
@@ -293,6 +338,7 @@ public partial class MuseumLayout : MonoBehaviour
     {
         GeneratePlan(rng);
         blocked = new bool[NX, NZ];
+        BuildPlanData();
 
         // Sahnedeki eski sabit iç duvarları / bölmeyi / ipleri kapat (yerlerine plan kurulur)
         foreach (Transform child in museum)
@@ -330,6 +376,9 @@ public partial class MuseumLayout : MonoBehaviour
         PlacePedestal("Display_Ring1", ringRoom, rng, th);
         PlacePedestal("Display_Bust1", bustRoom, rng, th);
 
+        foreach (ArtworkDisplay ad in ArtworkDisplay.All)
+            if (ad != null && ad.GetComponent<ArtPlaque>() == null) ad.gameObject.AddComponent<ArtPlaque>(); // eser tabelası (bazılarının adı soluk)
+
         MoveLabel("Label_Paintings", paintRoom);
         MoveLabel("Label_Vases", vaseRoom);
         MoveLabel("Label_Treasury", ringRoom);
@@ -338,7 +387,7 @@ public partial class MuseumLayout : MonoBehaviour
         if (staff != null) SetupStaffRoom(staff, th);
         if (security != null) SetupSecurityRoom(security, th);
 
-        PlaceHidingSpots(rng);
+        // Dolaplar kaldırıldı: saklanmak için duvara boya spreyiyle sahte kapı çizilir (HidingSpot artık sahte kapı yuvası)
         PlaceLootTables(rng);
 
         // Dekor ve kameralar

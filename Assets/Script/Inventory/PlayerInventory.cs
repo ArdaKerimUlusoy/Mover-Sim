@@ -11,7 +11,7 @@ using UnityEngine.InputSystem;
 ///  - Başka oyuncunun arkasından E basılı tut (PlayerInteractor) → onun çantası açılır, bir eşya seçip çalarsın.
 /// Çantanın içeriği SUNUCUDA tutulur ve herkese senkronlanır.
 /// </summary>
-public class PlayerInventory : NetworkBehaviour
+public partial class PlayerInventory : NetworkBehaviour
 {
     public const int NoHeld = -1;
 
@@ -121,6 +121,8 @@ public class PlayerInventory : NetworkBehaviour
             case UpgradeType.QuietShoes: return shoesLevel.Value;
             case UpgradeType.SwiftGloves: return glovesLevel.Value;
             case UpgradeType.Lockpick: return lockpickLevel.Value;
+            case UpgradeType.SprayPaint: return sprayCount.Value;
+            case UpgradeType.CameraBattery: return batteryLevel.Value;
             case UpgradeType.TeamBackpacks: return TeamBank.Instance != null ? TeamBank.Instance.TeamBagLevel : 0;
             default: return 0;
         }
@@ -733,7 +735,8 @@ public class PlayerInventory : NetworkBehaviour
         if (Loc.Has(arg)) arg = Loc.T(arg); // ör. upgrade adı anahtarı → oyuncunun dilinde
 
         bool bad = key == "inv.full" || key == "inv.cantdrop" || key == "steal.stolen" || key == "steal.rummage" ||
-                   key.StartsWith("shop.not") || key.StartsWith("truck.");
+                   key.StartsWith("shop.not") || key.StartsWith("truck.") || key.StartsWith("cam.") || key == "display.badfake" ||
+                   key == "spray.none" || key == "spray.already" || key == "spray.badwall" || key == "spray.toonear" || key == "spray.nodoorslot";
         ShowToast(Loc.T(key, arg, itemName), bad ? Bad : Good);
 
         if (key == "steal.stolen" || key == "steal.rummage") GameAudio.Play2D(SoundId.Steal, 0.8f);
@@ -820,6 +823,8 @@ public class PlayerInventory : NetworkBehaviour
         shoesLevel.Value = 0;
         glovesLevel.Value = 0;
         lockpickLevel.Value = 0;
+        sprayCount.Value = 0;
+        batteryLevel.Value = 0;
         ServerApplyCapacity();
     }
 
@@ -846,6 +851,14 @@ public class PlayerInventory : NetworkBehaviour
             case UpgradeType.Lockpick:
                 if (lockpickLevel.Value >= max) return false;
                 lockpickLevel.Value++;
+                return true;
+            case UpgradeType.SprayPaint:
+                if (sprayCount.Value >= max) return false;
+                sprayCount.Value++;
+                return true;
+            case UpgradeType.CameraBattery:
+                if (batteryLevel.Value >= max) return false;
+                batteryLevel.Value++;
                 return true;
             default:
                 return false;

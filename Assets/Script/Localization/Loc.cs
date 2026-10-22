@@ -387,6 +387,66 @@ public static class Loc
         // Saklanma
         { "hide.enter",         new[] { "[E] Hide", "[E] Saklan" } },
         { "hide.occupied",      new[] { "Occupied", "Dolu" } },
+        { "hide.door",          new[] { "[E] Hide in the painted door ({0}s left)", "[E] Sahte kapıya saklan (kalan {0} sn)" } },
+
+        // Kalitesiz sahte / kayıt alarmları
+        { "alarm.badfake",      new[] { "Someone noticed a crude forgery! ALARM!", "Biri kalitesiz bir sahteyi fark etti! ALARM!" } },
+        { "alarm.recorded",     new[] { "{0} was caught filming the museum! ALARM!", "{0} müzeyi kaydederken yakalandı! ALARM!" } },
+        { "display.badfake",    new[] { "Crude forgery (under 60%) — it will be noticed in a few seconds. Get out!", "Kalitesiz sahte (%60 altı) — birkaç saniye içinde fark edilecek. Kaç!" } },
+
+        // Garaj: yeni ürünler
+        { "upg.spraypaint.name",   new[] { "Spray Paint", "Boya Spreyi" } },
+        { "upg.spraypaint.desc",   new[] { "[T] Blind a camera for 30s or paint a fake door to hide in", "[T] Kamerayı 30 sn kör et ya da duvara saklanacak sahte kapı çiz" } },
+        { "upg.camerabattery.name",new[] { "Camera Battery", "Kamera Pili" } },
+        { "upg.camerabattery.desc",new[] { "Body cam records 30s longer", "Kayıt kamerası 30 sn daha uzun çeker" } },
+
+        // Boya spreyi
+        { "spray.none",         new[] { "No spray paint — buy some at the garage shop", "Boya spreyin yok — garaj mağazasından al" } },
+        { "spray.already",      new[] { "That lens is already painted", "O lens zaten boyalı" } },
+        { "spray.camdone",      new[] { "Lens painted! The camera is blind for {0}s.", "Lens boyandı! Kamera {0} sn kör." } },
+        { "spray.doordone",     new[] { "Fake door painted! It fades in {0}s — [E] to hide.", "Sahte kapı çizildi! {0} sn sonra silinir — [E] ile saklan." } },
+        { "spray.badwall",      new[] { "No room for a door here (needs a flat wall)", "Buraya kapı sığmaz (düz bir duvar lazım)" } },
+        { "spray.toonear",      new[] { "There is already a painted door nearby", "Yakında zaten çizilmiş bir kapı var" } },
+        { "spray.nodoorslot",   new[] { "Too many painted doors — wait for one to fade", "Çok fazla sahte kapı var — biri silinsin" } },
+        { "spray.count",        new[] { "[T] Spray paint: {0}", "[T] Boya spreyi: {0}" } },
+        { "spray.prompt.cam",   new[] { "[Hold T] Paint the camera lens  (Spray: {0})", "[T basılı tut] Kameranın lensini boya  (Sprey: {0})" } },
+        { "spray.prompt.wall",  new[] { "[Hold T] Paint a fake door  (Spray: {0})", "[T basılı tut] Duvara sahte kapı çiz  (Sprey: {0})" } },
+        { "spray.doing.cam",    new[] { "Painting the lens...", "Lens boyanıyor..." } },
+        { "spray.doing.wall",   new[] { "Painting a fake door...", "Sahte kapı çiziliyor..." } },
+
+        // Kayıt kamerası
+        { "cam.cant",           new[] { "You can't record right now", "Şu an kayıt alamazsın" } },
+        { "cam.intruck",        new[] { "No recording in the truck — the camera charges here", "Kamyonda kayıt alınmaz — kamera burada şarj olur" } },
+        { "cam.dead",           new[] { "Camera battery is empty — go back to the truck to charge", "Kamera pili bitti — şarj için kamyona dön" } },
+        { "cam.rec",            new[] { "REC  battery {0}   [H] stop", "KAYIT  pil {0}   [H] durdur" } },
+        { "cam.off",            new[] { "[H] Record  battery {0}", "[H] Kayıt  pil {0}" } },
+        { "cam.charging",       new[] { "Camera charging  {0}", "Kamera şarj oluyor  {0}" } },
+        { "cam.noticed",        new[] { "Your REC light is noticed! Stop and lose the suspicion", "Kayıt ışığın göze batıyor! Kaydı bırak, şüphe insin" } },
+        { "cam.calm",           new[] { "Nobody notices yet: {0}s", "Henüz kimse fark etmiyor: {0} sn" } },
+        { "cam.ready",          new[] { "Stream your view to the truck screen", "Bakışını kamyondaki ekrana yayınla" } },
+        { "heist.hint",         new[] { "[H] Camera   [T] Spray", "[H] Kamera   [T] Sprey" } },
+        { "heist.hint.truck",   new[] { "[M] Museum floor plan", "[M] Müzenin kat planı" } },
+        { "linger.warn",        new[] { "Don't stand at the artwork too long...", "Eserin başında çok durma..." } },
+        { "linger.bad",         new[] { "You've stood here too long — guards are getting suspicious!", "Çok uzun durdun — güvenlikler şüpheleniyor!" } },
+
+        // Kamyon ekranı (canlı yayın)
+        { "feed.title",         new[] { "TRUCK SCREEN", "KAMYON EKRANI" } },
+        { "feed.live",          new[] { "LIVE — {0}'s camera", "CANLI — {0} kamerası" } },
+        { "feed.battery",       new[] { "Battery {0}:{1}", "Pil {0}:{1}" } },
+        { "feed.noticed",       new[] { "REC light noticed!", "Kayıt ışığı fark ediliyor!" } },
+        { "feed.next",          new[] { "[N] Next camera ({0})", "[N] Sonraki kamera ({0})" } },
+        { "feed.nosignal",      new[] { "NO SIGNAL\nA teammate in the museum must press H to record", "SİNYAL YOK\nMüzedeki arkadaşın H ile kayıt açmalı" } },
+
+        // Kat planı
+        { "plan.title",         new[] { "MUSEUM FLOOR PLAN", "MÜZENİN KAT PLANI" } },
+        { "plan.hint",          new[] { "[M] / [Esc] Close   •   * = faded plaque in the museum: tell your teammate the name and room", "[M] / [Esc] Kapat   •   * = müzede tabelası soluk: adını ve odasını arkadaşına söyle" } },
+        { "plan.none",          new[] { "No floor plan yet", "Henüz plan yok" } },
+        { "plan.staff",         new[] { "STAFF ONLY", "STAFF ONLY" } },
+        { "plan.lobby",         new[] { "LOBBY", "LOBİ" } },
+        { "plan.room",          new[] { "Room {0}", "Oda {0}" } },
+        { "plan.entrance",      new[] { "ENTRANCE", "GİRİŞ" } },
+        { "plan.faded",         new[] { "(faded plaque)", "(soluk tabela)" } },
+        { "plan.swapped",       new[] { "(swapped)", "(değiştirildi)" } },
         { "hide.leave",         new[] { "[E] Leave hiding spot", "[E] Saklandığın yerden çık" } },
         { "label.staff",        new[] { "STAFF ONLY", "SADECE PERSONEL" } },
 
@@ -490,7 +550,7 @@ public static class Loc
         { "brief.value",    new[] { "Value ${0}  ·  {1} kg  ·  {2}", "Değer ${0}  ·  {1} kg  ·  {2}" } },
         { "brief.noforge",  new[] { "can't be forged", "sahtesi yapılamaz" } },
         { "brief.swapped",  new[] { "Swapped — a {0}% forgery is in its place", "Değiştirildi — yerinde %{0} sahte var" } },
-        { "brief.plan",     new[] { "Plan: 1) Make forgeries at the truck workbench.  2) In the museum, hold E at the pedestal to swap.  3) Sell the originals at the black market.  4) When the quota is met, everyone returns to the truck.", "Plan: 1) Kamyondaki atölyede sahteleri yap.  2) Müzede kaideye E basılı tutup değiştir.  3) Orijinalleri karaborsada sat.  4) Kota dolunca herkes kamyona döner." } },
+        { "brief.plan",     new[] { "Plan: 1) A teammate in the museum records with H; make forgeries at the truck workbench by watching the truck screen ([M] floor plan).  2) In the museum, hold E at the pedestal to swap.  3) Sell the originals at the black market.  4) When the quota is met, everyone returns to the truck.", "Plan: 1) Müzedeki arkadaşın H ile kayıt açar; kamyondaki atölyede ekrana bakarak sahteleri yap ([M] kat planı).  2) Müzede kaideye E basılı tutup değiştir.  3) Orijinalleri karaborsada sat.  4) Kota dolunca herkes kamyona döner." } },
         { "label.workbench", new[] { "FORGERY WORKBENCH", "SAHTE ATÖLYESİ" } },
         { "label.briefing",  new[] { "BRIEFING", "BRİFİNG" } },
     };

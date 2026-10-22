@@ -32,7 +32,7 @@ public class GarageShop : Interactable, IInventoryPanel
     public void DrawPanel(PlayerInventory inv)
     {
         TeamBank bank = TeamBank.Instance;
-        UIUtil.BeginCenteredPanel(560f, 470f);
+        UIUtil.BeginCenteredPanel(560f, 590f);
 
         GUILayout.Label(Loc.T("shop.title"), UIUtil.TitleStyle);
         GUILayout.BeginHorizontal();
@@ -53,13 +53,13 @@ public class GarageShop : Interactable, IInventoryPanel
             int price = UpgradeCatalog.Price(t, level);
             PaidFrom payer = UpgradeCatalog.Payer(t);
             // Maymuncuk: kişisel cüzdan yetmezse ekip kasasından ödenir (Staff Only erişimi cebe bağlı kalmasın)
-            if (t == UpgradeType.Lockpick && !maxed && inv.PersonalMoney < price && bank != null && bank.Money >= price) payer = PaidFrom.Team;
+            if (UpgradeCatalog.IsConsumable(t) && !maxed && inv.PersonalMoney < price && bank != null && bank.Money >= price) payer = PaidFrom.Team;
             int available = payer == PaidFrom.Team ? (bank != null ? bank.Money : 0) : inv.PersonalMoney;
             bool canAfford = !maxed && available >= price && (payer == PaidFrom.Personal || bank != null);
 
             GUILayout.BeginHorizontal(GUILayout.Height(56f));
             GUILayout.BeginVertical();
-            string lv = t == UpgradeType.Lockpick ? Loc.T("shop.count", level, max) : Loc.T("shop.level", level, max); // maymuncuk adetle satılır
+            string lv = UpgradeCatalog.IsConsumable(t) ? Loc.T("shop.count", level, max) : Loc.T("shop.level", level, max); // maymuncuk adetle satılır
             GUILayout.Label(Loc.T(UpgradeCatalog.NameKey(t)) + "   " + lv, UIUtil.RowStyle);
             GUILayout.Label(Loc.T(UpgradeCatalog.DescKey(t)) + "  •  " +
                             Loc.T(payer == PaidFrom.Team ? "shop.payteam" : "shop.payyou"), UIUtil.SmallStyle);
@@ -99,7 +99,7 @@ public class GarageShop : Interactable, IInventoryPanel
         int price = UpgradeCatalog.Price(type, level);
         TeamBank bank = TeamBank.Instance;
 
-        if (type == UpgradeType.Lockpick)
+        if (UpgradeCatalog.IsConsumable(type))
         {
             // Önce kişisel cüzdan, yetmezse ekip kasası
             if (inv.ServerTrySpendMoney(price))
