@@ -51,6 +51,7 @@ public partial class PlayerInventory : NetworkBehaviour
     private readonly NetworkVariable<byte> shoesLevel = new NetworkVariable<byte>(0);
     private readonly NetworkVariable<byte> glovesLevel = new NetworkVariable<byte>(0);
     private readonly NetworkVariable<byte> lockpickLevel = new NetworkVariable<byte>(0); // maymuncuk adedi (Staff Only kapısı)
+    // Boya kutusu ve kamera pili sayaçları: PlayerInventory.Tools.cs (sprayCount, batteryLevel) — fırça ve BodyCam de onları kullanır
 
     // Çanta yerine açık olan başka panel (karaborsa, mağaza...)
     private IInventoryPanel externalPanel;
@@ -134,6 +135,14 @@ public partial class PlayerInventory : NetworkBehaviour
     public int LockpickCount => lockpickLevel.Value;
 
     /// <summary>Sunucu: maymuncuk kırıldı, bir adet düşer.</summary>
+    /// <summary>Sunucu: bir sprey boya kutusu harcanır.</summary>
+    public bool ServerUseSpray()
+    {
+        if (!IsServer || sprayCount.Value == 0) return false;
+        sprayCount.Value--;
+        return true;
+    }
+
     public bool ServerBreakLockpick()
     {
         if (!IsServer || lockpickLevel.Value == 0) return false;
@@ -307,7 +316,8 @@ public partial class PlayerInventory : NetworkBehaviour
             float wheel = mouse != null ? mouse.scroll.ReadValue().y : 0f;
             if (Mathf.Abs(wheel) > 0.01f)
                 holdDistance.Value = (byte)Mathf.Clamp(holdDistance.Value + (wheel > 0f ? 10 : -10), 70, 220);
-            if (kb.rKey.wasPressedThisFrame) holdYawStep.Value = (byte)((holdYawStep.Value + 1) % 8);
+            // R: eşyayı ön / arka çevir (karşındakine göster) — yanlara değil (0° ↔ 180°)
+            if (kb.rKey.wasPressedThisFrame) holdYawStep.Value = (byte)(holdYawStep.Value == 4 ? 0 : 4);
         }
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
@@ -404,6 +414,9 @@ public partial class PlayerInventory : NetworkBehaviour
         SetHeld(found);
         GameAudio.Play2D(SoundId.BagOpen, 0.5f);
     }
+
+    /// <summary>Sahibi: bu satırı ele al / elden kaldır (PaintBrush: B tuşu).</summary>
+    public void ToggleHoldSlot(int slotIndex) => ToggleHeld(slotIndex);
 
     private void ToggleHeld(int slotIndex)
     {
@@ -683,6 +696,7 @@ public partial class PlayerInventory : NetworkBehaviour
 
         ItemDefinition def = Def(s);
         if (def == null) return;
+        if (PaintBrush.IsBrush(def)) return; // fırça çalınamaz (herkesin kendi zorunlu aleti)
 
         if (!ServerAddItem(def, s.Similarity, s.ForgeryId, s.LookKey))
         {

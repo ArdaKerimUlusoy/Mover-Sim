@@ -60,8 +60,8 @@ public class HeistControls : MonoBehaviour
         bool allowed = InputAllowed(me);
         bool inTruck = FloorPlanUI.LocalInTruck;
 
-        // ---- Kayıt kamerası ----
-        if (allowed && kb[RecordKey].wasPressedThisFrame)
+        // ---- Kayıt kamerası ---- (birleştirme: kayıt BodyCam'de; bu kısım FeatureMerge.FriendCamcorder ile açılır)
+        if (FeatureMerge.FriendCamcorder && allowed && kb[RecordKey].wasPressedThisFrame)
         {
             if (me.IsRecording) me.RequestRecording(false);
             else if (inTruck) inv.ShowLocalToast(Loc.T("cam.intruck"));
@@ -69,8 +69,9 @@ public class HeistControls : MonoBehaviour
             else me.RequestRecording(true);
         }
 
-        // ---- Boya spreyi ----
+        // ---- Boya spreyi ---- (birleştirme: boya fırçada; bu kısım FeatureMerge.FriendSpray ile açılır)
         target = TargetKind.None;
+        if (!FeatureMerge.FriendSpray) { IsSpraying = false; return; }
         if (allowed && !inTruck && inv.HasSpray) FindTarget();
 
         if (!kb[SprayKey].isPressed) { waitRelease = false; hold = 0f; IsSpraying = false; return; }
@@ -152,6 +153,18 @@ public class HeistControls : MonoBehaviour
             small = new GUIStyle(GUI.skin.label) { fontSize = 12, wordWrap = false };
             small.normal.textColor = new Color(0.9f, 0.9f, 0.9f);
             bold = new GUIStyle(small) { fontSize = 14, fontStyle = FontStyle.Bold };
+        }
+        if (!FeatureMerge.FriendCamcorder && !FeatureMerge.FriendSpray)
+        {
+            // Birleştirme: kayıt / boya göstergesi BodyCam ve fırçada. Kamyonda sadece kat planı ipucu kalır.
+            if (FloorPlanUI.LocalInTruck)
+            {
+                Rect hr = new Rect(12f, Screen.height - 58f, 220f, 24f);
+                UIUtil.DrawRect(hr, new Color(0.05f, 0.06f, 0.08f, 0.72f));
+                small.normal.textColor = new Color(0.85f, 0.85f, 0.85f);
+                GUI.Label(new Rect(hr.x + 10f, hr.y + 4f, hr.width - 20f, 16f), Loc.T("heist.hint.truck"), small);
+            }
+            return;
         }
 
         bool inTruck = FloorPlanUI.LocalInTruck;

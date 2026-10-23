@@ -36,6 +36,7 @@ public partial class MuseumLayout : MonoBehaviour
     // ---------------- Kat planı (kamyondaki FloorPlanUI okur; dünya koordinatı, XZ düzlemi) ----------------
     public struct PlanRoom
     {
+        public bool noPhoto;    // kayıt / fotoğraf yasak oda (BodyCam planı, MuseumLayoutPlan.cs doldurur)
         public int id;
         public Rect rect;     // x = dünya X, y = dünya Z
         public string role;   // lobby, gallery, staff, security
@@ -162,6 +163,7 @@ public partial class MuseumLayout : MonoBehaviour
         museum = transform.Find("Museum");
 
         ClearRuntime();
+        Resources.UnloadUnusedAssets(); // önceki haritanın artık kullanılmayan malzeme / dokuları bellekten atılsın (her görevde birikmesin)
         interior = NewGroup(museum != null ? museum : transform, "Runtime_Interior");
         exterior = NewGroup(transform, "Runtime_Exterior");
 
@@ -386,6 +388,7 @@ public partial class MuseumLayout : MonoBehaviour
 
         if (staff != null) SetupStaffRoom(staff, th);
         if (security != null) SetupSecurityRoom(security, th);
+        BuildPhotoSigns(); // kayıt yasak / serbest odalar (MuseumLayoutPlan.cs)
 
         // Dolaplar kaldırıldı: saklanmak için duvara boya spreyiyle sahte kapı çizilir (HidingSpot artık sahte kapı yuvası)
         PlaceLootTables(rng);
@@ -860,6 +863,19 @@ public partial class MuseumLayout : MonoBehaviour
 
     private void PlaceHidingSpots(System.Random rng)
     {
+        // Dolaplar / perdeler kaldırıldı: saklanma noktaları görünmez bekler, sadece duvara boyanan sahte kapılarda
+        // kullanılır (SprayPaint). Aşağıdaki eski yerleştirme kodu kullanılmıyor.
+        foreach (Transform child in museum)
+        {
+            if (!child.name.StartsWith("Locker_") && !child.name.StartsWith("Curtain_")) continue;
+            HidingSpot hs = child.GetComponent<HidingSpot>();
+            if (hs != null) hs.LocalPark();
+            else child.gameObject.SetActive(false);
+        }
+        foreach (HidingSpot hs in new List<HidingSpot>(HidingSpot.All))
+            if (hs != null && !hs.IsPaintedDoor && !hs.IsOccupied) hs.LocalPark(); // başka yerde kalmış dolap da kalmasın
+        if (museum != null) return;
+
         var spots = new List<Transform>();
         foreach (Transform child in museum)
             if (child.name.StartsWith("Locker_") || child.name.StartsWith("Curtain_")) spots.Add(child);

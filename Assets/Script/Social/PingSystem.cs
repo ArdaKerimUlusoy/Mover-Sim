@@ -34,7 +34,7 @@ public class PingSystem : NetworkBehaviour
         if (ChatUI.IsTyping || SessionMenuUI.IsPaused || PlayerInventory.IsPanelOpen || PlayerController.InputLocked) return;
         if (Cursor.lockState != CursorLockMode.Locked || Time.unscaledTime < nextLocalPing) return;
 
-        bool pressed = (Mouse.current != null && Mouse.current.middleButton.wasPressedThisFrame) ||
+        bool pressed = (Mouse.current != null && Mouse.current.middleButton.wasPressedThisFrame && !PlayerAvatar.PreviewActive) ||
                        (Keyboard.current != null && Keyboard.current.fKey.wasPressedThisFrame && !PushSystem.HasTargetInFront);
         if (!pressed) return;
 
@@ -56,6 +56,15 @@ public class PingSystem : NetworkBehaviour
 
         nextLocalPing = Time.unscaledTime + cooldown;
         PingRpc(hit.point + hit.normal * 0.05f, itemIndex);
+    }
+
+    /// <summary>Haritadan işaret (kamyon monitörü — BodyCam): verilen dünya noktasına ekibin gördüğü bir işaret koyar.</summary>
+    public bool RequestPingAt(Vector3 position, int itemIndex = -1)
+    {
+        if (!IsSpawned || Time.unscaledTime < nextLocalPing) return false;
+        nextLocalPing = Time.unscaledTime + cooldown;
+        PingRpc(position, itemIndex);
+        return true;
     }
 
     [Rpc(SendTo.Server)]

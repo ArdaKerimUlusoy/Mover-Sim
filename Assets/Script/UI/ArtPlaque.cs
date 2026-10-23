@@ -12,6 +12,8 @@ public static class ArtNames
     {
         MuseumSession ms = MuseumSession.Instance;
         if (d == null || ms == null || !ms.Ready || d.Kind == ArtKind.None) return false;
+        // Birleştirme: soluk etiketler BodyCam'de (yakından okununca herkes için açılır). Okunmamışsa soluk.
+        if (!FeatureMerge.FriendFadedNames) return BodyCam.IsFaded(d) && ms.ArtworkName(d) != ms.RealArtworkName(d);
         int h = ArtworkLook.Hash(d.name) ^ (ms.Seed * 7919);
         return ((h >> 4) & 1) == 0;
     }
@@ -21,13 +23,16 @@ public static class ArtNames
     {
         MuseumSession ms = MuseumSession.Instance;
         if (d == null) return "";
-        return ms != null ? ms.ArtworkName(d) : (d.Artwork != null ? d.Artwork.DisplayName : d.name);
+        if (ms == null) return d.Artwork != null ? d.Artwork.DisplayName : d.name;
+        // Birleştirme: BodyCam açıkken ad, okunana kadar BodyCam'in maskesiyle gelir (ArtworkName); arkadaşın sistemi açıksa gerçek ad
+        return FeatureMerge.FriendFadedNames ? ms.RealArtworkName(d) : ms.ArtworkName(d);
     }
 
     /// <summary>Müzede (tabelada, etkileşim yazısında) görünen ad: soluksa harflerin çoğu okunmaz.</summary>
     public static string MuseumName(ArtworkDisplay d)
     {
         string full = FullName(d);
+        if (!FeatureMerge.FriendFadedNames) return full; // BodyCam maskesi zaten uygulandı
         if (!IsFaded(d)) return full;
         MuseumSession ms = MuseumSession.Instance;
         return Fade(full, ArtworkLook.Hash(d.name) ^ (ms != null ? ms.Seed : 0));

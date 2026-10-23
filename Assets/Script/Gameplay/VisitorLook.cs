@@ -9,7 +9,7 @@ using UnityEngine.Rendering;
 /// </summary>
 public class VisitorLook : MonoBehaviour
 {
-    public const byte StateCalm = 0, StateWitness = 1, StateReport = 2, StateKnocked = 3; // 3: F ile bayıltıldı (yerde yatar)
+    public const byte StateCalm = 0, StateWitness = 1, StateReport = 2, StateKnocked = 3, StatePhoto = 4; // 3: F ile bayıltıldı (yerde yatar), 4: telefonla esere fotoğraf çekiyor
 
     private static readonly Color[] Skins =
     {
@@ -38,6 +38,9 @@ public class VisitorLook : MonoBehaviour
     private GUIStyle iconStyle;
     private Transform avatarRoot;  // bayılınca bütün beden yere yatar
     private float knock;           // 0 ayakta, 1 yerde
+    private GameObject phone;      // fotoğraf çekerken elindeki telefon
+    private Light flash;
+    private float nextFlash;
 
     public void Build(int seed, int id)
     {
@@ -220,6 +223,7 @@ public class VisitorLook : MonoBehaviour
         bool shocked = State == StateWitness;
         armL.localRotation = Quaternion.Euler(shocked ? -150f : swing, 0f, shocked ? -25f : -8f);
         armR.localRotation = Quaternion.Euler(shocked ? -150f : -swing, 0f, shocked ? 25f : 8f);
+        UpdatePhoto();
         legL.localRotation = Quaternion.Euler(-swing, 0f, 0f);
         legR.localRotation = Quaternion.Euler(swing, 0f, 0f);
         head.localRotation = Quaternion.Euler(shocked ? -10f : Mathf.Sin(Time.time * 0.5f + phase) * 4f, 0f, 0f);
@@ -229,7 +233,8 @@ public class VisitorLook : MonoBehaviour
 
     private void OnGUI()
     {
-        if (State == StateCalm || SessionMenuUI.IsPaused) return;
+        if (Event.current.type != EventType.Repaint) return; // sadece çizim olayında (düzen olayında boşuna hesaplanmasın)
+        if (State == StateCalm || State == StatePhoto || SessionMenuUI.IsPaused) return;
         Camera cam = Camera.main;
         if (cam == null) return;
         Vector3 sp = cam.WorldToScreenPoint(transform.position + Vector3.up * 2.25f);
@@ -251,6 +256,39 @@ public class VisitorLook : MonoBehaviour
                                    : State == StateReport ? new Color(1f, 0.55f, 0.15f) : new Color(1f, 0.9f, 0.3f);
         GUI.Label(r, icon, iconStyle);
     }
+
+    /// <summary>Fotoğraf çeken ziyaretçi: sağ kolu önde, elinde telefon, arada bir flaş patlar.</summary>
+    private void UpdatePhoto()
+    {
+        bool on = State == StatePhoto;
+        if (!on) { if (phone != null && phone.activeSelf) phone.SetActive(false); return; }
+        if (phone == null)
+        {
+            phone = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            phone.name = "Phone";
+            Destroy(phone.GetComponent<Collider>());
+            phone.transform.SetParent(armR, false);
+            phone.transform.localPosition = new Vector3(0f, -0.72f, 0.03f);
+            phone.transform.localScale = new Vector3(0.08f, 0.14f, 0.015f);
+            if (phoneMat == null) phoneMat = ArtworkLook.MakeLit(new Color(0.08f, 0.08f, 0.1f)); // herkes aynı malzemeyi paylaşır
+            phone.GetComponent<Renderer>().sharedMaterial = phoneMat;
+            flash = new GameObject("Flash").AddComponent<Light>();
+            flash.transform.SetParent(phone.transform, false);
+            flash.type = LightType.Point;
+            flash.range = 3f;
+            flash.color = Color.white;
+            flash.shadows = LightShadows.None;
+            flash.intensity = 0f;
+        }
+        phone.SetActive(true);
+        armR.localRotation = Quaternion.Euler(-95f, 0f, -12f); // telefonu esere doğru tutar
+        if (Time.time >= nextFlash) { nextFlash = Time.time + Random.Range(2f, 4.5f); flash.intensity = 3f; }
+        flash.intensity = Mathf.MoveTowards(flash.intensity, 0f, Time.deltaTime * 25f);
+        bool lit = flash.intensity > 0.01f; // sönükken ışık kapalı: her karede boşuna ışık hesabı yapılmasın
+        if (flash.enabled != lit) flash.enabled = lit;
+    }
+
+    private static Material phoneMat;
 
     private void OnDestroy()
     {

@@ -854,3 +854,319 @@ Ses paketinin biçimi değişti. Host ve oyuncuların hepsi aynı sürümü kull
 - Ancak yeniden şüphe çekecek bir şey yaparsan tekrar şüphelenirler. Örnekler: eser değiştirmek, eser taşımak, yasak alana girmek.
 - Bar, görülmediğin her saniye biraz azalır. Görüldüğün an azalma durur.
 - Değişen dosya: `PlayerStealth` (`ServerTick`).
+
+## Ek 22: Yaka kamerası, kamyon monitörü, kat planı, sprey boya, kötü sahte
+
+### Yaka kamerası (H)
+- Müzedeki oyuncu **H** ile kayıt açar. Kamyondaki monitöre onun **bakış açısı** canlı gelir.
+- Görüntü ağdan video olarak gönderilmez. Herkes müzeyi aynı kurduğu için her bilgisayar görüntüyü kayıt yapanın konumundan kendisi çizer. Bu yüzden çok ucuzdur: 640x360, saniyede 15 kare ve sadece kamyondayken ya da atölyedeyken çizilir.
+- Aynı anda tek kişi yayın yapabilir.
+- **Pil:**
+  - Temel süre 60 sn.
+  - Garajdaki "Kamera Pili" upgrade'i her seviyede +45 sn ekler (3 seviye: $60 / $120 / $200).
+  - Pil kamyonda şarj olur. Her yeni müzede dolu başlar.
+  - Sol altta pil çubuğu ve kayıt durumu görünür.
+- **Son kayıt:** Kayıt yapan bir esere yaklaşık 1 sn bakınca o eserin "son kaydı" saklanır. Yayın kapansa da ressam ona bakarak çizebilir.
+
+### Ressam monitöre bakarak çizer
+- Atölyede orijinal artık doğrudan görünmez.
+  - Tabloda orijinalin yerinde monitör görüntüsü durur: önce canlı yayın, yoksa o eserin son kaydı, o da yoksa "SİNYAL YOK".
+  - Vazo, büst ve yüzükte orijinal masada durmaz. Monitör görüntüsü sağ üstte çıkar.
+- Yeşil kontur rehberi varsayılan olarak kapalıdır. G ile yine açılabilir.
+
+### Kamyon monitörü ve kat planı
+- Kamyondaki monitör, atölye tezgahının üstündedir. Monitöre bakıp **E**'ye basınca büyük ekran açılır.
+  - Solda canlı görüntü.
+  - Sağda müzenin **kat planı**: odalar, kayıt yasak odalar (koyu kırmızı), Staff Only, güvenlik odası, eserler ve adları, takım arkadaşları (yönleriyle) ve kayıt yapan (● işaretiyle).
+- Kamyondaki kişi müzedekini sesle yönetir.
+
+### Kayıt ışığı ve kayıt yasak odalar
+- Kayıt yapanın göğsünde kırmızı ışık yanıp söner. Herkes görür.
+- Kaydın yasak olduğu yerler:
+  - Her zaman: Staff Only ve güvenlik odası.
+  - Galerilerin yaklaşık %40'ı (her haritada farklı). Bu odalarda tavanda kırmızı tabela ve yakından "FOTOĞRAF / KAYIT YASAK" yazısı var.
+- Yasak odada kayıt yaparsan:
+  - Ekranda uyarı çıkar.
+  - Işığını gören ziyaretçi güvenliğe gidip şikayet eder. Alarm çalmaz ama şüphe barın artar ve güvenlik bakmaya gelir.
+  - Güvenlik ya da kamera seni görürse şüphelenir.
+- Serbest odalarda ziyaretçilerin bir kısmı telefonla esere fotoğraf çeker (kol önde, flaş patlar). Aralarına karışabilirsin.
+
+### Tablo başında çok durmak
+- Bir esere 3 m içinden yüzün dönük olarak yaklaşık 8 sn'den fazla bakarsan güvenlik ve kameralar biraz şüphelenir. 15 sn'yi geçerse çok şüphelenir.
+- Köşelerden, uygun açıdan ve kısa kayıt yapmak gerekir.
+
+### Soluk etiketler
+- Eserlerin yaklaşık %35'inin isim etiketi soluktur.
+- Adı listelerde, brifingde, planda ve etkileşim yazısında "G?n B?t??" gibi görünür.
+- Müzedeki biri etikete çok yaklaşınca (≤1,4 m, yüzü dönük) herkes için açılır.
+
+### Sprey boya (X basılı tut, 1 sn)
+- Garaj mağazasında kutu kutu satılır: $40, en fazla 6 kutu. Her kullanım bir kutu harcar.
+- **Kamera lensi:** Oda kamerasına nişan al (9 m içi). Lens boyanır ve kamera **45 sn kör** olur. Lensinde renkli boya lekesi görünür.
+- **Duvar:** Duvara nişan al (2,6 m içi). Duvara koyu bir **sahte kapı / gölge** boyanır.
+  - Önünde (yaklaşık 0,75 m) durana 3 m'den uzaktaki güvenlik, ziyaretçi ve kamera **göremez**. Yakına gelen görür.
+  - Ekranda "Boyalı gölgede gizlisin" yazar.
+  - Görev boyunca kalır.
+- Boya sıkarken suç işliyorsun: biri görürse şüphelenir.
+
+### Kötü sahte fark edilir
+- Benzerliği **%60'ın altındaki** bir sahte konunca 4–8 sn sonra onu gören ilk ziyaretçi ya da güvenlik fark eder ve **ALARM** çalar.
+- Kimse görmüyorsa biri görene kadar bekler. Kaba sahte koyup kaçmak zorlaşır.
+
+### Dosyalar
+- Yeni dosyalar (`Gameplay` klasöründe):
+  - `BodyCam.cs`: kamera, monitör, plan, soluk etiketler, tablo başında durma.
+  - `SprayPaint.cs`
+  - `FakeSpotter.cs`
+  - `MuseumLayoutPlan.cs`: kat planı ve kayıt kuralları.
+  - `PhotoSign.cs`
+- Sahneye bir şey eklemeye gerek yok.
+- Değişenler (küçük eklemeler):
+  - `MuseumLayout` (tabela satırı)
+  - `VisitorManager` (kayıt ışığı tanığı, fotoğraf çekenler, görüş kontrolü)
+  - `VisitorLook` (telefon ve flaş)
+  - `CanvasPainter` (orijinal yerine monitör)
+  - `WorkbenchUI` (mevcut hedef, 3B orijinali gizle)
+  - `MuseumSession` (soluk isim maskesi)
+  - `UpgradeCatalog`, `PlayerInventory`, `GarageShop` (pil, sprey)
+  - `PlayerInteractor` (boya sıkmak suç; monitör açıkken etkileşim yok)
+  - `PlayerStealth` (ek şüphe, şüphe ekleme)
+  - `RoomCamera` (boyalı lens)
+  - `Vision` (boyalı gölge)
+  - `Loc`
+
+## Ek 23: Boyalı kapıya saklanma, dolaplar kaldırıldı, rehber kaldırıldı, kamyon mini haritası, optimizasyon
+
+- **Ayakta boya:** Duvara boya sıkmak için artık eğilmek gerekmiyor. Menzil 3,2 m. Duvarın dibine ve boy hizasına kısa ışınlarla gerçek duvar mı diye bakılıyor; kaide, masa ve tablo sayılmıyor.
+- **Boyalı kapıya saklanma:** Duvara sahte kapı boyayınca ona bakıp **E**'ye basarsan eski dolaplar gibi içine saklanırsın.
+  - Kimse göremez; fareyle etrafa bakabilirsin. E ile çıkarsın.
+  - Güvenlik ararken boyalı kapıyı da açıp bakabilir. Saklandığını kendi gözüyle görmüşse gelip çıkarır.
+  - Aynı anda saklanılabilen kapı sayısı, sahnedeki eski saklanma noktası sayısı kadardır (test müzesinde 6). Fazla boyanan kapılar sadece önünde durana gizlilik verir.
+- **Dolaplar / perdeler kaldırıldı:**
+  - Müzede görünmüyorlar ve güvenlikler onları aramıyor.
+  - Sahnedeki `HidingSpot` nesneleri silinmedi. Görünmez bekliyorlar ("park") ve boyanan kapılara atanıyorlar.
+- **Yeşil rehber kaldırıldı:**
+  - Tablo: yeşil kontur yok, G tuşu yok.
+  - Vazo: yeşil hayalet yok.
+  - Sahte yalnızca monitördeki görüntüye bakarak yapılır.
+- **Güvenlik dikilip kalmıyor:** Şüphelenip yanına gelen güvenlik, karşısındaki ~4 sn boyunca şüpheli bir şey yapmazsa devriyesine döner. Gözden çıkınca şüphe barı söner.
+- **Kamyonda mini harita:**
+  - Kamyondayken (ya da monitörün yanındayken) sağ üstte müze haritası hep açık: odalar, kayıt yasak odalar, Staff Only, eserler ve adları, arkadaşlar.
+  - Atölyede tablo çizerken tuvalin altında da harita var.
+  - Büyük ekranda (monitörde E) ve atölyedeki haritada **haritaya tıklayınca** o noktaya (ya da yakındaki esere) ekibin gördüğü **işaret (ping)** konur. Kamyondaki kişi müzedekini böyle yönetir.
+  - 3B işlerde (vazo, büst, yüzük) sağ üstteki görüntünün altında da harita görünür.
+- **Kayıt optimizasyonu:**
+  - Canlı görüntü sadece biri bakarken çizilir:
+    - Monitör ekranda görünüyorsa: 3,5 m içinde 15, 8 m içinde 8 kare/sn.
+    - Büyük ekran ya da atölye açıksa: 15 kare/sn.
+    - Diğer durumlarda hiç çizilmez.
+  - Kamera ayarları:
+    - Görüntü kamerasında gölge, post-process, HDR, MSAA, derinlik ve renk dokusu kapalı.
+    - Uzak çizim mesafesi 45 m.
+    - Occlusion culling açık.
+  - Daha az tekrarlanan iş:
+    - Monitöre bakma ışını ve tabela görünürlüğü saniyede 10 kez hesaplanıyor.
+    - Kayıttaki eser hedefi 0,15 sn'de bir aranıyor.
+    - Soluk isim maskesi ve harita isimleri önbellekte tutuluyor.
+    - Tabelaların ayrı OnGUI'si kaldırıldı; tek yerden çiziliyorlar.
+    - Arayüz sadece Repaint ve tıklama olaylarında çiziliyor.
+  - Ağ yükü değişmedi: görüntü ağdan gitmiyor, kayıt durumu 2 sn'de bir küçük bir mesaj.
+
+### Dosyalar
+- **Değişenler (küçük eklemeler):**
+  - `SprayPaint`
+  - `HidingSpot` (park / boyalı kapı)
+  - `GuardAI` (parkta olanı arama, dikilip kalmama)
+  - `MuseumLayout` (dolapları park et)
+  - `BodyCam`
+  - `PhotoSign`
+  - `MuseumLayoutPlan` (`PlanFloorY`)
+  - `CanvasPainter` (rehber yok, harita alanı)
+  - `WorkbenchUI` (vazo rehberi yok)
+  - `PingSystem` (`RequestPingAt`)
+  - `Loc`
+
+## Ek 24: Kayıt hemen fark edilmez, H donması giderildi
+
+- **Kayıt yasak yerde süre tanınır:**
+  - Kayıt yasak bir odada kayıt yaparken ilk **8 sn** kimse fark etmez. Ekranda geri sayım çıkar: "Burada kayıt yasak — X sn içinde fark edilirsin".
+  - Süre dolunca eskisi gibi ziyaretçiler şikayet eder, güvenlik ve kameralar şüphelenir.
+  - Yasak odadan çıkınca ya da kaydı kapatınca süre yavaşça (yarı hızla) geri dolar. Aç-kapa yaparak kandırılamaz.
+  - Sunucu sayar (`BodyCam.IllegalGraceSeconds`).
+- **H'ye ilk basışta donma giderildi:**
+  - Kayıt ışığındaki gerçek ışık kaynağı (point light) kaldırıldı. Yerine ışıktan bağımsız parlak kırmızı küre konuldu (monitörle aynı Unlit shader). İlk kayıtta sahnedeki shader'lar yeni ışık için yeniden derleniyordu; donmanın sebebi buydu.
+  - Görüntü kamerası ve kayıt ışığı müze kurulunca (yaklaşık 1,5 sn sonra) önceden hazırlanıyor. Müzenin ortasından 4 yöne ve oyuncunun gözünden birkaç görünmez kare çiziliyor. Böylece shader derlemesi yükleme sırasında oluyor, kayıt açılınca değil.
+- **Değişen dosyalar:** `BodyCam`, `Loc`.
+
+## Ek 25: Kayıt sayacı baştan sayar, monitör uzaktan da güncellenir, genel optimizasyon
+
+- **8 sn sayacı:** Kayıt kapanınca ya da yasak odadan çıkınca sayaç **sıfırlanır**. Yeniden açınca 8 sn baştan sayar.
+- **Kamyon monitörü:** Canlı görüntü uzaktan da güncellenir. Monitör ekranda görünüyorsa:
+  - 3,5 m içinde 15 kare/sn
+  - 8 m içinde 10 kare/sn
+  - 25 m içinde 4 kare/sn
+  - Daha uzakta ya da monitör görünmüyorken çizilmez; ekranda son kare kalır.
+- **Genel optimizasyon (küçük, güvenli değişiklikler):**
+  - `WorldLabel`, `VisitorLook`, `GuardAI` ve `PlayerNetworkSetup` içindeki her nesneye ait `OnGUI` artık sadece Repaint olayında çalışıyor. Her nesne karede iki kez değil bir kez hesaplanıyor.
+  - Yeni harita kurulurken `Resources.UnloadUnusedAssets()` çağrılıyor. Önceki haritanın malzeme ve dokuları bellekten atılıyor; uzun oturumlarda bellek birikmesi önleniyor.
+  - Fotoğraf çeken ziyaretçinin flaş ışığı sönükken kapalı. Telefon malzemesi tüm ziyaretçilerde ortak.
+- **Değişen dosyalar:** `BodyCam`, `VisitorLook`, `WorldLabel`, `GuardAI`, `PlayerNetworkSetup`, `MuseumLayout`.
+
+## Ek 26: Ana karakter modeli (BitirmeChar) ve animasyonları
+
+- **Model:** `Assets/Resources/Characters/BitirmeChar.fbx`
+  - Tasarımcının karakteri bütün oyuncuların görünen gövdesi oldu. Eski kodla kurulan tombul gövde artık görünmüyor.
+  - Model bulunamazsa otomatik olarak eski gövde kullanılır.
+  - Kod `PlayerAvatar` içinde modeli kendisi yüklüyor; sahneye ya da prefab'a bir şey eklemek gerekmiyor.
+- **Boy ve yön:**
+  - Model 2 m boya ölçekleniyor (CharacterController boyu). Göz hizası kameraya (yaklaşık 1,6 m) denk geliyor.
+  - Önü ayak parmaklarından bulunup oyuncunun önüne çevriliyor. Ayaklar yere oturtuluyor.
+- **Renk:** Oyuncunun seçtiği renk karakterin **beresine** işleniyor; ekipte kim kim belli oluyor.
+- **Animasyonlar kodla kemiklere uygulanıyor:**
+  - Animator ya da animasyon dosyası gerekmiyor.
+  - Ağdan ek veri gitmiyor: herkes senkron hız, eğilme, eşya, bakış ve baygınlık bilgisinden hesaplıyor.
+  - Hareketler:
+    - Durma: nefes alma, kollar yanlarda, ara sıra göz kırpma (Blink blend shape).
+    - Yürüme: bacak ve kol salınımı, diz bükülmesi, gövde zıplaması.
+    - Koşma (Shift): daha büyük adımlar, daha çok öne eğilme, bükük dirsekler.
+    - Zıplama: havada dizler toplanıyor, kollar hafif açılıyor.
+    - Eğilme ve eğilerek yürüme: kalça iniyor, dizler basit IK ile bükülüyor (ayaklar yerde kalıyor), gövde öne eğiliyor.
+    - Tutma: elde eser ya da eşya varken kollar öne uzanıyor, dirsekler bükülüyor, eller önde birleşiyor.
+    - Bakış: kafa, oyuncunun yukarı ya da aşağı bakışını izliyor.
+    - Baygınlık: sendeleme, kol savurma ve yüzüstü düşme eskisi gibi. Gözler kapalı, ağız açık (MouthOpen), başta yıldızlar.
+- **Not:** Kıyafet seçenekleri (şapka, yüz, gövde yapısı) eski gövdeye aitti; yeni modelde şimdilik etkisiz. Renk seçimi çalışıyor.
+- **Dosyalar:**
+  - Yeni: `Network/PlayerAvatarModel.cs` (partial `PlayerAvatar`), `Resources/Characters/BitirmeChar.fbx`.
+  - Değişen: `PlayerAvatar.cs`. Sınıf `partial` yapıldı ve 4 satırlık çağrı eklendi: model kur, renk, animasyon, temizlik.
+
+## Ek 27: Fırça — duvara kapıyı elle çiz, lensi fırçala
+
+- **Fırça herkesin çantasında zorunlu:**
+  - Eşya: `Assets/Items/tool_brush.asset` (ItemDatabase'e eklendi, ikon `Items/Icons/tool_brush.png`).
+  - Sunucu her oyuncunun çantasında tam bir fırça olmasını sağlıyor. Yeni oyuncuya, sıfırlamadan ve hapisten sonra da veriliyor.
+  - Bırakılamaz, satılamaz, çöpe atılamaz, çalınamaz. Ağırlığı 0.
+- **B** fırçayı ele alır ya da kaldırır (Tab çantasından tıklayarak da olur).
+  - Kendi ekranında sağ altta fırça görünür; çizerken uzanıp sallanır.
+  - Diğer oyuncularda karakterin sağ elinde durur, sağ kol öne kalkar.
+- **Duvara kapı çizme** (eski "X basılı tut" kaldırıldı):
+  - Duvara bak (2,6 m içi). **Sol tık basılı tutup** fareyle çiz; çizgiler duvarda kalır.
+  - Kapı sayılması için:
+    - Sol ve sağ kenar yere yakından (≤0,6 m) en az ~1,45 m yukarı çizilmeli.
+    - Üst kenar çizilmeli.
+    - Genişlik 0,55–1,8 m olmalı.
+    - Her kenarın en az %70'i çizilmiş olmalı.
+  - Ekranda hangi kenarın kaç % olduğu görünür: "Sol kenar / Sağ kenar / Üst / Boy".
+  - Tamamlanınca duvarda sahte kapı belirir; E ile içine saklanılır. **Sağ tık** çizimi siler.
+  - Yarım çizim sadece çizende görünür; biten kapı herkeste belirir.
+- **Kamera lensini boyama:**
+  - Kameranın yakınına git (≈3,4 m), lense bak, **sol tık basılı tutup fareyi küçük dairelerle oynat** (fırçala).
+  - Lensin üstünde boya lekesi büyür. Dolunca kamera 45 sn kör olur.
+- Her biten iş bir **Boya Kutusu** harcar. Eski "Sprey Boya" garajda artık "Boya Kutusu" adıyla satılıyor; boya yoksa uyarı çıkar.
+- Çizerken ve boyarken suç işliyorsun: güvenlik ya da ziyaretçi görürse şüphelenir.
+- **Dosyalar:**
+  - Yeni: `Gameplay/PaintBrush.cs`, `Items/tool_brush.asset`, `Items/Icons/tool_brush.png`.
+  - Değişen:
+    - `SprayPaint` (X tuşu kaldırıldı, fırça için API)
+    - `PlayerInventory` (`ToggleHoldSlot`, fırça çalınamaz)
+    - `PlayerAvatar` ve `PlayerAvatarModel` (fırça tek elle tutulur)
+    - `Loc`
+    - `Resources/ItemDatabase.asset` (fırça sona eklendi)
+
+## Ek 28: Fırça tutuşu, tablo çevirme, kapı görünümü, yana yürüme, düzeltmeler
+
+1. **Fırça elde:**
+   - Fırça karakterin sağ avucunda duruyor, parmaklar sapı sarıyor, uç öne-yukarı bakıyor.
+   - Boyarken (duvar ya da lens) kol fırçayla sürme hareketi yapıyor; diğer oyuncular da görüyor (`PlayerStealth.IsPaintingAnything`).
+2. **Birinci şahısta tablo:** Ekranın ortasına daha yakın ve biraz daha ileride. Eller kenarları orta yükseklikte tutuyor.
+3. **R:** Eşya sadece ön / arka çevriliyor (0° ↔ 180°), yanlara dönmüyor. Kısa çevirme animasyonu var; dönerken eşya hafif kalkıyor.
+4. **Kapı:** Çizim tamamlanınca eski koyu kapı görünümü (çerçeve, koyu boşluk, kol) beliriyor. Çizgi verisi ağdan gönderilmiyor.
+5. **Hapse atma hatası:**
+   - Güvenlik ararken rastgele dolap açarken boyalı kapıları açmıyor; boyalı kapı onun için sadece duvar.
+   - Seni kapıya girerken kendi gözüyle gördüyse kovalarken yine gelip çıkarıyor.
+   - Aramadan ya da yeni alarmdan önce kalmış eski "şurada saklandı" bilgisi siliniyor (`huntSpot`).
+6. **Renk:** Oyuncu rengi berenin yanında tuluma da işleniyor (`MAT_Overalls_Yellow`).
+7. **Lens ve menzil:**
+   - Lens boyarken fırçadan lense boya damlaları uçuyor (18 parçalık sabit havuz, yeni obje üretilmiyor).
+   - Lens boyanınca çevresine sıçrayan lekeler ve aşağı akan iki damla ekleniyor.
+   - Boya malzemeleri artık önbellekte.
+   - Menzil: lens 3,4 → 6 m, duvar 2,6 → 4 m.
+8. **Yana yürüme (A / D):** Bacaklar öne-arkaya değil yana açılıp kapanıyor. Gövde yürüdüğü yöne hafif yatıyor, kollar daha az sallanıyor.
+9. **Saklanınca gölge:** Saklanırken kendi gövden hiç çizilmiyor; güneşte yere düşen gölge kalmıyor.
+
+**Dosyalar:** `PaintBrush`, `SprayPaint`, `HeldItemView`, `PlayerAvatar`, `PlayerAvatarModel`, `PlayerInventory`, `GuardAI`, `PlayerStealth`.
+
+## Ek 29: Yana yürüme yenilendi, birinci şahısta karakterin kendi kolları, kapı ömrü
+
+- **Yana ve çapraz yürüme:**
+  - Kalça ve bacaklar gidilen yöne dönüyor (en fazla 70°), bacaklar o yöne normal adım atıyor.
+  - Omurga ters dönerek göğsü ve kafayı öne bakar tutuyor. Geri-çapraz giderken kalça ters yöne dönüyor.
+  - Eski "bacak yana açılıp kapanma" kaldırıldı.
+- **Birinci şahıs kollar (`FirstPersonArms`):**
+  - Tablo tutarken ve fırçada ekranda karakterin GERÇEK kolları var: aynı çizgili kazak ve eldivenler.
+  - Ölçek 1,35× (eskisi 1,75×, çok büyük duruyordu); omuzlar ekranın hemen altında.
+  - Fırçada sağ el sapı kavrıyor, sol kol ekranın dışında kalıyor.
+  - Kimse poz vermediği karede kollar kendiliğinden gizleniyor.
+  - Model okunamazsa eski basit eller kullanılıyor.
+  - Gerekli ayar: `BitirmeChar.fbx` Read/Write açık (meta: `isReadable: 1`).
+- **Fırça (birinci şahıs):** Ekranda biraz daha ileride duruyor, el onu tutuyor.
+- **Kapı:**
+  - Kapı oluşunca çizgiler hemen siliniyor.
+  - İçine hiç girilmeyen kapı 5 sn sonra kendiliğinden siliniyor (`SprayPaint.UnusedDoorSeconds`).
+  - Girilip çıkılan kapı 4,5 sn sonra siliniyor (eskisi gibi).
+
+**Dosyalar:** `PlayerAvatar`, `PlayerAvatarModel`, `FirstPersonArms`, `HeldItemView`, `PaintBrush`, `SprayPaint`, `BitirmeChar.fbx.meta`.
+
+
+## Ek 30: Birinci şahıs kavrama (tablo avuçla, fırça kalem gibi)
+
+- Tutuşlar Blender'da (bpy) BitirmeChar modeliyle birinci şahıs kamerasından görüntü alınarak ayarlandı, sonra aynı hesap koda aktarıldı.
+- `FirstPersonArms`: el yönü artık iki eksenle verilir: parmak yönü ve avuç içi yönü (`OrientPalm`). Avuç içi yönü İşaret/Serçe parmak kemiklerinden hesaplanır, işareti dinlenme pozunda bir kez belirlenir (`PalmSign`).
+- Parmaklar parmak ve segment başına açı tablolarıyla avuç içine doğru kıvrılır (`CurlTo`, `PaintCurl`, `PenCurl`).
+- Tablo: avuç içi tablonun yan kenarına yaslanır, parmaklar arkaya sarılır, başparmak ön yüzde durur.
+- Fırça: başparmak ve işaret parmağının uçları sapı metal halkanın altından kıstırır, yüzük ve serçe parmak avuca kıvrılır. Bilek, parmak uçları tam sapa gelecek şekilde kaydırılır.
+- Kısa kollar eşyaya yetişsin diye `ShoulderLocal` z değeri 0.33'ten 0.47'ye alındı (omuzlar ekranda görünmez).
+- `PaintBrush`: birinci şahıs fırça biraz daha uzağa ve sağ alta alındı (dinlenme: 0.3,-0.24,0.8; boyarken: 0.25,-0.21,0.8). Tutma noktası `TransformPoint(0,0,0)`.
+
+
+## Ek 31: Boya rengi, boyasız çizim yok, çizimler 10 sn, tablo çevirme
+
+- Tablo R ile çevrilirken eller dönmez. Tablo ellerin arasında kendi etrafında döner (`HeldItemView`: kollara yaw'sız dönüş verilir).
+- Boya kutusu yoksa duvara çizgi çekilmez, lens de boyanmaz. Sol tıkta "boya yok" uyarısı çıkar (`PaintBrush`).
+- Kapı olmayan çizimler son çizgiden 10 sn sonra duvardan silinir (`DoodleSeconds`). Başka duvara geçince, uzaklaşınca ya da fırçayı kaldırınca da süreleri dolana kadar kalırlar, sonda incelerek kaybolurlar. Sağ tık çizimi hemen siler, kapı tamamlanınca da çizgiler hemen silinir.
+- Boya rengi: garaj mağazasında Boya Kutusu → "Satın al" deyince renk kareleri açılır, bir renge tıklayınca o renk seçilir ve kutu alınır.
+- `SprayPaint.Palette` 11 renk içerir. `LocalColor` son alınan rengi tutar ve `PlayerPrefs` ile hatırlanır.
+- Fırça çizgileri, kapının çerçevesi ve kanadı (aynı rengin koyusu), lens boyası ve damlalar bu renkte olur. Renk, kapı ve lens mesajlarına 1 byte olarak eklendi; herkes aynı rengi görür.
+- Malzemeler renk başına bir kez oluşturulur (`ColorMat`, `ColorLineMat`), her boyamada yeni malzeme açılmaz.
+
+
+## Ek 32: Arkadaşın "yenilik^^" commit'i (d2afb67) ile birleştirme
+
+Arkadaşın commit'i aynı fikirleri (kayıt kamerası + kamyon ekranı, boya / sahte kapı, soluk tabelalar, kat planı, eser başında dikilme) ayrıca yazmıştı. Örtüşen yerlerde birini seçtik; seçilmeyenin kodu SİLİNMEDİ, `Assets/Script/Gameplay/FeatureMerge.cs` içindeki anahtarlarla kapatıldı.
+
+- **Kayıt / monitör / soluk etiket / dikilme:** BodyCam (H, kamyon monitörü, E büyük ekran). Arkadaşın karşılıkları kapalı: `FriendCamcorder` (PlayerStealth.Camcorder: H kaydı, kayıt ışığı, dikilme), `FriendLiveFeed` (LiveFeed) ve `FriendFadedNames` (ArtNames).
+- **Boya / sahte kapı / lens:** fırça (B, PaintBrush + SprayPaint). Arkadaşın T spreyi (HeistControls) `FriendSpray` ile kapalı.
+- **Fırça kapıları arkadaşın HidingSpot altyapısını kullanır:**
+  - Açılış `ServerPaint`, silme `ServerErase` ile yapılır. Konum ve süre herkese senkronlanır.
+  - E ipucunda kalan süre görünür. İçindeyken kapı silinmez; çıkınca 4,5 sn, hiç girilmezse 5 sn sonra silinir.
+  - Görüntüyü SprayPaint çizer (seçilen renkte); `HidingSpot.ExternalDoorVisual` = true.
+  - Eski `LocalPark` / `LocalPlaceAsPaintedDoor` / `Parked` / `IsPaintedDoor` uyumluluk için duruyor.
+- **Ortak sayaçlar:** boya kutusu arkadaşın `sprayCount`'u, kamera pili `batteryLevel` (`UpgradeType.CameraBattery`). BodyCam pili `UpgradeCatalog.BatteryCapacity` kullanır (60 sn + 30 sn / seviye). Mağaza, fiyatlar ve sınırlar arkadaşın `UpgradeCatalog`'undan gelir. Boya kutusu alırken renk seçimi duruyor.
+- **Açık kalan yenilikleri:**
+  - M ile kat planı (kamyonda). Sağdaki ekranda BodyCam görüntüsü çıkar, kayıt yapanın yanında ●REC görünür.
+  - Eser tabelaları (ArtPlaque). Adlar BodyCam'in soluk etiketlerini izler.
+  - Kalitesiz sahtenin birkaç sn sonra fark edilmesi.
+  - SecurityManager kör kamera altyapısı (RoomCamera hem onu hem fırça boyasını sayar).
+- **İsim çakışmaları:**
+  - Bizim kat planı API'si: `PlanArea`, `PlanDoorPoints`, `PlanRoomAt` (arkadaşınki: `PlanBounds`, `PlanDoors`, `RoomAt`).
+  - `PlanRoom` ortak; `noPhoto` alanı eklendi.
+  - Bizim alarmsız şüphe ekleme `ServerAddSuspicionNoAlarm` adını aldı.
+  - Lens boyamızın objesi "BrushPaintBlob" (arkadaşın RoomCamera'sındaki "PaintBlob" ile karışmasın).
+- **Loc:** `upg.spraypaint.*` iki kez tanımlıydı (açılışta çökme). Arkadaşın satırları yorum satırına alındı (fırça metni geçerli).
+- **Geri açmak:** FeatureMerge'deki ilgili anahtarı `true` yapın. Bir sistemi açarken karşılığını kapatın (aynı tuşa iki sistem bağlanmasın).
+
+
+## Ek 33: Kamyonda harita ekranı, brifing hologramı, boya = karakter rengi
+
+- **Harita ekranı:** Müze haritası artık ekranın köşesinde değil, kamyondaki monitörün sağındaki ikinci ekranda. Kat planı bir dokuya çizilir (`BodyCam.RenderMapScreen`). Sadece ekran görünürken ve 12 m içindeyken, saniyede 4 kez çizilir. Bu ekrana bakıp E'ye basınca da büyük ekran açılır.
+- **Brifing:** `BriefingTerminal.ShowOriginals = true`. Panoda görevdeki eserlerin dönen hologramı ve listede resimleri yine görünür.
+- **Boya rengi:** Boya karakter renginde gelir (`PlayerNetworkSetup.Colors` / `ColorIndex`). Mağazadaki renk seçimi kaldırıldı; GarageShop arkadaşın sürümüne döndü. Sunucu, boyayan oyuncunun karakter rengini kullanır.

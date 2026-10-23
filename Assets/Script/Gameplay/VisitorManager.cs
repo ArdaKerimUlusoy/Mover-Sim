@@ -37,6 +37,8 @@ public class VisitorManager : MonoBehaviour
         public Mode mode;
         public float until, nextSight, nextRepath;
         public PlayerStealth culprit;
+        public bool minor;   // gördüğü "suç" sadece yasak yerde kayıt: alarm değil, şüphe artar (BodyCam)
+        public bool photo;   // kaydın serbest olduğu odada eser fotoğrafı çekiyor (görsel)
         public Vector3 crimePos;
         public GuardAI targetGuard;
         public bool recordReport; // suç değil: uzun süre kayıt yapan birinin kırmızı ışığını gördü
@@ -200,12 +202,14 @@ public class VisitorManager : MonoBehaviour
             if ((v.mode == Mode.Walk || v.mode == Mode.Look) && now >= v.nextSight)
             {
                 v.nextSight = now + 0.25f;
-                PlayerStealth seen = SeeCrime(v);
+                PlayerStealth seen = SeeCrime(v, out bool minor);
                 v.recordReport = false;
-                if (seen == null && (seen = SeeRecorder(v)) != null) v.recordReport = true; // kayıt ışığını gördü
+                if (seen == null && (seen = SeeRecorder(v)) != null) { v.recordReport = true; minor = false; } // kayıt ışığını gördü
                 if (seen != null && (sm == null || !sm.AlarmActive))
                 {
                     v.mode = Mode.Witness;
+                    v.photo = false;
+                    v.minor = minor;
                     v.culprit = seen;
                     v.crimePos = seen.transform.position;
                     v.until = now + 0.9f;
@@ -222,6 +226,8 @@ public class VisitorManager : MonoBehaviour
                     {
                         v.mode = Mode.Look;
                         v.until = now + Random.Range(3f, 8f);
+                        // Kaydın serbest olduğu odada bazıları esere telefonla fotoğraf çeker (oyuncu da aralarına karışır)
+                        v.photo = !layout.IsNoPhotoAt(v.t.position) && Random.value < 0.35f;
                     }
                     break;
 
@@ -232,6 +238,7 @@ public class VisitorManager : MonoBehaviour
                         p += new Vector3(Random.Range(-0.8f, 0.8f), 0f, Random.Range(-0.8f, 0.8f));
                         if (NavMesh.SamplePosition(p, out NavMeshHit hit, 2f, NavMesh.AllAreas)) v.agent.SetDestination(hit.position);
                         v.mode = Mode.Walk;
+                        v.photo = false;
                     }
                     break;
 
@@ -297,6 +304,17 @@ public class VisitorManager : MonoBehaviour
             else sm.ServerReportSighting(culprit.transform.position);
             return;
         }
+        if (v.minor)
+        {
+            // "Orada kayıt yasak ama biri çekiyor": alarm yok; şüphe artar, güvenlik bakmaya gelir
+            if (culprit != null)
+            {
+                culprit.ServerAddSuspicionNoAlarm(0.45f);
+                GuardAI g = NearestGuard(culprit.transform.position);
+                if (g != null) g.ServerInvestigate(culprit.transform.position, false);
+            }
+            return;
+        }
         sm.ServerTriggerAlarm(culprit != null ? culprit.transform.position : v.crimePos, "alarm.witness", culprit);
     }
 
@@ -317,15 +335,36 @@ public class VisitorManager : MonoBehaviour
         if (d.sqrMagnitude > 0.01f) v.t.rotation = Quaternion.Slerp(v.t.rotation, Quaternion.LookRotation(d), Time.deltaTime * 8f);
     }
 
-    private static PlayerStealth SeeCrime(Visitor v)
+    /// <summary>Suç işleyen birini görüyor mu? minor = sadece kaydın yasak olduğu yerde kayıt ışığını gördü.</summary>
+    private static PlayerStealth SeeCrime(Visitor v, out bool minor)
     {
+        minor = false;
         Vector3 eye = v.t.position + Vector3.up * 1.6f;
+        PlayerStealth recorder = null;
         foreach (PlayerStealth p in PlayerStealth.All)
         {
-            if (p == null || !p.IsSpawned || !p.IsDoingCrime || p.IsHidden || p.IsJailed) continue;
-            if (Vision.CanSee(eye, v.t.forward, SightRange, SightAngle, p)) return p;
+            if (p == null || !p.IsSpawned || p.IsHidden || p.IsJailed) continue;
+            bool crime = p.IsDoingCrime && !p.IsPaintingWall; // duvara kapı çizmek ziyaretçilerce ihbar edilmez
+            bool illegalRec = !crime && BodyCam.ServerIsRecordingIllegally(p);
+            if (!crime && !illegalRec) continue;
+            if (!Vision.CanSee(eye, v.t.forward, SightRange, SightAngle, p)) continue;
+            if (crime) return p;
+            recorder = p;
         }
-        return null;
+        minor = recorder != null;
+        return recorder;
+    }
+
+    /// <summary>Sunucu: bir ziyaretçi bu noktayı görüyor mu? (Kötü sahte fark edilmesi — FakeSpotter.)</summary>
+    public bool ServerAnySees(Vector3 point, float range, Transform ignoreRoot = null)
+    {
+        foreach (Visitor v in visitors)
+        {
+            if (v.t == null || v.mode == Mode.Knocked) continue;
+            Vector3 eye = v.t.position + Vector3.up * 1.6f;
+            if (Vision.CanSeePoint(eye, v.t.forward, range, SightAngle, point, ignoreRoot)) return true;
+        }
+        return false;
     }
 
     /// <summary>Uzun süredir (göze batacak kadar) kayıt yapan, kırmızı kayıt ışığı yanan biri görüş alanında mı?</summary>
@@ -371,7 +410,8 @@ public class VisitorManager : MonoBehaviour
             WriteShort(data, ref o, p.z);
             data[o++] = (byte)Mathf.RoundToInt(Mathf.Repeat(v.t.eulerAngles.y, 360f) / 360f * 255f);
             byte state = v.mode == Mode.Witness ? VisitorLook.StateWitness : v.mode == Mode.Report ? VisitorLook.StateReport
-                       : v.mode == Mode.Knocked ? VisitorLook.StateKnocked : VisitorLook.StateCalm;
+                       : v.mode == Mode.Knocked ? VisitorLook.StateKnocked
+                       : v.mode == Mode.Look && v.photo ? VisitorLook.StatePhoto : VisitorLook.StateCalm;
             data[o++] = state;
             if (v.look != null) v.look.State = state;
         }

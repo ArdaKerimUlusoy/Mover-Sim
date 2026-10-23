@@ -47,6 +47,7 @@ public class LiveFeed : MonoBehaviour
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void Boot()
     {
+        if (!FeatureMerge.FriendLiveFeed) return; // birleştirme: kamyon ekranı BodyCam'de (Draw onun görüntüsünü gösterir)
         if (instance != null) return;
         GameObject go = new GameObject("LiveFeed");
         DontDestroyOnLoad(go);
@@ -246,12 +247,24 @@ public class LiveFeed : MonoBehaviour
         bigStyle.normal.textColor = Color.white;
     }
 
+    /// <summary>Birleştirme: LiveFeed kapalıyken (FeatureMerge) aynı yere BodyCam'in monitör görüntüsü çizilir (M kat planı vb.).</summary>
+    private static void DrawBodyCam(Rect r)
+    {
+        if (CanvasPainter.ReferenceProvider == null) return;
+        Texture t = CanvasPainter.ReferenceProvider(out string label);
+        UIUtil.DrawRect(new Rect(r.x - 6f, r.y - 26f, r.width + 12f, r.height + 32f), new Color(0.05f, 0.05f, 0.06f, 0.95f));
+        GUI.Label(new Rect(r.x, r.y - 24f, r.width, 22f), label, titleStyle);
+        UIUtil.DrawRect(r, Color.black);
+        if (t != null) GUI.DrawTexture(r, t, ScaleMode.ScaleToFit, false);
+        else GUI.Label(r, Loc.T("feed.nosignal"), bigStyle);
+    }
+
     /// <summary>Yayını bir dikdörtgene çizer (çerçeve, başlık, kayıt / pil bilgisi). Atölye ve plan kullanır.</summary>
     public static void Draw(Rect r)
     {
         Request();
         EnsureStyles();
-        if (instance == null) return;
+        if (instance == null) { DrawBodyCam(r); return; }
 
         Rect frame = new Rect(r.x - 6f, r.y - 26f, r.width + 12f, r.height + 32f);
         UIUtil.DrawRect(frame, new Color(0.05f, 0.05f, 0.06f, 0.95f));

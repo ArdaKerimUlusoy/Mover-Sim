@@ -15,7 +15,8 @@ public class BriefingTerminal : Interactable
 
     /// <summary>Brifingde eserlerin görünüşü (dönen hologram, resimler) gösterilsin mi? Kapalı: kamyondaki kişi
     /// orijinali yalnızca müzedeki arkadaşının canlı yayınından görür (LiveFeed). Adlar / değerler / plan görünür.</summary>
-    public static readonly bool ShowOriginals = false;
+    // Açık: brifing panosunda görevdeki eserler (dönen hologram) ve listede resimleri görünür (istek üzerine geri açıldı).
+    public static readonly bool ShowOriginals = true;
 
     private GameObject hologram;
     private int builtVersion = -1;

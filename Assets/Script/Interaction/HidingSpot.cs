@@ -90,6 +90,28 @@ public class HidingSpot : Interactable
         ApplyPlacement(false);
     }
 
+    // ---------------- Fırça (PaintBrush / SprayPaint) ile birleştirme ----------------
+    /// <summary>true: boyalı kapının görüntüsünü SprayPaint çizer (oyuncunun seçtiği renkte çizilmiş kapı); bu obje sadece
+    /// E etkileşimi + saklanma için görünmez kalır. (FeatureMerge: boya/kapı için fırça seçildi.)</summary>
+    public static bool ExternalDoorVisual = !FeatureMerge.FriendSpray;
+
+    /// <summary>Sunucu: boyalı kapının kalan süresini ayarla (fırça kapısı: içine girilmezse / çıkılınca kısa süre sonra silinir).</summary>
+    public void ServerSetRemaining(float seconds)
+    {
+        if (!IsServer || paintedUntil.Value <= 0) return;
+        double until = Now + Mathf.Max(0.1f, seconds);
+        if (System.Math.Abs(until - paintedUntil.Value) > 0.25) paintedUntil.Value = until; // gereksiz ağ güncellemesi olmasın
+    }
+
+    /// <summary>Kullanılmıyor (boyanmamış kapı yuvası: görünmez, etkileşilemez). Eski adı; IsPainted'ın tersi.</summary>
+    public bool Parked => !IsPainted;
+    /// <summary>Duvara boyanmış sahte kapı olarak kullanılıyor (eski adı; IsPainted ile aynı).</summary>
+    public bool IsPaintedDoor => IsPainted;
+    /// <summary>Eski API: artık boyanmamış yuvalar kendiliğinden park edilir (ApplyPlacement), bir şey yapmaz.</summary>
+    public void LocalPark() { }
+    /// <summary>Eski API: yerleşim artık sunucudan senkronlanır (ServerPaint), bir şey yapmaz.</summary>
+    public void LocalPlaceAsPaintedDoor(Vector3 floor, Vector3 normal, float width, float height) { }
+
     private void Awake()
     {
         originalScale = transform.localScale;
@@ -119,7 +141,7 @@ public class HidingSpot : Interactable
         Renderer r = GetComponent<Renderer>();
         if (r != null)
         {
-            r.enabled = painted;
+            r.enabled = painted && !ExternalDoorVisual; // fırça kapısı: görüntüyü SprayPaint çizer (renkli kapı)
             if (block == null) block = new MaterialPropertyBlock();
             r.GetPropertyBlock(block);
             block.SetColor("_BaseColor", DoorColor);
@@ -143,7 +165,7 @@ public class HidingSpot : Interactable
             kr.SetPropertyBlock(kb);
             knob = k.transform;
         }
-        if (knob != null) knob.gameObject.SetActive(painted);
+        if (knob != null) knob.gameObject.SetActive(painted && !ExternalDoorVisual);
     }
 
     public static readonly System.Collections.Generic.List<HidingSpot> All = new System.Collections.Generic.List<HidingSpot>();
@@ -245,7 +267,7 @@ public class HidingSpot : Interactable
     protected override void ServerInteract(ulong clientId, NetworkObject player)
     {
         PlayerStealth stealth = player.GetComponent<PlayerStealth>();
-        if (stealth == null) return;
+        if (stealth == null || Parked) return;
 
         if (occupant.Value == Nobody)
         {

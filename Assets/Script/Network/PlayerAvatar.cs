@@ -10,7 +10,7 @@ using UnityEngine.Rendering;
 /// Prefab'daki eski kapsül görüntüsü kaldırılır; çarpıştırıcılar ve CharacterController aynen kalır.
 /// PlayerNetworkSetup tarafından otomatik eklenir.
 /// </summary>
-public class PlayerAvatar : MonoBehaviour
+public partial class PlayerAvatar : MonoBehaviour
 {
     private static readonly Color Skin = new Color(1.00f, 0.82f, 0.68f);
     private static readonly Color Dark = new Color(0.16f, 0.16f, 0.20f);
@@ -155,6 +155,8 @@ public class PlayerAvatar : MonoBehaviour
         tongue = Group(head, "Tongue");
         tongue.SetActive(false);
         Part(tongue.transform, "TongueMesh", PrimitiveType.Sphere, new Vector3(0.04f, -0.05f, 0.285f), new Vector3(0.09f, 0.13f, 0.04f), cheekMat);
+
+        TryBuildModel(); // ana karakter modeli (PlayerAvatarModel.cs) varsa eski gövdenin yerine o görünür
     }
 
     // Baygınlık (PlayerStealth.IsKnockedOutNet): önce sendeler, sonra yüzüstü düşer, kalkarken sallanıp silkinir
@@ -270,6 +272,7 @@ public class PlayerAvatar : MonoBehaviour
     {
         SetMat(mainMat, c);
         SetMat(hatMat, Color.Lerp(c, Color.black, 0.28f));
+        TintModel(c);
     }
 
     private static void SetMat(Material m, Color c)
@@ -307,12 +310,28 @@ public class PlayerAvatar : MonoBehaviour
 
         bool crouch = stealth != null && stealth.IsSpawned && stealth.IsCrouching;
         crouchSmooth = Mathf.Lerp(crouchSmooth, crouch ? 1f : 0f, 1f - Mathf.Exp(-10f * dt));
-        bool holding = inventory != null && inventory.IsSpawned && inventory.HasHeldItem;
+        bool holding = inventory != null && inventory.IsSpawned && inventory.HasHeldItem && !PaintBrush.IsHoldingBrush(inventory); // fırça tek elle tutulur
+        brushHold = PaintBrush.IsHoldingBrush(inventory);
         holdSmooth = Mathf.Lerp(holdSmooth, holding ? 1f : 0f, 1f - Mathf.Exp(-8f * dt));
 
         float move = Mathf.Clamp01(speedSmooth / 4.5f);
         phase += speedSmooth * 2.4f * dt;
         float swing = Mathf.Sin(phase) * 38f * move;
+
+        // Yana / çapraz yürüme (A / D): kalça ve bacaklar gidilen yöne döner (doğal adım atar), göğüs ve kafa öne bakmaya
+        // devam eder (PlayerAvatarModel omurgayı ters çevirir). strafeSmooth = kalçanın dönüş açısı (derece).
+        float hipYaw = 0f;
+        if (speed > 0.25f)
+        {
+            Vector3 lv = transform.InverseTransformDirection(new Vector3(delta.x, 0f, delta.z));
+            bool backward = lv.z < -0.3f * Mathf.Abs(lv.x);
+            hipYaw = Mathf.Atan2(lv.x, Mathf.Abs(lv.z)) * Mathf.Rad2Deg * (backward ? -1f : 1f);
+            hipYaw = Mathf.Clamp(hipYaw, -70f, 70f);
+        }
+        strafeSmooth = Mathf.LerpAngle(strafeSmooth, hipYaw, 1f - Mathf.Exp(-(speed > 0.25f ? 9f : 5f) * dt));
+        float fwdK = 1f;
+        legRollL = legRollR = 0f;
+        float armSwing = swing;
 
         // Gövde: yürürken zıplar, hızlanınca öne eğilir, eğilince çöker
         float bob = Mathf.Abs(Mathf.Sin(phase)) * 0.05f * move + Mathf.Sin(Time.time * 1.8f) * 0.008f;
@@ -320,7 +339,7 @@ public class PlayerAvatar : MonoBehaviour
         float drop = crouchSmooth * 0.32f; // eğilince gövde aşağı iner, bacaklar kısalır (ayaklar yerde kalır)
         body.localPosition = new Vector3(0f, bob - drop, 0f);
         body.localScale = new Vector3(1f + (1f - squash) * 0.35f, squash, 1f + (1f - squash) * 0.35f);
-        body.localRotation = Quaternion.Euler(move * 7f + crouchSmooth * 14f, 0f, Mathf.Sin(phase) * 2.5f * move);
+        body.localRotation = Quaternion.Euler(move * 7f * fwdK + crouchSmooth * 14f, 0f, Mathf.Sin(phase) * 2.5f * move - Mathf.Clamp(strafeSmooth / 70f, -1f, 1f) * 3f * move);
 
         // Kafa: baktığı yöne eğilir (diğer oyuncular nereye baktığını görsün)
         float pitch = netSetup != null && netSetup.IsSpawned ? netSetup.LookPitch : 0f;
@@ -331,11 +350,11 @@ public class PlayerAvatar : MonoBehaviour
         float reach = -72f * holdSmooth;
         float splay = Mathf.Lerp(9f + shoulderWidth * 5f, 5f, holdSmooth) + crouchSmooth * 6f;
         float inward = holdSmooth * 14f; // eller öne doğru birbirine yaklaşır
-        armL.localRotation = Quaternion.Euler(Mathf.Lerp(swing, reach, holdSmooth), inward, -splay);
-        armR.localRotation = Quaternion.Euler(Mathf.Lerp(-swing, reach, holdSmooth), -inward, splay);
+        armL.localRotation = Quaternion.Euler(Mathf.Lerp(armSwing, reach, holdSmooth), inward, -splay);
+        armR.localRotation = Quaternion.Euler(Mathf.Lerp(-armSwing, reach, holdSmooth), -inward, splay);
 
-        legL.localRotation = Quaternion.Euler(-swing, 0f, 0f);
-        legR.localRotation = Quaternion.Euler(swing, 0f, 0f);
+        legL.localRotation = Quaternion.Euler(-swing * fwdK, 0f, legRollL);
+        legR.localRotation = Quaternion.Euler(swing * fwdK, 0f, legRollR);
         float hip = 0.82f - drop;
         legL.localPosition = new Vector3(legL.localPosition.x, hip, 0f);
         legR.localPosition = new Vector3(legR.localPosition.x, hip, 0f);
@@ -348,6 +367,7 @@ public class PlayerAvatar : MonoBehaviour
         sack.localRotation = Quaternion.Euler(-swing * 0.12f, 0f, Mathf.Sin(phase) * 4f * move);
 
         ApplyKnockPose(dt);
+        AnimateModel(dt); // karakter modeli: yukarıdaki eklem dönüşlerini kemiklere uygular
     }
 
     /// <summary>
@@ -463,5 +483,6 @@ public class PlayerAvatar : MonoBehaviour
     {
         foreach (Material m in new[] { mainMat, hatMat, skinMat, darkMat, whiteMat, sackMat, cheekMat, starMat, xMat })
             if (m != null) Destroy(m);
+        DestroyModelMaterials();
     }
 }

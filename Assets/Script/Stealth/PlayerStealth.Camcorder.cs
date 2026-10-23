@@ -28,7 +28,8 @@ public partial class PlayerStealth
     private float serverAttention;
     private float serverLinger;
 
-    public bool IsRecording => recording.Value;
+    // Birleştirme: kayıt BodyCam'deyse (FeatureMerge) "kayıtta mı" BodyCam'den okunur (kat planındaki ●REC / bakış yönü)
+    public bool IsRecording => recording.Value || (!FeatureMerge.FriendCamcorder && BodyCam.Live && BodyCam.Recorder == OwnerClientId);
     public float BatterySeconds => batteryDeci.Value / 10f;
     public float BatteryCapacity => UpgradeCatalog.BatteryCapacity(inventory != null ? inventory.GetUpgradeLevel(UpgradeType.CameraBattery) : 0);
     /// <summary>Kesintisiz kayıt süresi (sn). RecordGraceSeconds'ı geçince kayıt göze batar.</summary>
@@ -81,6 +82,7 @@ public partial class PlayerStealth
 
     private bool ServerCanRecord(out string reasonKey)
     {
+        if (!FeatureMerge.FriendCamcorder) { reasonKey = "cam.dead"; return false; } // birleştirme: kayıt BodyCam'de (H)
         reasonKey = "";
         if (IsJailed || hidden.Value || knockedOut.Value) { reasonKey = "cam.cant"; return false; }
         if (InTruck) { reasonKey = "cam.intruck"; return false; }
@@ -97,6 +99,7 @@ public partial class PlayerStealth
 
     private void ServerTickCamcorder()
     {
+        if (!FeatureMerge.FriendCamcorder) return; // birleştirme: kayıt + dikilme şüphesi BodyCam'de
         float dt = Time.deltaTime;
         float cap = BatteryCapacity;
         if (serverBattery < 0f) serverBattery = cap;

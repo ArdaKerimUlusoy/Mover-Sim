@@ -28,6 +28,9 @@ public partial class PlayerStealth : NetworkBehaviour
         false, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
     private readonly NetworkVariable<bool> doingCrime = new NetworkVariable<bool>(
         false, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
+    // Fırçayla ne boyuyor? 0 = hiçbir şey, 1 = duvara kapı, ≥16 = bu kameranın lensi (PaintBrush.CameraCode). Sahibi yazar.
+    private readonly NetworkVariable<int> paintTarget = new NetworkVariable<int>(
+        0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
 
     // Jopla vurulup baygın mı? Sahibi yazar (PlayerController.IsKnockedOut), herkes okur → PlayerAvatar yere yığılır.
     private readonly NetworkVariable<bool> knockedOut = new NetworkVariable<bool>(
@@ -53,6 +56,18 @@ public partial class PlayerStealth : NetworkBehaviour
     public bool IsWatched => watched.Value;
     public bool IsCrouching => crouching.Value;
     public bool IsDoingCrime => doingCrime.Value;
+    /// <summary>Fırçayla duvara kapı çiziyor (ziyaretçiler bunu ihbar etmez).</summary>
+    public bool IsPaintingWall => paintTarget.Value == 1;
+    /// <summary>Fırçayla bir şey boyuyor mu (duvar ya da lens)? Karakterin fırça kolu boyama hareketi yapar.</summary>
+    public bool IsPaintingAnything => paintTarget.Value != 0;
+    /// <summary>Fırçayla bu kameranın lensini boyuyor mu? (O kamera onu göremez: lensi kapalı.)</summary>
+    public bool IsPaintingCamera(int cameraCode) => cameraCode >= 16 && paintTarget.Value == cameraCode;
+
+    /// <summary>Sahibi: fırçayla ne boyadığını bildirir (PaintBrush).</summary>
+    public void SetPaintTarget(int value)
+    {
+        if (IsOwner && IsSpawned && paintTarget.Value != value) paintTarget.Value = value;
+    }
     /// <summary>Baygın mı (ağ üzerinden, tüm istemcilerde geçerli)?</summary>
     public bool IsKnockedOutNet => knockedOut.Value;
     public bool IsWanted => IsServer && Time.time < wantedUntil;
@@ -156,6 +171,7 @@ public partial class PlayerStealth : NetworkBehaviour
             if (IsOverheard) level += 0.75f;  // "çaldım" dediği duyuldu: görülünce şüphe çeker
             if (IsRecordingConspicuous) level += 1f;   // kayıt ışığı yanarak uzun süre kayıt alıyor
             if (IsLingeringConspicuous) level += 0.6f; // bir eserin dibinde çok uzun dikiliyor
+            level += BodyCam.ServerExtraSuspicion(this); // kaydın yasak olduğu yerde kayıt, tablo başında çok durmak
             return level;
         }
     }
@@ -185,6 +201,15 @@ public partial class PlayerStealth : NetworkBehaviour
         {
             SecurityManager.Instance.ServerTriggerAlarm(transform.position, "alarm.spotted", this);
         }
+    }
+
+    /// <summary>Sunucu: şüphe barına doğrudan ekler (ör. ziyaretçi "burada kayıt yapıyor" diye şikayet etti). Alarm çaldırmaz.
+    /// (Arkadaşın ServerAddSuspicion'ı ayrı: o, bar dolunca alarm çalar.)</summary>
+    public void ServerAddSuspicionNoAlarm(float amount)
+    {
+        if (!IsServer || IsJailed || amount <= 0f) return;
+        suspicion.Value = Mathf.Min(0.95f, suspicion.Value + amount);
+        lastSeenTime = Time.time; // hemen sönmeye başlamasın
     }
 
     public void ServerMarkWanted(float until)

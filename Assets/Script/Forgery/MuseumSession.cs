@@ -388,7 +388,11 @@ public class MuseumSession : NetworkBehaviour
     public JewelLook JewelFor(ArtworkDisplay d) => ArtworkLook.Jewel(Seed, ThemeIndex, d.name);
 
     /// <summary>Kaide için görünür eser adı (temaya göre).</summary>
-    public string ArtworkName(ArtworkDisplay d)
+    /// <summary>Eserin adı. Etiketi SOLUK olup henüz kimsenin yakından okumadığı eserde harflerin çoğu "?" (BodyCam).</summary>
+    public string ArtworkName(ArtworkDisplay d) => BodyCam.MaskName(d, RealArtworkName(d));
+
+    /// <summary>Eserin gerçek adı (soluk etiket maskesi olmadan).</summary>
+    public string RealArtworkName(ArtworkDisplay d)
     {
         if (!Ready || d == null) return d != null && d.Artwork != null ? d.Artwork.DisplayName : "";
         switch (d.Kind)

@@ -23,6 +23,7 @@ public class WorldLabel : MonoBehaviour
 
     private void OnGUI()
     {
+        if (Event.current.type != EventType.Repaint) return; // sadece çizim olayında (düzen olayında boşuna hesaplanmasın)
         Camera cam = Camera.main;
         if (cam == null || SessionMenuUI.IsPaused || WorkbenchUI.IsOpen || FloorPlanUI.IsOpen) return;
 

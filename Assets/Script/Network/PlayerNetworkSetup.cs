@@ -101,6 +101,8 @@ public class PlayerNetworkSetup : NetworkBehaviour
     private void OnOutfitChanged(byte oldValue, byte newValue) => ApplyOutfit();
 
     public Color PlayerColor => Colors[colorIndex.Value % Colors.Length];
+    /// <summary>Karakter renginin sırası (Colors dizisinde). Boya da bu renktir (SprayPaint).</summary>
+    public int ColorIndex => colorIndex.Value % Colors.Length;
     public bool IsHostPlayer => OwnerClientId == NetworkManager.ServerClientId;
 
     /// <summary>Oyun içinden renk değiştirmek için (sadece kendi oyuncun).</summary>
@@ -325,6 +327,7 @@ public class PlayerNetworkSetup : NetworkBehaviour
 
     private void OnGUI()
     {
+        if (Event.current.type != EventType.Repaint) return; // sadece çizim olayında (düzen olayında boşuna hesaplanmasın)
         if (!IsSpawned || IsOwner) return;
         PlayerStealth st = GetComponent<PlayerStealth>();
         if (st != null && st.IsHidden) return; // dolapta saklanıyorsa ismi görünmesin

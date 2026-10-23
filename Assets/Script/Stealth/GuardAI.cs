@@ -199,6 +199,7 @@ public class GuardAI : NetworkBehaviour
     {
         if (!IsServer || !Online) return;
         lastKnownPos = pos;
+        if (state.Value != State.Chase) huntSpot = null; // yeni kovalama: saklanma yerini ancak kendi gözüyle görürse bilir
 
         // Telsizden haber: suçlunun yerini birkaç saniye boyunca bilirler
         if (culprit != null)
@@ -291,6 +292,7 @@ public class GuardAI : NetworkBehaviour
     /// <summary>Kaybettiği kişiyi aramaya başlar: önce gittiği yöne doğru, sonra etrafta birkaç noktaya bakar.</summary>
     private void BeginSearch(Vector3 from)
     {
+        huntSpot = null; // eski "şurada saklandı" bilgisi aramadan sonra yeni kovalamaya taşınmasın
         Vector3 guess = from + Vector3.ClampMagnitude(focusVelocity * 1.5f, 5f);
         investigatePoint = guess;
         investigateIsFake = false;
@@ -431,8 +433,12 @@ public class GuardAI : NetworkBehaviour
         }
     }
 
+    private float calmSince = -1f;
+    private const float CalmGiveUpSeconds = 4f;
+
     private void BeginSuspicious(PlayerStealth target)
     {
+        calmSince = -1f;
         focus = target;
         lastFocusSeen = Time.time;
         lastKnownPos = target.transform.position;
@@ -444,6 +450,23 @@ public class GuardAI : NetworkBehaviour
     private void TickSuspicious(PlayerStealth seen)
     {
         if (focus != null) alert.Value = (byte)Mathf.RoundToInt(Mathf.Clamp01(focus.Suspicion) * 100f);
+
+        // Karşısındaki artık şüpheli bir şey yapmıyorsa sonsuza dek dikilip izlemez: birkaç saniye sonra devriyesine döner
+        // (gözden uzaklaşınca şüphe barı da söner). Yeniden şüpheli bir şey yaparsa yine durur.
+        if (focus != null && seen == focus && focus.SuspiciousLevel <= 0f)
+        {
+            if (calmSince < 0f) calmSince = Time.time;
+            else if (Time.time - calmSince > CalmGiveUpSeconds)
+            {
+                calmSince = -1f;
+                focus = null;
+                alert.Value = 0;
+                SetState(State.Patrol);
+                GoToWaypoint();
+                return;
+            }
+        }
+        else calmSince = -1f;
 
         if (focus != null && seen == focus && (focus.SuspiciousLevel > 0f || focus.Suspicion > 0.1f))
         {
@@ -601,7 +624,10 @@ public class GuardAI : NetworkBehaviour
         float bestD = ClosetSearchRange;
         foreach (HidingSpot h in HidingSpot.All)
         {
-            if (h == null || !h.IsSpawned || !h.gameObject.activeInHierarchy || !h.IsPainted || checkedClosets.Contains(h)) continue;
+            if (h == null || !h.IsSpawned || !h.gameObject.activeInHierarchy || h.Parked || checkedClosets.Contains(h)) continue;
+            // Boyalı sahte kapı güvenlik için sadece duvar: rastgele ararken açmaz (saklandığını KENDİ GÖZÜYLE gördüyse
+            // kovalarken yine gelip çıkarır — TickChase / huntSpot)
+            if (h.IsPaintedDoor) continue;
             float d = Vector3.Distance(transform.position, h.transform.position);
             if (d < bestD) { bestD = d; best = h; }
         }
@@ -858,6 +884,7 @@ public class GuardAI : NetworkBehaviour
     ///   "!" kırmızı, büyük ve zıplayarak çıkar (alarm / kovalama)</summary>
     private void OnGUI()
     {
+        if (Event.current.type != EventType.Repaint) return; // sadece çizim olayında (düzen olayında boşuna hesaplanmasın)
         if (!IsSpawned || !Online) return;
 
         if (state.Value != shownState)

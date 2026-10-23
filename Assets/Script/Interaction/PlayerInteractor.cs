@@ -51,7 +51,8 @@ public class PlayerInteractor : MonoBehaviour
     private bool InputBlocked =>
         ChatUI.IsTyping || SessionMenuUI.IsPaused || PlayerInventory.IsPanelOpen || PlayerController.InputLocked ||
         Cursor.lockState != CursorLockMode.Locked || (carrier != null && carrier.IsHolding) ||
-        PushSystem.LocalKnockedOut; // güvenlik jopla vurdu: baygın
+        PushSystem.LocalKnockedOut || // güvenlik jopla vurdu: baygın
+        BodyCam.PanelOpen;            // kamyon monitörüne bakıyor
 
     private void Update()
     {
@@ -173,6 +174,7 @@ public class PlayerInteractor : MonoBehaviour
                        (targetInteractable is ArtworkDisplay || targetInteractable is JailCell || targetInteractable is SecurityCamera))); // kilit / konsol kurcalamak da suç
         crime |= LockpickSystem.IsPicking; // Staff Only kilidini maymuncukla açmak da suç
         crime |= HeistControls.IsSpraying; // kameraya / duvara boya sıkmak da suç
+        crime |= SprayPaint.IsSpraying;    // kamera lensine / duvara boya sıkmak da suç
         stealth.SetDoingCrime(crime);
     }
 

@@ -53,7 +53,8 @@ public class RoomCamera : MonoBehaviour
     {
         if (p == null || !p.IsSpawned || !MuseumSession.IsLevelActive(requiredLevel)) return false;
         if (SecurityManager.Instance != null && SecurityManager.Instance.CamerasDisabled) return false;
-        if (Blinded) return false; // lensi boyalı
+        if (Blinded || SprayPaint.IsBlinded(this)) return false; // lensi boyalı (sprey ya da fırça)
+        if (p.IsPaintingCamera(PaintBrush.CameraCode(this))) return false; // lensini boyayan kişiyi göremez
         return Vision.CanSee(transform.position, Forward, viewRange, viewAngle, p);
     }
 
@@ -140,13 +141,15 @@ public class RoomCamera : MonoBehaviour
         bool alerted = false;
         bool blinded = Blinded;
         if (paintBlob != null && paintBlob.gameObject.activeSelf != blinded) paintBlob.gameObject.SetActive(blinded);
-        bool off = blinded || (SecurityManager.Instance != null && SecurityManager.Instance.CamerasDisabled); // lensi boyalı / kapatıldı
+        bool off = blinded || SprayPaint.IsBlinded(this) ||                                     // lensi boyalı (sprey / fırça)
+                   (SecurityManager.Instance != null && SecurityManager.Instance.CamerasDisabled); // kapatıldı
         NetworkManager nm = NetworkManager.Singleton;
         if (!off && nm != null && nm.IsListening && nm.IsServer)
         {
             foreach (PlayerStealth p in PlayerStealth.All)
             {
                 if (p == null || !p.IsSpawned) continue;
+                if (p.IsPaintingCamera(PaintBrush.CameraCode(this))) continue; // lensini boyayan kişiyi göremez (fırça lensi kapatıyor)
                 if (!Vision.CanSee(transform.position, fwd, viewRange, viewAngle, p)) continue;
 
                 p.ServerReportSeen(suspicionRate, transform.position);

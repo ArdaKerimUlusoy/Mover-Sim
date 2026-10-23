@@ -3,6 +3,9 @@
 /// <summary>Görüş hesapları (güvenlik görevlisi ve kamera ortak kullanır). Sunucuda çalışır.</summary>
 public static class Vision
 {
+    /// <summary>Görüş ışınının kalınlığı (yarıçap, m): köşelerden / pervaz kenarından görmeyi engeller.</summary>
+    public const float SightThickness = 0.13f;
+
     /// <summary>
     /// Göz noktasından hedef oyuncu görülüyor mu?
     /// Yatay düzlemde mesafe + açı kontrolü, sonra arada duvar var mı diye ışın atılır.
@@ -10,6 +13,7 @@ public static class Vision
     public static bool CanSee(Vector3 eye, Vector3 forward, float range, float fullAngle, PlayerStealth target)
     {
         if (target == null || target.IsHidden || target.IsJailed) return false;
+        if (SprayPaint.Conceals(target, eye)) return false; // duvara boyanmış sahte gölgenin önünde (uzaktan görünmez)
 
         Vector3 chest = target.transform.position + Vector3.up * 0.4f;
         Vector3 to = chest - eye;
@@ -22,11 +26,17 @@ public static class Vision
         float dist = to.magnitude;
         if (dist < 0.01f) return true;
 
-        if (Physics.Raycast(eye, to / dist, out RaycastHit hit, dist, ~0, QueryTriggerInteraction.Ignore))
+        Vector3 dir = to / dist;
+        if (Physics.Raycast(eye, dir, out RaycastHit hit, dist, ~0, QueryTriggerInteraction.Ignore))
         {
             // İlk çarpılan şey hedefin kendisi değilse arada engel var
-            return hit.collider.GetComponentInParent<PlayerStealth>() == target;
+            if (hit.collider.GetComponentInParent<PlayerStealth>() != target) return false;
         }
+        // Kalın ışın: tek ince ışın duvar köşesinin / kapı pervazının kenarından sızıp duvar arkasındakini görmesin.
+        // (Başlangıçta içinde olduğu çarpıştırıcılar — bakanın kendi gövdesi, kameranın duvarı — sayılmaz.)
+        if (Physics.SphereCast(eye, SightThickness, dir, out RaycastHit thick, Mathf.Max(0f, dist - 0.35f), ~0, QueryTriggerInteraction.Ignore) &&
+            thick.collider.GetComponentInParent<PlayerStealth>() != target)
+            return false;
         return true;
     }
 

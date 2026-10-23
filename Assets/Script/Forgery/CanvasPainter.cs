@@ -4,14 +4,13 @@ using UnityEngine.InputSystem;
 
 /// <summary>
 /// Tezgahta tablo sahtesi çizmek için ekran tuvali.
-/// Solda tuval (üstünde saydam yeşil kontur rehberi), sağda KAMYON EKRANI: orijinal artık gösterilmez,
-/// müzedeki arkadaşın kayıt kamerasından gelen canlı yayına bakarak çizersin (LiveFeed). En solda kat planı.
+/// Solda tuval, sağda referans: kamyon monitörü (BodyCam — müzedeki arkadaşın kaydı); BodyCam yoksa canlı yayın
+/// (LiveFeed, arkadaşın sistemi; FeatureMerge ile açılır) ya da eski usul orijinal. Yeşil rehber kaldırıldı.
 ///   Sol tık sürükle : fırça
 ///   Shift + sol tık : kova (alanı doldur)
 ///   Tekerlek        : fırça boyutu
 ///   1-7             : renk
 ///   B               : tüm tuvali seçili renkle doldur
-///   G               : yeşil rehberi aç/kapat
 /// </summary>
 public class CanvasPainter
 {
@@ -21,7 +20,7 @@ public class CanvasPainter
     /// <summary>Bitmiş önemli bölge sayısı / toplam (gökyüzü, deniz, tekne, bulut...).</summary>
     public int RegionsDone { get; private set; }
     public int RegionsTotal { get; private set; }
-    public bool ShowGuide = true;
+    public bool ShowGuide = false; // yeşil rehber kaldırıldı (her zaman kapalı)
     public int BrushSize = 5;
     /// <summary>true: orijinal yerine canlı yayın (kamyon ekranı) gösterilir.</summary>
     public bool UseLiveFeed = true;
@@ -42,6 +41,13 @@ public class CanvasPainter
 
     public static readonly Color CanvasBase = new Color(0.96f, 0.93f, 0.85f);
 
+    /// <summary>Orijinalin yerine gösterilecek görüntü (BodyCam: kamyon monitörü — canlı yayın ya da son kayıt).
+    /// Atanmışsa ressam orijinali doğrudan görmez; null dönerse "SİNYAL YOK".</summary>
+    public delegate Texture ReferenceSource(out string label);
+    public static ReferenceSource ReferenceProvider;
+    /// <summary>Tuvalin altındaki boş alana ek panel çizer (BodyCam: kat planı).</summary>
+    public static System.Action<Rect> ExtraPanelDrawer;
+
     public CanvasPainter(PaintingLook look)
     {
         this.look = look;
@@ -54,7 +60,7 @@ public class CanvasPainter
         canvas.SetPixels(px);
         canvas.Apply();
 
-        guide = BuildGuide(reference);
+        guide = null; // rehber yok: monitöre bakarak çizilir
         Score = ComputeScore();
     }
 
@@ -104,7 +110,6 @@ public class CanvasPainter
         {
             for (int i = 0; i < palette.Length && i < 9; i++)
                 if (kb[Key.Digit1 + i].wasPressedThisFrame) PaletteIndex = i;
-            if (kb.gKey.wasPressedThisFrame) ShowGuide = !ShowGuide;
             // Fırça boyutu: [ ] ya da - + tuşları (tekerleğe ek olarak)
             if (kb.leftBracketKey.wasPressedThisFrame || kb.minusKey.wasPressedThisFrame || kb.numpadMinusKey.wasPressedThisFrame)
                 BrushSize = Mathf.Clamp(BrushSize - 1, 1, 30);
@@ -251,10 +256,28 @@ public class CanvasPainter
         Rect frame = new Rect(canvasRect.x - 10, canvasRect.y - 10, canvasRect.width + 20, canvasRect.height + 20);
         GUI.DrawTexture(frame, Texture2D.whiteTexture, ScaleMode.StretchToFill, false, 0, new Color(0.55f, 0.38f, 0.12f), 0, 4);
         GUI.DrawTexture(canvasRect, canvas, ScaleMode.StretchToFill, false);
-        if (ShowGuide) GUI.DrawTexture(canvasRect, guide, ScaleMode.StretchToFill, true);
+        if (ShowGuide && guide != null) GUI.DrawTexture(canvasRect, guide, ScaleMode.StretchToFill, true);
 
-        // Referans: kamyon ekranı (canlı yayın) — ya da eski usul orijinal
-        if (UseLiveFeed)
+        // Tuvalin altındaki boşluk: kat planı (BodyCam) — ressam çizerken müzedekini yönetebilsin
+        if (ExtraPanelDrawer != null)
+        {
+            float top = canvasRect.yMax + 18f;
+            float h = Screen.height - top - 10f;
+            if (h > 90f) ExtraPanelDrawer(new Rect(canvasRect.x - 10f, top, Mathf.Min(canvasRect.width + 20f, h * 1.9f), h));
+        }
+
+        // Referans: monitör (BodyCam) varsa orijinal yerine kamyon monitörünün görüntüsü
+        Rect rframe = new Rect(refRect.x - 6, refRect.y - 6, refRect.width + 12, refRect.height + 12);
+        if (ReferenceProvider != null)
+        {
+            Texture feed = ReferenceProvider(out string feedLabel);
+            GUI.Label(new Rect(refRect.x - 60, refRect.y - 28, refRect.width + 120, 24), feedLabel, titleStyle);
+            GUI.DrawTexture(rframe, Texture2D.whiteTexture, ScaleMode.StretchToFill, false, 0, new Color(0.12f, 0.12f, 0.14f), 0, 3);
+            GUI.DrawTexture(refRect, Texture2D.whiteTexture, ScaleMode.StretchToFill, false, 0, Color.black, 0, 0);
+            if (feed != null) GUI.DrawTexture(refRect, feed, ScaleMode.ScaleToFit, false);
+            else GUI.Label(refRect, Loc.T("cam.nosignal.help"), labelStyle);
+        }
+        else if (UseLiveFeed) // arkadaşın canlı yayını (BodyCam yoksa)
         {
             LiveFeed.Draw(refRect);
             // Solda boş yer varsa kat planı
@@ -268,7 +291,6 @@ public class CanvasPainter
         else
         {
             GUI.Label(new Rect(refRect.x, refRect.y - 28, refRect.width, 24), Loc.T("bench.original"), titleStyle);
-            Rect rframe = new Rect(refRect.x - 6, refRect.y - 6, refRect.width + 12, refRect.height + 12);
             GUI.DrawTexture(rframe, Texture2D.whiteTexture, ScaleMode.StretchToFill, false, 0, new Color(0.55f, 0.38f, 0.12f), 0, 3);
             GUI.DrawTexture(refRect, reference, ScaleMode.StretchToFill, false);
         }

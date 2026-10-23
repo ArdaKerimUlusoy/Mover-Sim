@@ -59,6 +59,8 @@ public class PlayerController : MonoBehaviour
 
     /// <summary>Kamyon kalkış / polis / "hepsi yakalandı" sekansı sırasında true: hareket, bakış ve etkileşim durur (MuseumSession ayarlar).</summary>
     public static bool InputLocked { get; set; }
+    /// <summary>Sadece fareyle bakış dursun (yürüme devam eder). F5 karakter önizlemesinde orta tuşla etrafında dönerken.</summary>
+    public static bool LookFrozen { get; set; }
     /// <summary>Kamera sarsıntısı şiddeti (0..1, metre cinsinden küçük konum sapması); sekans sırasında MuseumSession ayarlar.</summary>
     public static float ShakeAmount { get; set; }
     private Vector3 lastShakeOffset;
@@ -325,6 +327,7 @@ public class PlayerController : MonoBehaviour
     {
         if (playerCamera == null || Mouse.current == null) return;
         if (Cursor.lockState != CursorLockMode.Locked || ChatUI.IsTyping) return; // Menü/sohbet açıkken kamera dönmesin
+        if (LookFrozen) return; // F5 önizleme: orta tuşla karakterin etrafında dönülüyor
 
         float turnFactor = carrier != null ? carrier.TurnSensitivityMultiplier : 1f;
         Vector2 mouseDelta = Mouse.current.delta.ReadValue() * (lookSensitivity * turnFactor * GameSettings.MouseSensitivity);

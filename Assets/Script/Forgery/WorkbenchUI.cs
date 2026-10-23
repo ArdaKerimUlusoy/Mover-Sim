@@ -18,10 +18,16 @@ public class WorkbenchUI : MonoBehaviour
 {
     /// <summary>true: orijinal eser yanda GÖSTERİLMEZ; müzedeki arkadaşın kayıt kamerasından gelen canlı yayına
     /// (kamyon ekranı, LiveFeed) bakarak çalışırsın. Yanında kat planı da durur. false: eski usul yanda orijinal.</summary>
-    public static readonly bool UseLiveFeed = true;
+    // Birleştirme: kayıt / monitör için BodyCam kullanılıyor (CanvasPainter.ReferenceProvider). Arkadaşın LiveFeed'i FeatureMerge ile açılır.
+    public static readonly bool UseLiveFeed = FeatureMerge.FriendLiveFeed;
 
     public static bool IsOpen { get; private set; }
     private static WorkbenchUI current;
+
+    /// <summary>Şu an üzerinde çalışılan müze eseri (seçim ekranındaysa null). BodyCam monitör görüntüsü için.</summary>
+    public static ArtworkDisplay CurrentTarget => current != null && current.phase != Phase.Choose ? current.target.display : null;
+    /// <summary>Vazo / büst / yüzük üzerinde mi çalışıyor? (Orijinal masada durmaz; monitör görüntüsü köşede çıkar.)</summary>
+    public static bool IsCrafting3D => current != null && current.phase != Phase.Choose && current.phase != Phase.Canvas;
 
     private enum Phase { Choose, Sculpt, Paint, Canvas, Bust, Jewel }
 
@@ -293,7 +299,8 @@ public class WorkbenchUI : MonoBehaviour
         clay.cam = cam;
         clay.Setup(vase);
 
-        // Yeşil saydam rehber (kilin içinde kalsa da silüeti görünür)
+        // Yeşil saydam rehber kaldırıldı: vazo da monitördeki görüntüye bakarak şekillendirilir
+        if (CanvasPainter.ReferenceProvider == null) {
         ghost = new GameObject("ForgeryGhost");
         ghost.transform.position = work;
         ghost.AddComponent<MeshFilter>().sharedMesh = ArtworkLook.Lathe(t => vase.Radius(t), vase.height, 40, 48);
@@ -303,6 +310,8 @@ public class WorkbenchUI : MonoBehaviour
         else ghostMaterial = ArtworkLook.MakeLit(new Color(0.2f, 1f, 0.35f));
         mr.sharedMaterial = ghostMaterial;
         mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        ghost.SetActive(false); // rehber hiç gösterilmez
+        }
 
         // Yanına orijinalin görsel kopyası (referans)
         if (!UseLiveFeed)
@@ -329,6 +338,9 @@ public class WorkbenchUI : MonoBehaviour
             Close(phase != Phase.Choose && phase != Phase.Sculpt);
             return;
         }
+
+        // Ressam orijinali masada görmez: kamyon monitörüne (BodyCam) bakarak yapar
+        if (reference != null && reference.activeSelf && CanvasPainter.ReferenceProvider != null) reference.SetActive(false);
 
         switch (phase)
         {
