@@ -134,7 +134,9 @@ public class ArtworkDisplay : Interactable
 
     // ---------------- Kalitesiz sahte: birkaç saniye sonra fark edilir ----------------
     /// <summary>Bu benzerliğin altındaki sahteler değiştirildikten birkaç sn sonra NPC'lerce fark edilir, alarm çalar.</summary>
-    public const byte BadFakeThreshold = 60;
+    public const byte BadFakeThreshold = 45;
+    /// <summary>Bu benzerliğin altındaki (rastgele çizim) sahte ile tablo DEĞİŞTİRİLEMEZ; swap reddedilir.</summary>
+    public const byte MinSwapScore = 35;
     private float badFakeAlarmAt = -1f;
     private ulong badFakeCulprit = ulong.MaxValue;
 
@@ -202,6 +204,14 @@ public class ArtworkDisplay : Interactable
 
         ItemDefinition forgery = ItemDatabase.Instance != null ? ItemDatabase.Instance.Get(inv.GetSlot(slot).ItemIndex) : null;
 
+        // Çok düşük benzerlikli sahte (rastgele çizim) ile swap yapılamaz
+        InventorySlot fs = inv.GetSlot(slot);
+        if (fs.HasSimilarity && fs.Similarity < MinSwapScore)
+        {
+            inv.ServerNotify("display.toobad", MinSwapScore.ToString());
+            return;
+        }
+
         if (!inv.ServerSwapForgery(slot, artwork, LookKey, out byte sim, out ushort forgeryId))
         {
             inv.ServerNotify("inv.full");
@@ -217,8 +227,8 @@ public class ArtworkDisplay : Interactable
         inv.ServerNotify("display.done", artwork);
         NoiseSystem.Emit(transform.position, swapNoiseRadius);
 
-        // %60 altı kalitesiz sahte: ziyaretçiler / görevliler birkaç saniye içinde fark eder → alarm (kaçış zorlaşır)
-        if (sim < BadFakeThreshold || sim == InventorySlot.NoSimilarity)
+        // BadFakeThreshold altı kalitesiz sahte: benzerliğe göre artan şansla fark edilir → alarm (kaçış zorlaşır)
+        if (sim == InventorySlot.NoSimilarity || (sim < BadFakeThreshold && Random.value < FakeSpotter.NoticeChance(sim)))
         {
             badFakeAlarmAt = Time.time + Random.Range(3.5f, 6f);
             badFakeCulprit = clientId;

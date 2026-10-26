@@ -114,7 +114,7 @@ public class ChatUI : MonoBehaviour
         float x = 12f;
         float lineH = 22f;
         float inputH = 30f;
-        float bottom = Screen.height - 12f;
+        float bottom = Screen.height - 12f - AlarmFeedback.HintHeight;
 
         // --- Yazma kutusu ---
         // Enter / Esc tuşlarını Update yönetiyor; burada kutunun bu tuşları işlemesini engelliyoruz.
@@ -173,7 +173,7 @@ public class ChatUI : MonoBehaviour
 
         if (!IsTyping && !SessionMenuUI.IsPaused)
         {
-            GUI.Label(new Rect(x, Screen.height - 12f - 18f - lineH * shown, width, 18f),
+            GUI.Label(new Rect(x, Screen.height - 12f - AlarmFeedback.HintHeight - 18f - lineH * shown, width, 18f),
                 shown == 0 ? Loc.T("chat.hint") : "", hintStyle);
         }
     }

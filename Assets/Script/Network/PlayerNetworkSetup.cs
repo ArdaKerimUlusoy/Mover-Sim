@@ -55,7 +55,7 @@ public class PlayerNetworkSetup : NetworkBehaviour
 
     // Renk numarası (Colors dizisinde), sadece sahibi değiştirebilir.
     private readonly NetworkVariable<byte> colorIndex = new NetworkVariable<byte>(
-        0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
+        0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
 
     // Bakış eğimi (derece): kamera sadece sahibinde döndüğü için ağdan paylaşılır (kafa ve eldeki eşya buna göre durur).
     private readonly NetworkVariable<sbyte> lookPitch = new NetworkVariable<sbyte>(
@@ -109,7 +109,7 @@ public class PlayerNetworkSetup : NetworkBehaviour
     public void SetColor(int index)
     {
         SavedColorIndex = index;
-        if (IsOwner && IsSpawned) colorIndex.Value = (byte)SavedColorIndex;
+        if (IsOwner && IsSpawned) RequestColorRpc((byte)SavedColorIndex);
         ApplyColor();
         ApplyOutfit();
     }
@@ -124,7 +124,6 @@ public class PlayerNetworkSetup : NetworkBehaviour
     }
 
     private string serverRegisteredName;
-    private GUIStyle nameStyle, nameShadowStyle;
     private PlayerAvatar avatar;
     private Transform ownCamera;
 
@@ -211,7 +210,7 @@ public class PlayerNetworkSetup : NetworkBehaviour
         if (mine)
         {
             playerName.Value = new FixedString32Bytes(SanitizeName(SavedName));
-            colorIndex.Value = (byte)SavedColorIndex;
+            RequestColorRpc((byte)SavedColorIndex); // sunucu çakışmayı çözer
             outfit.Value = (byte)SavedOutfit;
 
             MoveToSpawnPoint();
@@ -253,7 +252,51 @@ public class PlayerNetworkSetup : NetworkBehaviour
 
     private void OnColorChanged(byte oldValue, byte newValue)
     {
+        // Sunucu başka bir renk verdiyse (çakışma) kayıtlı rengimi ona eşitle: menüde doğru görünsün
+        if (IsOwner && newValue < Colors.Length && SavedColorIndex != newValue) SavedColorIndex = newValue;
         ApplyColor();
+    }
+
+    // ---------------- Renk çakışması (iki oyuncu aynı rengi alamaz) ----------------
+
+    private bool colorResolved; // sunucu: bu oyuncunun rengi doğrulandı mı
+
+    /// <summary>Herkes: bu renk benden başka bir oyuncuda mı? (Renk seçici soluk / seçilemez gösterir.)</summary>
+    public static bool IsColorTakenByOther(int index)
+    {
+        foreach (PlayerNetworkSetup p in All)
+        {
+            if (p == null || !p.IsSpawned || p.IsOwner) continue;
+            if (p.colorIndex.Value % Colors.Length == index) return true;
+        }
+        return false;
+    }
+
+    private bool ServerColorUsedByOther(int index)
+    {
+        foreach (PlayerNetworkSetup p in All)
+        {
+            if (p == null || p == this || !p.IsSpawned || !p.colorResolved) continue;
+            if (p.colorIndex.Value % Colors.Length == index) return true;
+        }
+        return false;
+    }
+
+    /// <summary>Sunucu: istenen renk doluysa ilk boş renge atar.</summary>
+    [Rpc(SendTo.Server)]
+    private void RequestColorRpc(byte wanted, RpcParams rpcParams = default)
+    {
+        if (rpcParams.Receive.SenderClientId != OwnerClientId) return;
+        int pick = Mathf.Clamp(wanted, 0, Colors.Length - 1);
+        if (ServerColorUsedByOther(pick))
+        {
+            for (int i = 0; i < Colors.Length; i++)
+            {
+                if (!ServerColorUsedByOther(i)) { pick = i; break; }
+            }
+        }
+        colorResolved = true;
+        colorIndex.Value = (byte)pick;
     }
 
     private void ApplyColor()
@@ -339,19 +382,8 @@ public class PlayerNetworkSetup : NetworkBehaviour
         Vector3 screen = cam.WorldToScreenPoint(worldPos);
         if (screen.z <= 0f || screen.z > nameTagMaxDistance) return;
 
-        if (nameStyle == null)
-        {
-            nameStyle = new GUIStyle(GUI.skin.label)
-            {
-                alignment = TextAnchor.MiddleCenter, fontSize = 16, fontStyle = FontStyle.Bold
-            };
-            nameStyle.normal.textColor = Color.white;
-            nameShadowStyle = new GUIStyle(nameStyle);
-            nameShadowStyle.normal.textColor = new Color(0f, 0f, 0f, 0.8f);
-        }
-
-        Rect r = new Rect(screen.x - 100f, Screen.height - screen.y - 12f, 200f, 24f);
-        GUI.Label(new Rect(r.x + 1f, r.y + 1f, r.width, r.height), PlayerName, nameShadowStyle);
-        GUI.Label(r, PlayerName, nameStyle);
+        // Oyuncunun kendi renginde, siyah konturlu ve koyu arka planlı etiket (uzaklaştıkça hafif solar)
+        float alpha = Mathf.Clamp01((nameTagMaxDistance - screen.z) / 6f);
+        WorldLabel.DrawTag(new Vector2(screen.x, Screen.height - screen.y), PlayerName, PlayerColor, alpha, 16);
     }
 }

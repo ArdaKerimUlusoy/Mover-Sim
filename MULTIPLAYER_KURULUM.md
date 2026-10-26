@@ -1170,3 +1170,25 @@ Arkadaşın commit'i aynı fikirleri (kayıt kamerası + kamyon ekranı, boya / 
 - **Harita ekranı:** Müze haritası artık ekranın köşesinde değil, kamyondaki monitörün sağındaki ikinci ekranda. Kat planı bir dokuya çizilir (`BodyCam.RenderMapScreen`). Sadece ekran görünürken ve 12 m içindeyken, saniyede 4 kez çizilir. Bu ekrana bakıp E'ye basınca da büyük ekran açılır.
 - **Brifing:** `BriefingTerminal.ShowOriginals = true`. Panoda görevdeki eserlerin dönen hologramı ve listede resimleri yine görünür.
 - **Boya rengi:** Boya karakter renginde gelir (`PlayerNetworkSetup.Colors` / `ColorIndex`). Mağazadaki renk seçimi kaldırıldı; GarageShop arkadaşın sürümüne döndü. Sunucu, boyayan oyuncunun karakter rengini kullanır.
+
+## Ek — Paket A (bug + çizim/kamera/kayıt)
+- Çizim: kare/çizgi fırça (R), silgi (E), geri alma (Z / Ctrl+Z, 20 adım), toleranslı benzerlik; sinyal yokken skor "--".
+- Takas: benzerlik < %35 ile tablo değiştirilemez (ArtworkDisplay.MinSwapScore); kötü sahte eşiği %45, fark edilme şansla (FakeSpotter.NoticeChance).
+- Brifing: ShowOriginals=false — hologram ve eser resimleri yok, sadece ad/değer.
+- BodyCam: kayıt bitince monitör/önizleme temizlenir; kayıt kamerası kayıt yapanın avatarını gizler (beginCameraRendering).
+- Duvar kapısı yalnız dikdörtgen + kapı oranında (1.6–3.2) oluşur. Hapis hücresi kat planlarında çizilir.
+- Arkadaştan alma: gürültü/alarm/suç yok; 3 m'den uzaklaşınca veya görüş kesilince iptal (sunucu doğrular).
+- Renk: colorIndex artık sunucu yazar (RequestColorRpc), dolu renk seçilemez. Ziyaretçi itilince sendeler.
+- Ekonomi: 1. seviye kotası ortalama 3 eser × 0.5, 6. seviyede eski formül. Galeri masası ganimetleri her görevde yeniden doğar.
+- Atılan WorldItem'lar sunucu kapanırken silinir; uyuyan fizik uyandırılır (fırça havada kalmasın).
+
+## Ek — Paket B + C (tüm liste)
+- Fırça: sağ tık boya topu fırlatır; isabet sunucuda (PaintProjectile.Trace, SprayPaint KindThrow). Yakından sürterek boyama kaldırıldı.
+- Bodrum (MuseumLayoutBasement.cs): seed'li "stairs" odasından rampa, altta hapishane; kat planında B1 kutusu, güvenlikler + tıklayınca ping (PingSystem.RequestGuardPing).
+- Ganimet: layout bittikten sonra masaya ışınlanır (WorldItem.ServerPlaceAt, NetworkTransform.Teleport). Küçük ganimet (loot_*) satışı yalnız yetenek puanı verir (TeamBank.skillPoints).
+- İkinci tezgah ForgeryWorkbench_2: SceneAutoSetup bir kez ekler (ProjectSettings/SahteSaheserBench2.txt); elle: Tools/Sahte Şaheser/Add Second Workbench.
+- Tezgah: BenchGuide.cs (yüzük adımları sağda), büst detayları (saç/bıyık/gözlük/kulak/sakal), tür kuralları, H ile öğretici kutusu.
+- Aletler (PlayerStealth.Gadgets.cs, GadgetWorld.cs): X bozuk para (5), J muz kabuğu (2), arkadan E basılı yankesicilik. Fark edilme sohbet yerine ekranda (SpottedRpc); AlarmFeedback.cs vinyet/efekt.
+- Ses: SoundSynth yeniden yazıldı, 8 yeni SoundId (sona eklendi); Ambience.cs müze/alarm/kamyon ortamı.
+- Menü: Tek Oyunculu (SessionManager.StartSinglePlayer, 127.0.0.1 host, kota x0.6), HeistLobbyUI (F3 hazır), GameFlow/ScreenFade geçişleri (tek sahne, aşamalar).
+- TutorialUI (19 adım, F2 ilerler, Esc basılı atlar), ObjectiveHUD sağ üst; SecurityMirror.cs seed'li güvenlik aynaları (E basılı yakın bakış).

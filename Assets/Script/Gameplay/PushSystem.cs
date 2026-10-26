@@ -46,8 +46,8 @@ public class PushSystem : MonoBehaviour
     private const float MaxAngle = 40f;
     private const float Cooldown = 0.8f;
     private const float PlayerPushSpeed = 6f;  // itilen oyuncunun savrulma hızı (m/s, hızla söner)
-    private const float AgentPushDistance = 1.1f;
-    private const float AgentPushSeconds = 0.25f;
+    private const float AgentPushDistance = 1.6f;
+    private const float AgentPushSeconds = 0.3f;
     private const float PushNoiseRadius = 3.5f;
 
     private enum TargetKind : byte { None = 0, Player = 1, Guard = 2, Visitor = 3 }
@@ -338,6 +338,7 @@ public class PushSystem : MonoBehaviour
                     }
                     return;
                 }
+                vm.ServerStagger((byte)id, AgentPushSeconds + 0.5f); // geri tepme + kısa sendeleme
                 AddShove(agent, dir);
                 break;
             }

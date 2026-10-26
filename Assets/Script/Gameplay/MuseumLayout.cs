@@ -251,6 +251,7 @@ public partial class MuseumLayout : MonoBehaviour
         if (deadEnds.Count > 0) deadEnds[0].role = "staff";
         // Güvenlik (kamera) odası KALDIRILDI: kameralar artık boya spreyiyle tek tek kör edilir (SprayTool).
         if (SecurityRoomEnabled && deadEnds.Count > 1) deadEnds[1].role = "security";
+        ChooseStairsRoom(rng); // bodrum (hapis) merdiveni için oda seç (MuseumLayoutBasement.cs)
 
         // Ekstra kapılar (özel odalar hariç): kovalamacada döngü yapılabilsin
         foreach (long k in pairs)
@@ -258,7 +259,7 @@ public partial class MuseumLayout : MonoBehaviour
             List<DoorEdge> edges = shared[k];
             PRoom ra = rooms[edges[0].a], rb = rooms[edges[0].b];
             if (HasDoorBetween(ra.id, rb.id)) continue;
-            if (ra.role == "staff" || ra.role == "security" || rb.role == "staff" || rb.role == "security") continue;
+            if (ra.role == "staff" || ra.role == "security" || rb.role == "staff" || rb.role == "security" || ra.role == "stairs" || rb.role == "stairs") continue;
             if (rng.NextDouble() < 0.4) AddDoor(edges, rng);
         }
     }
@@ -347,13 +348,13 @@ public partial class MuseumLayout : MonoBehaviour
         {
             string n = child.name;
             if (n.StartsWith("Divider_") || n == "Gallery_Partition" || n.StartsWith("StaffRope")) child.gameObject.SetActive(false);
-            if (n == "Floor") { Renderer fr = child.GetComponent<Renderer>(); if (fr != null) fr.enabled = false; }
+            if (n == "Floor") { Renderer fr = child.GetComponent<Renderer>(); if (fr != null) fr.enabled = false; Collider fcol = child.GetComponent<Collider>(); if (fcol != null) fcol.enabled = true; }
         }
 
         BuildWallsAndDoors(th);
         BuildFloorsCeilingsLights(th);
         CollectWallSlots();
-        PlaceJail(rng);
+        if (!BuildBasement(rng, th)) PlaceJail(rng); // hapis müzenin altındaki bodrum katta; uygun oda yoksa eski köşe yerleşimi
 
         PRoom staff = rooms.Find(r => r.role == "staff");
         PRoom security = rooms.Find(r => r.role == "security");
@@ -406,7 +407,7 @@ public partial class MuseumLayout : MonoBehaviour
         VisitorPoints.Clear();
         foreach (PRoom r in rooms)
         {
-            if (r.role == "staff" || r.role == "security") continue;
+            if (r.role == "staff" || r.role == "security" || r.role == "stairs") continue;
             VisitorPoints.Add(W(r.Center));
         }
         foreach (ArtworkDisplay d in ArtworkDisplay.All)
@@ -416,6 +417,49 @@ public partial class MuseumLayout : MonoBehaviour
             VisitorPoints.Add(new Vector3(front.x, museum.position.y, front.z));
         }
         LobbyWorld = W(lobby.Center);
+        BuildSecurityMirrors();
+    }
+
+    /// <summary>Kapı yanlarına 3–6 güvenlik aynası (ayrı tohumlu Random: diğer yerleşimleri etkilemez). Runtime_Interior altında, düzen yenilenince silinir.</summary>
+    private void BuildSecurityMirrors()
+    {
+        var mrng = new System.Random(appliedSeed ^ 0x3A11);
+        var cands = new List<(Vector2 pos, Vector2 nrm)>();
+        foreach (DoorEdge d in doors)
+        {
+            Vector2 c = d.Center;
+            Vector2 along = d.vertical ? new Vector2(0f, 1f) : new Vector2(1f, 0f);
+            Vector2 across = d.vertical ? new Vector2(1f, 0f) : new Vector2(0f, 1f);
+            int s = mrng.Next(2) == 0 ? -1 : 1;     // kapının hangi yanı
+            int side = mrng.Next(2) == 0 ? -1 : 1;  // hangi odaya bakar (across yönü)
+            int ni = d.vertical ? d.i : d.i + s, nj = d.vertical ? d.j + s : d.j;
+            if (ni < 0 || ni >= NX || nj < 0 || nj >= NZ) continue;
+            // Komşu hücrede de duvar olmalı (kapı değil)
+            int ga = d.vertical ? grid[ni - 1, nj] : grid[ni, nj - 1];
+            int gb = grid[ni, nj];
+            if (ga == gb || IsDoorEdge(d.vertical, ni, nj)) continue;
+            int roomId = side > 0 ? gb : ga;
+            string role = rooms[roomId].role;
+            if (role == "stairs" || role == "staff" || role == "security") continue;
+            Vector2 n0 = across * side;
+            Vector2 toDoor = -along * s;
+            Vector2 pos = c + along * (s * 1.9f) + n0 * 0.15f;
+            Vector2 nrm = (n0 * Mathf.Cos(30f * Mathf.Deg2Rad) + toDoor * Mathf.Sin(30f * Mathf.Deg2Rad)).normalized; // kapıya doğru hafif dönük
+            cands.Add((pos, nrm));
+        }
+        // Karıştır, birbirine 5 m'den yakın olmayan en fazla 3–6 tanesini al
+        for (int i = cands.Count - 1; i > 0; i--) { int k = mrng.Next(i + 1); (cands[i], cands[k]) = (cands[k], cands[i]); }
+        int want = 3 + mrng.Next(4);
+        var placed = new List<Vector2>();
+        foreach (var cd in cands)
+        {
+            if (placed.Count >= want) break;
+            if (TooClose(cd.pos, placed, 5f)) continue;
+            placed.Add(cd.pos);
+            const float pitch = 20f * Mathf.Deg2Rad;
+            Vector3 n3 = museum.TransformDirection(new Vector3(cd.nrm.x * Mathf.Cos(pitch), -Mathf.Sin(pitch), cd.nrm.y * Mathf.Cos(pitch)));
+            SecurityMirror.Create(interior, W(cd.pos, 3.2f), n3);
+        }
     }
 
     // ---------------- Duvarlar ve kapılar ----------------
@@ -911,6 +955,7 @@ public partial class MuseumLayout : MonoBehaviour
 
         var publicRooms = rooms.FindAll(r => r.role == "gallery" || r.role == "lobby");
         WorldItem[] items = server ? FindObjectsByType<WorldItem>(FindObjectsSortMode.None) : new WorldItem[0];
+        var moved = new HashSet<WorldItem>();
 
         int k = 0;
         foreach (Transform t in tables)
@@ -920,22 +965,23 @@ public partial class MuseumLayout : MonoBehaviour
             if (cell.x < 0) continue;
             blocked[cell.x, cell.y] = true;
             Vector3 oldPos = t.position;
+            Quaternion oldRot = t.rotation;
             Vector2 p = new Vector2(X0 + (cell.x + 0.5f) * Cell, Z0 + (cell.y + 0.5f) * Cell);
             t.localPosition = L(p, t.localPosition.y);
             t.localRotation = Quaternion.Euler(0f, rng.Next(2) * 90f, 0f);
-            Vector3 delta = t.position - oldPos;
 
             if (!server) continue;
+            // Eşyalar masanın ESKİ dönüşüne göre yerel ofsetle yeni masaya taşınır (eski kod dönüşü yok sayıyordu);
+            // aynı eşya iki masa tarafından ikinci kez taşınmasın diye "moved" kümesi tutulur.
             foreach (WorldItem wi in items)
             {
-                if (wi == null) continue;
+                if (wi == null || !wi.IsSpawned || moved.Contains(wi)) continue;
                 Vector3 rel = wi.transform.position - oldPos;
                 if (new Vector2(rel.x, rel.z).magnitude > 1.4f || rel.y < -0.2f || rel.y > 1.5f) continue;
-                Vector3 local = Quaternion.Inverse(Quaternion.identity) * rel;
+                moved.Add(wi);
+                Vector3 local = Quaternion.Inverse(oldRot) * rel;
                 Vector3 np = t.position + t.rotation * new Vector3(local.x, 0f, local.z) + Vector3.up * (rel.y + 0.05f);
-                Rigidbody rb = wi.GetComponent<Rigidbody>();
-                if (rb != null) { rb.linearVelocity = Vector3.zero; rb.angularVelocity = Vector3.zero; rb.position = np; }
-                wi.transform.position = np;
+                wi.ServerPlaceAt(np, wi.transform.rotation);
             }
         }
     }
@@ -1054,18 +1100,28 @@ public partial class MuseumLayout : MonoBehaviour
                 pts.Add(door);
             }
 
+            // Son devriyeci güvenlik ayrıca bodrum katı da dolaşır (merdivenden iner, hücre önünden geçer)
+            int extra = (g == primary.Length - 1 && HasBasement) ? basementPatrol.Count : 0;
+            int total = pts.Count + extra;
+
             // Gereken kadar devriye noktası (eksikse yeni boş obje)
-            while (wpRoot.childCount < pts.Count)
+            while (wpRoot.childCount < total)
             {
                 GameObject wp = new GameObject("WP" + (wpRoot.childCount + 1));
                 wp.transform.SetParent(wpRoot, false);
             }
-            var wps = new Transform[pts.Count];
+            var wps = new Transform[total];
             for (int i = 0; i < pts.Count; i++)
             {
                 Transform w = wpRoot.GetChild(i);
                 w.localPosition = L(pts[i]);
                 wps[i] = w;
+            }
+            for (int j = 0; j < extra; j++)
+            {
+                Transform w = wpRoot.GetChild(pts.Count + j);
+                w.localPosition = basementPatrol[j];
+                wps[pts.Count + j] = w;
             }
             GuardAI ai = guard.GetComponent<GuardAI>();
             if (ai != null) ai.SetWaypoints(wps);

@@ -7,13 +7,13 @@ using UnityEngine.InputSystem;
 
 /// <summary>
 /// BOYA ETKİLERİ — ressamların silahı (boya garajdan kutu kutu alınır; her iş bir kutu). Boyamayı FIRÇA yapar (PaintBrush.cs):
-///  - Bir oda kamerasının LENSİNİ fırçayla boya → kamera BlindSeconds sn kör (hiçbir şey görmez).
+///  - Fırçayla fırlatılan BOYA TOPU kamera lensine isabet ederse → kamera BlindSeconds sn kör (PaintProjectile; isabet sunucuda).
 ///  - Bir DUVARA fırçayla kapı çiz → duvarda sahte bir kapı / gölge belirir. Önünde (≈0.75 m) duran
 ///    oyuncuyu 3 m'den uzaktaki güvenlik, ziyaretçi ve kamera görmez (yakına gelen görür). Görev boyunca kalır.
 ///  - Boyalı kapıya bakıp E → eski dolaplar gibi İÇİNE SAKLANIRSIN (kimse görmez; güvenlik ararken açıp bakabilir).
 ///    Dolaplar kaldırıldı; sahnedeki saklanma noktaları (HidingSpot) görünmez bekler, boyanan kapılara atanır.
 ///  - Boyarken suç işliyorsun: biri görürse şüphelenir. Boyanırken hafif "pss" sesi çıkar.
-/// Ağ: "SS_SprayReq" (istemci → sunucu, kutu kontrolü), "SS_SprayFx" (sunucu → herkes: görsel + etki).
+/// Ağ: "SS_SprayReq" (istemci → sunucu: kapı çizimi / boya topu, kutu kontrolü), "SS_SprayFx" (sunucu → herkes: görsel + etki).
 /// Sahneye bir şey eklemeye gerek yok.
 /// </summary>
 public class SprayPaint : MonoBehaviour
@@ -21,7 +21,10 @@ public class SprayPaint : MonoBehaviour
     public static SprayPaint Instance { get; private set; }
 
     /// <summary>Yerel oyuncu şu an boya sıkıyor mu? (PlayerInteractor suç bayrağına ekler.)</summary>
-    public static bool IsSpraying { get; private set; }
+    public static bool IsSpraying => spraying || Time.time < throwCrimeUntil;
+    private static bool spraying;
+    private static float throwCrimeUntil;   // boya topu fırlatmak da suç: atıştan sonra kısa süre "boyuyor" sayılır
+    private const float ThrowCrimeSeconds = 2.5f;
 
     private const string ReqMsg = "SS_SprayReq", FxMsg = "SS_SprayFx";
     public const float BlindSeconds = 45f;
@@ -29,7 +32,8 @@ public class SprayPaint : MonoBehaviour
     private const float CamRange = 9f, CamAngle = 7f, WallRange = 3.2f;
     private const float ShadowWidth = 1.1f, ShadowHeight = 2.0f;
     private const float ConcealRadius = 0.75f, ConcealDepth = 0.95f, SeeThroughDistance = 3f;
-    private const byte KindCamera = 1, KindShadow = 2, KindRemove = 3;
+    private const byte KindCamera = 1, KindShadow = 2, KindRemove = 3, KindThrow = 4;
+    private readonly Dictionary<ulong, float> serverNextThrow = new Dictionary<ulong, float>(); // sunucu: oyuncu başına bekleme
     /// <summary>Boyalı kapı tek kullanımlık: içinden çıkıldıktan bu kadar sn sonra duvardan silinir.</summary>
     public const float DoorVanishSeconds = 4.5f;
     private readonly Dictionary<ulong, bool> doorWasOccupied = new Dictionary<ulong, bool>();
@@ -74,7 +78,7 @@ public class SprayPaint : MonoBehaviour
     {
         Unregister();
         if (Instance == this) Instance = null;
-        IsSpraying = false;
+        spraying = false;
     }
 
     // =====================================================================
@@ -124,7 +128,7 @@ public class SprayPaint : MonoBehaviour
         {
             if (regCmm != null) Unregister();
             ClearAll();
-            IsSpraying = false;
+            spraying = false;
             return;
         }
         if (regCmm != nm.CustomMessagingManager) Register(nm);
@@ -229,7 +233,27 @@ public class SprayPaint : MonoBehaviour
     }
 
     /// <summary>Yerel: fırça çiziyor / boyuyor (suç bayrağı — biri görürse şüphelenir).</summary>
-    public static void SetLocalPainting(bool on) => IsSpraying = on;
+    public static void SetLocalPainting(bool on) => spraying = on;
+
+    /// <summary>Yerel: boya topu fırlat (görsel hemen yerelde; isabet sunucuda belirlenir). Boya yoksa/menzil dışıysa sunucu yok sayar.</summary>
+    public void RequestThrow(Vector3 origin, Vector3 dir)
+    {
+        if (regNm == null || regCmm == null) return;
+        dir.Normalize();
+        byte color = (byte)LocalColor;
+        PlayerStealth me = PlayerStealth.Local;
+        PaintProjectile.Launch(origin, dir * PaintProjectile.Speed, color, me != null ? me.transform : null);
+        throwCrimeUntil = Time.time + ThrowCrimeSeconds;
+        if (regNm.IsServer) { ServerThrow(regNm.LocalClientId, origin, dir, color); return; }
+        using (var w = new FastBufferWriter(64, Allocator.Temp))
+        {
+            w.WriteValueSafe(KindThrow);
+            w.WriteValueSafe(origin);
+            w.WriteValueSafe(dir);
+            w.WriteValueSafe(color);
+            regCmm.SendNamedMessage(ReqMsg, NetworkManager.ServerClientId, w, NetworkDelivery.Reliable);
+        }
+    }
 
     /// <summary>Yerel: çizilen kapıyı sunucuya gönder (boya kutusu harcanır, kapı herkeste belirir).</summary>
     public void RequestWall(Vector3 basePos, Vector3 normal, List<Vector2[]> drawn = null)
@@ -286,14 +310,8 @@ public class SprayPaint : MonoBehaviour
         return b;
     }
 
-    /// <summary>Yerel: boyanan lensi sunucuya gönder (kamera kör olur).</summary>
-    public void RequestCamera(RoomCamera rc)
-    {
-        if (regNm != null && regCmm != null && rc != null) SendCamera(regNm, rc.name, (byte)LocalColor);
-    }
-
     /// <summary>Bu kamera boyanabilir mi (görevde, henüz kör değil)?</summary>
-    public static bool CanPaintCamera(RoomCamera rc) => rc != null && !IsBlinded(rc) && MuseumSession.IsLevelActive(rc.requiredLevel);
+    public static bool CanPaintCamera(RoomCamera rc) => rc != null && !IsBlinded(rc) && !rc.Blinded && MuseumSession.IsLevelActive(rc.requiredLevel);
 
     /// <summary>Burada zaten boyalı bir kapı var mı? (Üst üste çizilmesin.)</summary>
     public static bool NearExistingDoor(Vector3 basePos)
@@ -442,18 +460,6 @@ public class SprayPaint : MonoBehaviour
         regNm = null;
     }
 
-    private void SendCamera(NetworkManager nm, string camName, byte color)
-    {
-        if (nm.IsServer) { ServerCamera(nm.LocalClientId, camName, color); return; }
-        using (var w = new FastBufferWriter(96, Allocator.Temp))
-        {
-            w.WriteValueSafe(KindCamera);
-            w.WriteValueSafe(camName);
-            w.WriteValueSafe(color);
-            regCmm.SendNamedMessage(ReqMsg, NetworkManager.ServerClientId, w, NetworkDelivery.Reliable);
-        }
-    }
-
     private void SendWall(NetworkManager nm, Vector3 pos, Vector3 normal, List<Vector2[]> drawn, byte color)
     {
         if (nm.IsServer) { ServerWall(nm.LocalClientId, pos, normal, drawn, color); return; }
@@ -476,7 +482,11 @@ public class SprayPaint : MonoBehaviour
         try
         {
             r.ReadValueSafe(out byte kind);
-            if (kind == KindCamera) { r.ReadValueSafe(out string n); r.ReadValueSafe(out byte col); ServerCamera(sender, n, col); }
+            if (kind == KindThrow)
+            {
+                r.ReadValueSafe(out Vector3 o); r.ReadValueSafe(out Vector3 d); r.ReadValueSafe(out byte col);
+                ServerThrow(sender, o, d, col);
+            }
             else if (kind == KindShadow)
             {
                 r.ReadValueSafe(out Vector3 p); r.ReadValueSafe(out Vector3 nrm);
@@ -498,16 +508,56 @@ public class SprayPaint : MonoBehaviour
         return inv != null && inv.ServerUseSpray();
     }
 
-    private void ServerCamera(ulong client, string camName, byte color)
+    /// <summary>Sunucu: fırlatılan boya topu. Her atış bir kutu harcar; aynı balistik sunucuda simüle edilir, lense değerse kamera kör olur.</summary>
+    private void ServerThrow(ulong client, Vector3 origin, Vector3 dir, byte color)
     {
-        color = SenderColor(client, color); // boya = boyayanın karakter rengi
+        if (regNm == null || !regNm.IsServer) return;
+        if (float.IsNaN(origin.x) || float.IsNaN(origin.y) || float.IsNaN(origin.z) || float.IsNaN(dir.x) || float.IsNaN(dir.y) || float.IsNaN(dir.z)) return;
+        if (dir.sqrMagnitude < 0.25f) return;
+        dir.Normalize();
+        if (serverNextThrow.TryGetValue(client, out float nextOk) && Time.time < nextOk) return; // bekleme süresi
+        if (!regNm.ConnectedClients.TryGetValue(client, out NetworkClient c) || c.PlayerObject == null) return;
+        PlayerInventory pinv = c.PlayerObject.GetComponent<PlayerInventory>();
+        if (pinv == null || !PaintBrush.IsHoldingBrush(pinv)) return; // fırça elde değilse atılamaz
+        if (!ServerTakeSpray(client, origin, 4f, out PlayerInventory inv)) return; // boya yoksa / başlangıç oyuncudan uzaksa: atış yok
+        serverNextThrow[client] = Time.time + PaintProjectile.Cooldown * 0.8f;
+        color = SenderColor(client, color); // boya = atanın karakter rengi
+
+        Vector3 vel = dir * PaintProjectile.Speed;
+        Transform root = c.PlayerObject.transform;
+        PaintProjectile.TraceResult tr = PaintProjectile.Trace(origin, vel, root);
+        BroadcastThrow(client, origin, dir, color);
+        if (client != regNm.LocalClientId) PaintProjectile.Launch(origin, vel, color, root); // sunucudaki görsel (atan yerelde zaten gördü)
+        if (tr.surface) NoiseSystem.Emit(tr.point, 3f);
+        if (tr.camera != null) StartCoroutine(DelayedBlind(tr.camera.name, color, tr.time, inv, tr.point));
+    }
+
+    /// <summary>Top uçuş süresi kadar bekler, sonra lens boyanır (görsel çarpmayla aynı anda).</summary>
+    private System.Collections.IEnumerator DelayedBlind(string camName, byte color, float delay, PlayerInventory inv, Vector3 at)
+    {
+        yield return new WaitForSeconds(delay);
         RoomCamera rc = null;
         foreach (RoomCamera c in RoomCamera.All) if (c != null && c.name == camName) { rc = c; break; }
-        if (rc == null || IsBlinded(rc)) return;
-        if (!ServerTakeSpray(client, rc.transform.position, CamRange + 3f, out PlayerInventory inv)) return;
-        inv.ServerPlaySound(SoundId.CoinLand, rc.transform.position);
+        if (rc == null || !CanPaintCamera(rc)) yield break; // bu arada başkası boyadı / görev bitti
+        if (inv != null) inv.ServerPlaySound(SoundId.CoinLand, at);
         BroadcastCamera(camName, color);
         ApplyCamera(camName, color);
+    }
+
+    private void BroadcastThrow(ulong thrower, Vector3 origin, Vector3 dir, byte color)
+    {
+        List<ulong> ids = Others();
+        ids.Remove(thrower); // atan zaten yerelde gördü
+        if (ids.Count == 0) return;
+        using (var w = new FastBufferWriter(64, Allocator.Temp))
+        {
+            w.WriteValueSafe(KindThrow);
+            w.WriteValueSafe(thrower);
+            w.WriteValueSafe(origin);
+            w.WriteValueSafe(dir);
+            w.WriteValueSafe(color);
+            regCmm.SendNamedMessage(FxMsg, ids, w, NetworkDelivery.Reliable);
+        }
     }
 
     private void ServerWall(ulong client, Vector3 pos, Vector3 normal, List<Vector2[]> drawn, byte color)
@@ -582,6 +632,14 @@ public class SprayPaint : MonoBehaviour
             r.ReadValueSafe(out byte kind);
             if (kind == KindCamera) { r.ReadValueSafe(out string n); r.ReadValueSafe(out byte col); ApplyCamera(n, col); }
             else if (kind == KindRemove) { r.ReadValueSafe(out ulong sid); RemoveDoor(sid); }
+            else if (kind == KindThrow)
+            {
+                r.ReadValueSafe(out ulong thrower); r.ReadValueSafe(out Vector3 o); r.ReadValueSafe(out Vector3 d); r.ReadValueSafe(out byte col);
+                if (thrower == regNm.LocalClientId || d.sqrMagnitude < 0.25f) return;
+                Transform root = null;
+                if (regNm.SpawnManager != null) { NetworkObject po = regNm.SpawnManager.GetPlayerNetworkObject(thrower); if (po != null) root = po.transform; }
+                PaintProjectile.Launch(o, d.normalized * PaintProjectile.Speed, col, root);
+            }
             else if (kind == KindShadow)
             {
                 r.ReadValueSafe(out Vector3 p); r.ReadValueSafe(out Vector3 nrm); r.ReadValueSafe(out ulong spotId);

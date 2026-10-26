@@ -15,8 +15,8 @@ public class BriefingTerminal : Interactable
 
     /// <summary>Brifingde eserlerin görünüşü (dönen hologram, resimler) gösterilsin mi? Kapalı: kamyondaki kişi
     /// orijinali yalnızca müzedeki arkadaşının canlı yayınından görür (LiveFeed). Adlar / değerler / plan görünür.</summary>
-    // Açık: brifing panosunda görevdeki eserler (dönen hologram) ve listede resimleri görünür (istek üzerine geri açıldı).
-    public static readonly bool ShowOriginals = true;
+    // Kapalı: dönen hologram kurulmaz, brifing listesinde resim yok; yalnızca eser adı / değer / plan bilgisi görünür.
+    public static readonly bool ShowOriginals = false;
 
     private GameObject hologram;
     private int builtVersion = -1;
@@ -173,10 +173,20 @@ public class BriefingUI : MonoBehaviour
 
     private GUIStyle staffNote;
 
+    /// <summary>Rol kartı: başlık + açıklama.</summary>
+    private static void RoleBox(string titleKey, string descKey)
+    {
+        GUILayout.BeginVertical(UIUtil.BoxStyle, GUILayout.ExpandWidth(true));
+        GUILayout.Label(Loc.T(titleKey), UIUtil.RowStyle);
+        GUILayout.Label(Loc.T(descKey), UIUtil.SmallStyle);
+        GUILayout.EndVertical();
+    }
+
     private void OnGUI()
     {
         MuseumSession ms = MuseumSession.Instance;
-        UIUtil.BeginCenteredPanel(720f, 560f);
+        float panelH = Mathf.Min(Screen.height - 40f, 660f);
+        UIUtil.BeginCenteredPanel(Mathf.Min(Screen.width - 40f, 820f), panelH);
 
         if (ms == null || !ms.Ready)
         {
@@ -192,24 +202,36 @@ public class BriefingUI : MonoBehaviour
         GUILayout.Label(Loc.T("brief.quota", ms.Quota, Mathf.Max(0, ms.Earned)), UIUtil.AccentStyle);
         GUILayout.Space(6f);
 
-        scroll = GUILayout.BeginScrollView(scroll, GUILayout.Height(300f));
+        scroll = GUILayout.BeginScrollView(scroll, GUILayout.Height(panelH - 150f));
+
+        // --- Roller ---
+        GUILayout.Label(Loc.T("brief.roles.title"), UIUtil.AccentStyle);
+        GUILayout.BeginHorizontal();
+        RoleBox("brief.role.museum.t", "brief.role.museum.d");
+        RoleBox("brief.role.truck.t", "brief.role.truck.d");
+        GUILayout.EndHorizontal();
+        bool solo = PlayerNetworkSetup.All.Count <= 1;
+        GUILayout.Label(Loc.T(solo ? "brief.role.solo" : "brief.role.team"), UIUtil.SmallStyle);
+        GUILayout.Space(8f);
+
+        // --- Hedefler ---
+        int targetCount = 0;
+        foreach (ArtworkDisplay t in ArtworkDisplay.All)
+            if (t != null && t.Artwork != null && MuseumSession.IsDisplayActive(t)) targetCount++;
+        GUILayout.Label(Loc.T("brief.goals.title", targetCount), UIUtil.AccentStyle);
         foreach (ArtworkDisplay d in ArtworkDisplay.All)
         {
             if (d == null || d.Artwork == null || !MuseumSession.IsDisplayActive(d)) continue;
             ArtKind kind = ArtworkLook.KindOf(d.Artwork);
 
             GUILayout.BeginHorizontal(UIUtil.BoxStyle);
-            Rect img = GUILayoutUtility.GetRect(72f, 72f, GUILayout.Width(kind == ArtKind.Painting ? 96f : 72f), GUILayout.Height(72f));
-            if (BriefingTerminal.ShowOriginals || kind == ArtKind.None)
+            if (BriefingTerminal.ShowOriginals)
             {
+                Rect img = GUILayoutUtility.GetRect(72f, 72f, GUILayout.Width(kind == ArtKind.Painting ? 96f : 72f), GUILayout.Height(72f));
                 Texture2D iconTex = kind != ArtKind.None ? IconFor(ms, d, kind) : d.Artwork.icon;
                 if (iconTex != null) GUI.DrawTexture(img, iconTex, ScaleMode.ScaleToFit);
             }
-            else
-            {
-                UIUtil.DrawRect(img, new Color(0.15f, 0.17f, 0.2f));
-                GUI.Label(img, "?", UIUtil.TitleStyle); // görünüşü canlı yayından öğrenilir
-            }
+            // Resimler kapalı: görünüş yalnızca müzedeki arkadaşın canlı yayınından öğrenilir; listede sadece ad / değer.
 
             GUILayout.BeginVertical();
             GUILayout.Label(ms.ArtworkName(d), UIUtil.RowStyle);
@@ -224,10 +246,15 @@ public class BriefingUI : MonoBehaviour
             GUILayout.EndVertical();
             GUILayout.EndHorizontal();
         }
+
+        // --- Plan: adım adım ---
+        GUILayout.Space(8f);
+        GUILayout.Label(Loc.T("brief.steps.title"), UIUtil.AccentStyle);
+        for (int i = 1; i <= 5; i++) GUILayout.Label(Loc.T("brief.step." + i), UIUtil.SmallStyle);
+        GUILayout.Space(4f);
+        GUILayout.Label(Loc.T("brief.plan"), UIUtil.SmallStyle);
         GUILayout.EndScrollView();
 
-        GUILayout.Space(6f);
-        GUILayout.Label(Loc.T("brief.plan"), UIUtil.SmallStyle);
         GUILayout.FlexibleSpace();
         GUILayout.Label(Loc.T("brief.close"), UIUtil.HintStyle);
         UIUtil.EndCenteredPanel();

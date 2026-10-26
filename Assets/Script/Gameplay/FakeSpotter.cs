@@ -3,14 +3,22 @@ using Unity.Netcode;
 using UnityEngine;
 
 /// <summary>
-/// KÖTÜ SAHTE FARK EDİLİR: benzerliği %60'ın altındaki bir sahte kaideye konunca, birkaç saniye sonra (4–8 sn) onu gören
+/// KÖTÜ SAHTE FARK EDİLİR: benzerliği eşiğin (BadFakeThreshold) altındaki bir sahte kaideye konunca, birkaç saniye sonra (4–8 sn) onu gören
 /// ilk ziyaretçi ya da güvenlik "bu sahte!" diye bağırır → ALARM. Kimse görmüyorsa görene kadar bekler.
 /// Böylece kaba sahte koyup çıkmak kaçışı zorlaştırır. (İyi sahteler için güvenliklerin eski "yakından bakma" kontrolü sürer.)
 /// Sunucuda çalışır, sahneye bir şey eklemeye gerek yok.
 /// </summary>
 public class FakeSpotter : MonoBehaviour
 {
-    public const byte NoticeBelow = 60;      // bu benzerliğin altı fark edilir
+    public const byte NoticeBelow = ArtworkDisplay.BadFakeThreshold; // bu benzerliğin altında fark edilme şansı doğar
+
+    /// <summary>Benzerliğe göre fark edilme olasılığı: eşikte %25, MinSwapScore'a doğru yükselip %100 olur (kesin alarm değil).</summary>
+    public static float NoticeChance(byte similarity)
+    {
+        if (similarity >= NoticeBelow) return 0f;
+        float t = Mathf.Clamp01((NoticeBelow - similarity) / (float)(NoticeBelow - ArtworkDisplay.MinSwapScore));
+        return 0.25f + 0.75f * t;
+    }
     private const float MinDelay = 4f, MaxDelay = 8f;
     private const float SightRange = 9f;
 
@@ -40,6 +48,7 @@ public class FakeSpotter : MonoBehaviour
             bool bad = d.IsSwapped && d.LeftSimilarity < NoticeBelow; // NoSimilarity (255) = sayılmaz
             if (!bad) { pending.Remove(d); done.Remove(d); continue; }
             if (done.Contains(d) || pending.ContainsKey(d)) continue;
+            if (Random.value >= NoticeChance(d.LeftSimilarity)) { done.Add(d); continue; } // bu sefer kimse şüphelenmedi
             pending[d] = Time.time + Random.Range(MinDelay, MaxDelay);
         }
 

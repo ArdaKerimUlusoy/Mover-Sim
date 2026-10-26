@@ -73,6 +73,7 @@ public class WorkbenchUI : MonoBehaviour
     private BustLook bust;
     private readonly float[] bustSliders = new float[BustLook.SliderCount];
     private int bustStone, bustBase;
+    private readonly int[] bustDetails = new int[BustLook.DetailCount]; // saç, bıyık, gözlük, kulak, sakal
 
     // Yüzük
     private JewelLook jewel;
@@ -207,6 +208,7 @@ public class WorkbenchUI : MonoBehaviour
     private void StartWork(Option o)
     {
         target = o;
+        BenchGuide.OnWorkStart(o.kind); // türün ilk açılışında öğretici kutu (H: yeniden aç)
         MuseumSession ms = MuseumSession.Instance;
         int seed = ms != null ? ms.Seed : 0;
         int theme = ms != null ? ms.ThemeIndex : 0;
@@ -239,11 +241,13 @@ public class WorkbenchUI : MonoBehaviour
                 bust = ArtworkLook.Bust(seed, theme, o.display.name);
                 for (int i = 0; i < bustSliders.Length; i++) bustSliders[i] = 0.5f;
                 bustStone = bustBase = 0;
+                System.Array.Clear(bustDetails, 0, bustDetails.Length);
                 if (o.resumeId != 0 && ForgeryRegistry.TryGet(o.resumeId, out ForgeryData rb) && rb.pars.Length >= BustLook.SliderCount + 2)
                 {
                     for (int i = 0; i < bustSliders.Length; i++) bustSliders[i] = rb.pars[i] / 255f;
                     bustStone = rb.pars[BustLook.SliderCount];
                     bustBase = rb.pars[BustLook.SliderCount + 1];
+                    System.Array.Copy(BustLook.DetailsFromPars(rb.pars), bustDetails, bustDetails.Length);
                 }
                 if (cam != null) cam.transform.LookAt(work + Vector3.up * 0.3f);
                 // Tezgah üstünde yan yana: solda senin kalıbın, sağda orijinal
@@ -332,6 +336,11 @@ public class WorkbenchUI : MonoBehaviour
 
         if (UseLiveFeed && phase != Phase.Choose) LiveFeed.Request();
 
+        // Öğretici kutu (H aç/kapat): açıkken çalışma girdileri ve Esc kutuya gider
+        bool modal = phase != Phase.Choose && BenchGuide.Tick(kb);
+        if (clay != null) clay.enabled = !modal; // kil de öğretici açıkken şekillenmesin
+        if (modal) return;
+
         if (kb.escapeKey.wasPressedThisFrame)
         {
             // Şekil bitmeden ESC = vazgeç (boyanmamış kil çantaya girmesin)
@@ -378,6 +387,9 @@ public class WorkbenchUI : MonoBehaviour
                 if (phase == Phase.Jewel) TickJewel(kb);
                 if (kb.aKey.isPressed) previewYaw += 90f * Time.deltaTime;
                 if (kb.dKey.isPressed) previewYaw -= 90f * Time.deltaTime;
+                // Büst: sağ ya da orta tuşla sürükleyerek de çevrilir (yüzükte sağ tık taş sökmeye ayrılı)
+                if (phase == Phase.Bust && Mouse.current != null && (Mouse.current.rightButton.isPressed || Mouse.current.middleButton.isPressed))
+                    previewYaw -= Mouse.current.delta.ReadValue().x * 0.4f;
                 if (previewDirty) RebuildPreview();
                 Quaternion rot = Quaternion.Euler(0f, previewYaw, 0f);
                 if (preview != null) preview.transform.rotation = rot;
@@ -407,10 +419,11 @@ public class WorkbenchUI : MonoBehaviour
 
     private ForgeryData BustData()
     {
-        var pars = new byte[BustLook.SliderCount + 2];
+        var pars = new byte[BustLook.SliderCount + 2 + BustLook.DetailCount];
         for (int i = 0; i < BustLook.SliderCount; i++) pars[i] = (byte)Mathf.RoundToInt(Mathf.Clamp01(bustSliders[i]) * 255f);
         pars[BustLook.SliderCount] = (byte)bustStone;
         pars[BustLook.SliderCount + 1] = (byte)bustBase;
+        for (int i = 0; i < BustLook.DetailCount; i++) pars[BustLook.SliderCount + 2 + i] = (byte)bustDetails[i];
         return new ForgeryData { kind = ArtKind.Bust, pars = pars };
     }
 
@@ -427,7 +440,7 @@ public class WorkbenchUI : MonoBehaviour
             switch (phase)
             {
                 case Phase.Canvas: return painter != null ? painter.Score : 0f;
-                case Phase.Bust: return ForgeryScorer.Bust(bustSliders, bustStone, bustBase, bust);
+                case Phase.Bust: return ForgeryScorer.Bust(bustSliders, bustStone, bustBase, bust, bustDetails);
                 case Phase.Jewel: return JewelCraft.Score(craft, jewel);
                 case Phase.Sculpt:
                 case Phase.Paint:
@@ -499,6 +512,7 @@ public class WorkbenchUI : MonoBehaviour
             Cursor.visible = false;
         }
         IsOpen = false;
+        BenchGuide.OnWorkEnd();
         if (current == this) current = null;
     }
 
@@ -528,14 +542,41 @@ public class WorkbenchUI : MonoBehaviour
         EnsureStyles();
         GUI.depth = -20; // atölye paneli oda kodu / para / çanta kutularının ÜSTÜNDE çizilsin (onlar da atölye açıkken gizlenir)
 
+        // Öğretici kutu açıkken altındaki arayüz tıklanamaz; kutu en üstte çizilir
+        bool modal = phase != Phase.Choose && BenchGuide.Showing;
+        bool oldEnabled = GUI.enabled;
+        if (modal) GUI.enabled = false;
+        DrawMain();
+        GUI.enabled = oldEnabled;
+        if (modal) BenchGuide.DrawTutorial();
+    }
+
+    /// <summary>Eser türüne göre ekranın üstünde / altında sabit duran kural şeridi ve arkadaş notu.</summary>
+    private void DrawBenchHints(ArtKind kind)
+    {
+        float noteW = 380f;
+        // Yüzükte not sağdaki rehber panelinin içinde
+        if (kind != ArtKind.Jewelry) BenchGuide.DrawOthersNote(new Rect(Screen.width - noteW - 10f, 2f, noteW, 36f));
+        if (kind == ArtKind.Painting)
+            BenchGuide.DrawRules(kind, new Rect(Screen.width * 0.5f - 480f, Screen.height * 0.17f - 36f, 960f, 22f));
+        else if (kind != ArtKind.Jewelry)
+        {
+            float x = 440f;
+            BenchGuide.DrawRules(kind, new Rect(x, Screen.height - 104f, Mathf.Max(300f, Screen.width - x - 190f), 46f));
+        }
+    }
+
+    private void DrawMain()
+    {
         switch (phase)
         {
             case Phase.Choose: DrawChoose(); return;
             case Phase.Canvas:
                 painter.Draw(Loc.T("bench.canvastitle", painting.Name));
+                DrawBenchHints(ArtKind.Painting);
                 DrawFooter(true);
                 return;
-            case Phase.Bust: DrawBust(); DrawSideFeed(); DrawFooter(true); return;
+            case Phase.Bust: DrawBust(); DrawSideFeed(); DrawBenchHints(ArtKind.Bust); DrawFooter(true); return;
             case Phase.Jewel: DrawJewel(); DrawFooter(true); return;
         }
 
@@ -580,6 +621,7 @@ public class WorkbenchUI : MonoBehaviour
         }
         GUILayout.EndArea();
         DrawSideFeed();
+        DrawBenchHints(ArtKind.Vase);
         DrawFooter(phase == Phase.Paint);
     }
 
@@ -645,9 +687,29 @@ public class WorkbenchUI : MonoBehaviour
         GUILayout.Label(Loc.T("bench.stone"), label);
         int stone = Swatches(ArtworkLook.BustStones, ArtworkLook.BustStoneNames, bustStone);
         if (stone != bustStone) { bustStone = stone; previewDirty = true; }
-        GUILayout.Label(Loc.T("bench.base"), label);
+        GUILayout.Label(Loc.T("bench.basecolor"), label);
         int b = Swatches(ArtworkLook.BustBases, ArtworkLook.BustBaseNames, bustBase);
         if (b != bustBase) { bustBase = b; previewDirty = true; }
+
+        // Küçük detaylar: saç, bıyık, gözlük, kulak, sakal (orijinaldekiyle aynısını seç)
+        GUILayout.Space(6f);
+        GUILayout.Label(Loc.T("bench.details"), label);
+        for (int i = 0; i < BustLook.DetailCount; i++)
+        {
+            GUILayout.Label(MuseumTheme.Pick(ArtworkLook.BustDetailTitles[i]), label);
+            int pick = Choices(ArtworkLook.BustDetailNames[i], bustDetails[i]);
+            if (pick != bustDetails[i]) { bustDetails[i] = pick; previewDirty = true; GameAudio.Play2D(SoundId.UiClick, 0.5f); }
+        }
+
+        GUILayout.Space(6f);
+        if (GUILayout.Button(Loc.T("bench.bustreset"), UIUtil.ButtonStyle, GUILayout.Height(28f)))
+        {
+            for (int i = 0; i < bustSliders.Length; i++) bustSliders[i] = 0.5f;
+            System.Array.Clear(bustDetails, 0, bustDetails.Length);
+            bustStone = bustBase = 0;
+            previewDirty = true;
+        }
+        GUILayout.Label(Loc.T("bench.bustturn"), UIUtil.SmallStyle);
         GUILayout.Space(8f);
         GUILayout.EndScrollView();
         GUILayout.FlexibleSpace();
@@ -842,22 +904,31 @@ public class WorkbenchUI : MonoBehaviour
         workRect = new Rect(x0, 10f, Mathf.Max(300f, Screen.width - x0 - 10f), Screen.height - 80f);
         UIUtil.DrawRect(workRect, new Color(0.03f, 0.04f, 0.06f, 0.72f));
         ringRadius = Mathf.Clamp(Mathf.Min(workRect.width * 0.24f, workRect.height * 0.28f), 70f, 190f);
-        ringCenter = new Vector2(workRect.x + workRect.width * 0.42f, workRect.y + workRect.height * 0.52f);
+        ringCenter = new Vector2(workRect.x + workRect.width * 0.36f, workRect.y + workRect.height * 0.52f);
         Color metalC = ArtworkLook.JewelMetals[Mathf.Clamp(craft.metal, 0, ArtworkLook.JewelMetals.Length - 1)];
 
         // Orijinalin şeması (sağ üst) — ya da kamyon ekranı (canlı yayın)
+        float guideTop;
+        float guideW = Mathf.Clamp(workRect.width * 0.3f, 230f, 340f);
+        float guideX = workRect.xMax - guideW - 10f;
         if (UseLiveFeed)
         {
             float fw = Mathf.Clamp(workRect.width * 0.34f, 240f, 420f);
             LiveFeed.Draw(new Rect(workRect.xMax - fw - 12f, workRect.y + 34f, fw, fw * 0.75f));
+            guideTop = workRect.y + 34f + fw * 0.75f + 10f;
         }
         else
         {
-            Vector2 refC = new Vector2(workRect.xMax - 120f, workRect.y + 130f);
+            Vector2 refC = new Vector2(guideX + guideW * 0.5f, workRect.y + 130f);
             GUI.Label(new Rect(refC.x - 90f, refC.y - 118f, 180f, 24f), Loc.T("bench.original"), big);
             JewelCraft orig = JewelCraft.FromLook(jewel);
             DrawRingDiagram(refC, 70f, orig, 1f);
+            guideTop = workRect.y + 230f;
         }
+
+        // Sağ tarafta adım adım yüzük yapım rehberi
+        float guideH = Mathf.Clamp(workRect.yMax - guideTop - 6f, 120f, 420f);
+        BenchGuide.DrawRingGuide(new Rect(guideX, guideTop, guideW, guideH), jewelStep, craft);
 
         if (jewelStep == 0)
         {
@@ -1022,6 +1093,7 @@ public class WorkbenchUI : MonoBehaviour
             return;
         }
         UIUtil.DrawPrompt(Loc.T(escFinishes ? "bench.finish" : "bench.sculptesc"), Screen.height - 50f, new Color(1f, 0.9f, 0.5f), 15);
+        UIUtil.DrawPrompt(Loc.T("tut.hinth"), Screen.height - 26f, new Color(1f, 1f, 1f, 0.7f), 12);
     }
 
     private void Bar(string name, float value, float threshold)

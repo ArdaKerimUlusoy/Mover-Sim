@@ -10,7 +10,23 @@ public sealed class BustLook
     public float[] sliders = new float[SliderCount];
     public int stone, baseColor;
 
+    // Küçük detaylar (pars'ta sliders + taş + kaide'den SONRA gelir; eski kayıtlarda yoksa hepsi 0 sayılır)
+    public const int DetailCount = 5; // 0 saç, 1 bıyık, 2 gözlük, 3 kulak, 4 sakal
+    public static readonly int[] DetailOptions = { 4, 3, 2, 3, 3 };
+    public int[] details = new int[DetailCount];
+
     public string Name => MuseumTheme.Pick(name);
+
+    /// <summary>pars'tan detayları oku (yoksa 0). Sınır dışı değerler kırpılır.</summary>
+    public static int[] DetailsFromPars(byte[] pars)
+    {
+        var d = new int[DetailCount];
+        int off = SliderCount + 2;
+        if (pars == null) return d;
+        for (int i = 0; i < DetailCount; i++)
+            d[i] = off + i < pars.Length ? Mathf.Clamp(pars[off + i], 0, DetailOptions[i] - 1) : 0;
+        return d;
+    }
 }
 
 /// <summary>Atölyede kopyalanacak bir yüzüğün görünümü (kuyumcu tezgahı, GDD Bölüm 3).</summary>
@@ -82,7 +98,20 @@ public static partial class ArtworkLook
     public static readonly string[][] BustSliderNames =
     {
         N("Head width", "Baş genişliği"), N("Head height", "Baş yüksekliği"), N("Nose", "Burun"),
-        N("Jaw", "Çene"), N("Shoulders", "Omuzlar"), N("Base", "Kaide"),
+        N("Jaw", "Çene"), N("Shoulders", "Omuzlar"), N("Base height", "Kaide yüksekliği"),
+    };
+
+    public static readonly string[][] BustDetailTitles =
+    {
+        N("Hair", "Saç"), N("Mustache", "Bıyık"), N("Glasses", "Gözlük"), N("Ears", "Kulaklar"), N("Beard", "Sakal"),
+    };
+    public static readonly string[][][] BustDetailNames =
+    {
+        new[] { N("Bald", "Kel"), N("Short", "Kısa"), N("Long", "Uzun"), N("Topknot", "Topuz") },
+        new[] { N("None", "Yok"), N("Thin", "İnce"), N("Thick", "Gür") },
+        new[] { N("None", "Yok"), N("Round", "Yuvarlak") },
+        new[] { N("Small", "Küçük"), N("Normal", "Normal"), N("Large", "Büyük") },
+        new[] { N("None", "Yok"), N("Goatee", "Keçi sakal"), N("Full", "Gür sakal") },
     };
 
     static readonly string[][] BustNames =
@@ -138,6 +167,8 @@ public static partial class ArtworkLook
         for (int i = 0; i < BustLook.SliderCount; i++) b.sliders[i] = rng.Next(1, 10) / 10f; // 0.1 .. 0.9
         b.stone = rng.Next(BustStones.Length);
         b.baseColor = rng.Next(BustBases.Length);
+        // Detaylar: eser kimliğinden deterministik (eski çizimleri değiştirmesin diye rng'nin en sonunda çekilir)
+        for (int i = 0; i < BustLook.DetailCount; i++) b.details[i] = rng.Next(BustLook.DetailOptions[i]);
         bustCache[ck] = b;
         return b;
     }
@@ -174,7 +205,7 @@ public static partial class ArtworkLook
     // Büst / yüzük görselleri (orijinal ve sahte aynı yerden kurulur). Pivot alt-orta, ön yüz -Z.
     // ---------------------------------------------------------------
 
-    public static GameObject BuildBustVisual(float[] s, int stone, int baseColor)
+    public static GameObject BuildBustVisual(float[] s, int stone, int baseColor, int[] details = null)
     {
         var root = new GameObject("Bust");
         Material stoneMat = MakeLit(BustStones[Mathf.Clamp(stone, 0, BustStones.Length - 1)]);
@@ -197,10 +228,40 @@ public static partial class ArtworkLook
         Part(root, PrimitiveType.Sphere, new Vector3(0f, headY, 0f), new Vector3(headW, headH, 0.22f), stoneMat);
         Part(root, PrimitiveType.Sphere, new Vector3(0f, headY - headH * 0.32f, -0.015f), new Vector3(jawW, 0.13f, 0.19f), stoneMat);
         Part(root, PrimitiveType.Cube, new Vector3(0f, headY - 0.01f, -(0.10f + noseL * 0.5f)), new Vector3(0.035f, 0.06f, noseL), stoneMat);
+
+        // ---- Küçük detaylar: saç, bıyık, gözlük, kulak, sakal ----
+        if (details == null || details.Length < BustLook.DetailCount) details = new int[BustLook.DetailCount];
+        Color sc = BustStones[Mathf.Clamp(stone, 0, BustStones.Length - 1)];
+        Material hairMat = MakeLit(Color.Lerp(sc, new Color(0.1f, 0.07f, 0.05f), 0.65f));
+        res.Own(hairMat);
+        int hair = details[0], must = details[1], glass = details[2], ear = details[3], beard = details[4];
+
+        if (hair >= 1) Part(root, PrimitiveType.Sphere, new Vector3(0f, headY + headH * 0.18f, 0.01f), new Vector3(headW * 1.05f, headH * 0.7f, 0.235f), hairMat);
+        if (hair == 2) Part(root, PrimitiveType.Sphere, new Vector3(0f, headY - headH * 0.1f, 0.07f), new Vector3(headW * 1.12f, headH * 0.95f, 0.14f), hairMat); // omuza inen arka saç
+        if (hair == 3) Part(root, PrimitiveType.Sphere, new Vector3(0f, headY + headH * 0.62f, 0.01f), new Vector3(0.07f, 0.07f, 0.07f), hairMat);
+
+        if (must > 0) Part(root, PrimitiveType.Cube, new Vector3(0f, headY - 0.055f, -0.1f), new Vector3(must == 2 ? 0.1f : 0.07f, must == 2 ? 0.022f : 0.012f, 0.025f), hairMat);
+
+        if (glass > 0)
+        {
+            Material frameMat = MakeLit(new Color(0.08f, 0.08f, 0.09f));
+            res.Own(frameMat);
+            float gx = headW * 0.2f;
+            Part(root, PrimitiveType.Cube, new Vector3(-gx, headY + 0.03f, -0.105f), new Vector3(0.055f, 0.045f, 0.012f), frameMat);
+            Part(root, PrimitiveType.Cube, new Vector3(gx, headY + 0.03f, -0.105f), new Vector3(0.055f, 0.045f, 0.012f), frameMat);
+            Part(root, PrimitiveType.Cube, new Vector3(0f, headY + 0.035f, -0.105f), new Vector3(gx * 2f, 0.01f, 0.01f), frameMat);
+        }
+
+        float earS = 0.03f + 0.02f * ear; // 0 küçük, 1 normal, 2 büyük
+        Part(root, PrimitiveType.Sphere, new Vector3(-headW * 0.5f, headY, 0f), new Vector3(0.02f, earS * 1.6f, earS), stoneMat);
+        Part(root, PrimitiveType.Sphere, new Vector3(headW * 0.5f, headY, 0f), new Vector3(0.02f, earS * 1.6f, earS), stoneMat);
+
+        if (beard == 1) Part(root, PrimitiveType.Sphere, new Vector3(0f, headY - headH * 0.46f, -0.08f), new Vector3(0.06f, 0.07f, 0.05f), hairMat);
+        if (beard == 2) Part(root, PrimitiveType.Sphere, new Vector3(0f, headY - headH * 0.4f, -0.05f), new Vector3(jawW * 1.05f, 0.14f, 0.15f), hairMat);
         return root;
     }
 
-    public static GameObject BuildBustVisual(BustLook look) => BuildBustVisual(look.sliders, look.stone, look.baseColor);
+    public static GameObject BuildBustVisual(BustLook look) => BuildBustVisual(look.sliders, look.stone, look.baseColor, look.details);
 
     /// <summary>Yüzük görseli: kalınlık dökümdeki doluluktan, parlaklık cilâdan, taşlar açılarından gelir.</summary>
     public static GameObject BuildJewelVisual(JewelCraft c)
@@ -351,7 +412,7 @@ public static partial class ArtworkLook
                 if (d.pars.Length < BustLook.SliderCount + 2) return null;
                 var s = new float[BustLook.SliderCount];
                 for (int i = 0; i < s.Length; i++) s[i] = d.pars[i] / 255f;
-                go = BuildBustVisual(s, d.pars[BustLook.SliderCount], d.pars[BustLook.SliderCount + 1]);
+                go = BuildBustVisual(s, d.pars[BustLook.SliderCount], d.pars[BustLook.SliderCount + 1], BustLook.DetailsFromPars(d.pars));
                 break;
             }
 
@@ -392,7 +453,7 @@ public static partial class ArtworkLook
         {
             case ArtKind.Vase: t = VaseIcon(Vase(seed, theme, key), IconSize); break;
             case ArtKind.Painting: t = Painting(seed, theme, key).image; break;
-            case ArtKind.Bust: { BustLook b = Bust(seed, theme, key); t = BustIcon(b.sliders, b.stone, b.baseColor); break; }
+            case ArtKind.Bust: { BustLook b = Bust(seed, theme, key); t = BustIcon(b.sliders, b.stone, b.baseColor, b.details); break; }
             case ArtKind.Jewelry: t = JewelIcon(JewelCraft.FromLook(Jewel(seed, theme, key))); break;
             default: return null;
         }
@@ -466,7 +527,7 @@ public static partial class ArtworkLook
     }
 
     /// <summary>Büstün önden görünüşü (BuildBustVisual ile aynı ölçüler).</summary>
-    public static Texture2D BustIcon(float[] s, int stone, int baseColor)
+    public static Texture2D BustIcon(float[] s, int stone, int baseColor, int[] details = null)
     {
         Color[] px = NewIcon();
         Color st = BustStones[Mathf.Clamp(stone, 0, BustStones.Length - 1)];
@@ -489,6 +550,27 @@ public static partial class ArtworkLook
         Ellipse(px, cx, y0 + headY * M, headW * 0.5f * M, headH * 0.5f * M, st);
         // Burun: uzadıkça önden daha belirgin görünür
         Block(px, cx, y0 + (headY - 0.01f) * M, 0.035f * M, (0.05f + noseL * 0.4f) * M, st * 0.78f);
+
+        // Detaylar (önden): kulak, saç, sakal, bıyık, gözlük
+        if (details != null && details.Length >= BustLook.DetailCount)
+        {
+            Color dark = Color.Lerp(st, new Color(0.1f, 0.07f, 0.05f), 0.65f);
+            float earS = (0.03f + 0.02f * details[3]) * M;
+            Ellipse(px, cx - headW * 0.5f * M, y0 + headY * M, earS * 0.5f, earS * 0.8f, st * 0.9f);
+            Ellipse(px, cx + headW * 0.5f * M, y0 + headY * M, earS * 0.5f, earS * 0.8f, st * 0.9f);
+            if (details[4] == 1) Ellipse(px, cx, y0 + (headY - headH * 0.46f) * M, 0.03f * M, 0.035f * M, dark);
+            if (details[4] == 2) Ellipse(px, cx, y0 + (headY - headH * 0.4f) * M, jawW * 0.52f * M, 0.07f * M, dark);
+            if (details[0] >= 1) Ellipse(px, cx, y0 + (headY + headH * 0.3f) * M, headW * 0.52f * M, headH * 0.22f * M, dark);
+            if (details[0] == 2) Block(px, cx - headW * 0.52f * M, y0 + headY * M, 0.02f * M, headH * 0.8f * M, dark);
+            if (details[0] == 3) Ellipse(px, cx, y0 + (headY + headH * 0.62f) * M, 0.035f * M, 0.035f * M, dark);
+            if (details[1] > 0) Block(px, cx, y0 + (headY - 0.055f) * M, (details[1] == 2 ? 0.1f : 0.07f) * M, (details[1] == 2 ? 0.022f : 0.012f) * M, dark);
+            if (details[2] > 0)
+            {
+                Color fr = new Color(0.08f, 0.08f, 0.09f);
+                Block(px, cx - headW * 0.2f * M, y0 + (headY + 0.03f) * M, 0.055f * M, 0.045f * M, fr);
+                Block(px, cx + headW * 0.2f * M, y0 + (headY + 0.03f) * M, 0.055f * M, 0.045f * M, fr);
+            }
+        }
         return FinishIcon(px, "BustIcon");
     }
 
@@ -524,7 +606,7 @@ public static partial class ArtworkLook
         {
             var s = new float[BustLook.SliderCount];
             for (int i = 0; i < s.Length; i++) s[i] = d.pars[i] / 255f;
-            return BustIcon(s, d.pars[BustLook.SliderCount], d.pars[BustLook.SliderCount + 1]);
+            return BustIcon(s, d.pars[BustLook.SliderCount], d.pars[BustLook.SliderCount + 1], BustLook.DetailsFromPars(d.pars));
         }
         if (d.kind == ArtKind.Jewelry && JewelCraft.TryFromPars(d.pars, out JewelCraft jc)) return JewelIcon(jc);
         if (d.kind != ArtKind.Vase || d.VaseRows < 1 || d.VaseRadial < 3) return null;
@@ -635,7 +717,7 @@ public static class ForgeryScorer
                 if (d.pars.Length < BustLook.SliderCount + 2) return 0;
                 var sl = new float[BustLook.SliderCount];
                 for (int i = 0; i < sl.Length; i++) sl[i] = d.pars[i] / 255f;
-                s = Bust(sl, d.pars[BustLook.SliderCount], d.pars[BustLook.SliderCount + 1], ArtworkLook.Bust(seed, theme, displayName));
+                s = Bust(sl, d.pars[BustLook.SliderCount], d.pars[BustLook.SliderCount + 1], ArtworkLook.Bust(seed, theme, displayName), BustLook.DetailsFromPars(d.pars));
                 break;
             }
             case ArtKind.Jewelry:
@@ -693,12 +775,19 @@ public static class ForgeryScorer
         return Mathf.Clamp01(1f - total / (rows + 1) / 0.25f - heightPenalty);
     }
 
-    public static float Bust(float[] sliders, int stone, int baseColor, BustLook target)
+    /// <summary>Büst: ölçüler %55, taş %15, kaide %10, küçük detaylar (saç, bıyık, gözlük, kulak, sakal) %20.</summary>
+    public static float Bust(float[] sliders, int stone, int baseColor, BustLook target, int[] details = null)
     {
         float diff = 0f;
         for (int i = 0; i < BustLook.SliderCount; i++) diff += Mathf.Abs(sliders[i] - target.sliders[i]);
         float shape = Mathf.Clamp01(1f - diff / BustLook.SliderCount / 0.3f);
-        return 0.7f * shape + (stone == target.stone ? 0.2f : 0f) + (baseColor == target.baseColor ? 0.1f : 0f);
+        float det = 0f;
+        for (int i = 0; i < BustLook.DetailCount; i++)
+        {
+            int mine = details != null && i < details.Length ? details[i] : 0;
+            if (mine == target.details[i]) det += 1f / BustLook.DetailCount;
+        }
+        return 0.55f * shape + (stone == target.stone ? 0.15f : 0f) + (baseColor == target.baseColor ? 0.1f : 0f) + 0.2f * det;
     }
 
     public static float Jewel(int style, int metal, int stoneCount, int[] stones, JewelLook target)

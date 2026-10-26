@@ -15,7 +15,13 @@ public class PlayerInteractor : MonoBehaviour
     [SerializeField] private float stealHoldDuration = 1.5f;
     [SerializeField] private LayerMask mask = ~0;
 
-    private enum TargetKind { None, Item, Interactable, Player, Trash }
+    private enum TargetKind { None, Item, Interactable, Player, Trash, Visitor }
+
+    // Ziyaretçiden para çalma (arkasından E basılı tut)
+    [SerializeField] private float pickpocketHoldDuration = 1.5f;
+    private byte targetVisitorId;
+    private bool targetVisitorBehind;
+    private byte holdVisitorId;
 
     private PlayerNetworkSetup netSetup;
     private PlayerStealth stealth;
@@ -84,8 +90,21 @@ public class PlayerInteractor : MonoBehaviour
         Keyboard kb = Keyboard.current;
         if (kb == null) return;
 
+        // Hırsız aletleri: X bozuk para, J muz kabuğu
+        if (stealth != null && cam != null) stealth.TickGadgetInput(kb, cam);
+
         switch (kind)
         {
+            case TargetKind.Visitor:
+                if (!targetVisitorBehind || stealth == null) { CancelHold(); break; }
+                if (holdTarget == this && holdVisitorId != targetVisitorId) CancelHold(); // başka ziyaretçiye geçti
+                holdVisitorId = targetVisitorId;
+                if (UpdateHold(kb, this, pickpocketHoldDuration))
+                {
+                    stealth.RequestPickpocket(targetVisitorId);
+                }
+                break;
+
             case TargetKind.Item:
                 CancelHold();
                 if (kb.eKey.wasPressedThisFrame && inventory != null) inventory.RequestPickup(targetItem);
@@ -169,9 +188,10 @@ public class PlayerInteractor : MonoBehaviour
     {
         if (stealth == null) return;
         bool crime = holdTime > 0f && holdTarget != null &&
-                     ((kind == TargetKind.Player && holdTarget == targetPlayer) ||
-                      (kind == TargetKind.Interactable && holdTarget == targetInteractable &&
-                       (targetInteractable is ArtworkDisplay || targetInteractable is JailCell || targetInteractable is SecurityCamera))); // kilit / konsol kurcalamak da suç
+                     // Arkadaşın çantasından almak suç değil (aynı takım)
+                     (kind == TargetKind.Interactable && holdTarget == targetInteractable &&
+                      (targetInteractable is ArtworkDisplay || targetInteractable is JailCell || targetInteractable is SecurityCamera)); // kilit / konsol kurcalamak da suç
+        crime |= kind == TargetKind.Visitor && holdTarget == this && holdTime > 0f; // cep karıştırmak suç: gören ihbar eder
         crime |= LockpickSystem.IsPicking; // Staff Only kilidini maymuncukla açmak da suç
         crime |= HeistControls.IsSpraying; // kameraya / duvara boya sıkmak da suç
         crime |= SprayPaint.IsSpraying;    // kamera lensine / duvara boya sıkmak da suç
@@ -202,6 +222,19 @@ public class PlayerInteractor : MonoBehaviour
     }
 
     private void FindTarget()
+    {
+        FindTargetRay();
+        // Işın başka bir şeye denk gelmediyse: yakındaki, arkasındaki ziyaretçi (geometrik hedefleme, PushSystem gibi)
+        if (kind == TargetKind.None && cam != null && VisitorManager.Instance != null &&
+            VisitorManager.Instance.FindPickpocketTarget(transform.position, cam.forward, out byte vid, out bool behind))
+        {
+            kind = TargetKind.Visitor;
+            targetVisitorId = vid;
+            targetVisitorBehind = behind;
+        }
+    }
+
+    private void FindTargetRay()
     {
         ClearTarget();
         if (cam == null) return;
@@ -309,6 +342,19 @@ public class PlayerInteractor : MonoBehaviour
 
             case TargetKind.Trash:
                 UIUtil.DrawPrompt(Loc.T("trash.prompt"), y, Color.white);
+                break;
+
+            case TargetKind.Visitor:
+                if (!targetVisitorBehind)
+                {
+                    UIUtil.DrawPrompt(Loc.T("pick.getbehind"), y, new Color(0.8f, 0.8f, 0.8f), 16);
+                }
+                else
+                {
+                    UIUtil.DrawPrompt(Loc.T("pick.prompt"), y, new Color(1f, 0.85f, 0.4f));
+                    if (holdTarget == this && holdTime > 0f)
+                        UIUtil.DrawRing(center, 22f, holdTime / pickpocketHoldDuration, new Color(0.5f, 0.9f, 0.5f));
+                }
                 break;
 
             case TargetKind.Player:

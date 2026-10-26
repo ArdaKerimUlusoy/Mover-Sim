@@ -47,6 +47,12 @@ public class ItemDefinition : ScriptableObject
     public string DisplayName => Loc.Has(NameKey) ? Loc.T(NameKey) : displayName;
     public int MaxStack => stackable ? Mathf.Max(1, maxStack) : 1;
 
+    /// <summary>
+    /// Küçük ganimet mi? Galeri masalarındaki (LootTable_*) eşyalar: kimliği "loot_" ile başlayan çalınabilir (Original) eşyalar.
+    /// Bunlar satılınca para değil, yalnızca yetenek puanı kazandırır (TeamBank.SkillPoints).
+    /// </summary>
+    public bool IsSmallLoot => type == ItemType.Original && id != null && id.StartsWith("loot_");
+
     public static string TypeName(ItemType t) => Loc.T("item.type." + t.ToString().ToLowerInvariant());
 
     /// <summary>Benzerlik derecesi (GDD Bölüm 4): 90+ Kusursuz, 75+ İyi, 50+ Şüpheli, altı Kaba.</summary>

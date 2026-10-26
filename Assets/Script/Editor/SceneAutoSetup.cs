@@ -20,10 +20,34 @@ public static class SceneAutoSetup
     private const string MarkerPath = "ProjectSettings/SahteSaheserSetup.txt";
     private const string ScenePath = "Assets/Scenes/SampleScene.unity";
 
+    // İkinci sahte masası: tam yeniden kurulum yapmadan tek seferlik ekleme
+    private const string BenchMarkerPath = "ProjectSettings/SahteSaheserBench2.txt";
+
     static SceneAutoSetup()
     {
-        if (AlreadyDone()) return;
-        EditorApplication.update += WaitAndRun;
+        if (!AlreadyDone()) EditorApplication.update += WaitAndRun;
+        else if (!File.Exists(BenchMarkerPath)) EditorApplication.update += WaitAndAddBench;
+    }
+
+    private static void WaitAndAddBench()
+    {
+        if (EditorApplication.isPlayingOrWillChangePlaymode || EditorApplication.isCompiling || EditorApplication.isUpdating) return;
+        EditorApplication.update -= WaitAndAddBench;
+        try
+        {
+            Scene scene = SceneManager.GetActiveScene();
+            if (scene.path != ScenePath) return; // başka sahne açık: menüden elle ekleyin
+            if (TestMuseumBuilder.EnsureSecondWorkbench())
+            {
+                EditorSceneManager.SaveScene(scene);
+                Debug.Log("[Kurulum] Kamyona ikinci sahte masası eklendi ve sahne kaydedildi.");
+            }
+            File.WriteAllText(BenchMarkerPath, "ok\n");
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogWarning("[Kurulum] İkinci masa eklenemedi; Tools → Sahte Şaheser → Add Second Workbench ile ekleyin.\n" + e);
+        }
     }
 
     private static bool AlreadyDone()
@@ -75,6 +99,7 @@ public static class SceneAutoSetup
         }
 
         File.WriteAllText(MarkerPath, Version + "\n");
+        File.WriteAllText(BenchMarkerPath, "ok\n");
         Debug.Log("[Kurulum] Sahne GDD'ye göre yeniden kuruldu ve kaydedildi: kamyon atölyesi, sokak, garaj, karaborsa, müze. Play'e basıp deneyebilirsiniz.");
     }
 }

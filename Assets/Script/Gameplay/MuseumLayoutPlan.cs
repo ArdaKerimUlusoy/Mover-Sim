@@ -65,7 +65,8 @@ public partial class MuseumLayout
             switch (r.role)
             {
                 case "staff":
-                case "security": noPhoto = true; break;
+                case "security":
+                case "stairs": noPhoto = true; break;
                 case "lobby": noPhoto = false; break;
                 default: noPhoto = rng.NextDouble() < 0.4; break; // galerilerin ~%40'ında kayıt yasak
             }

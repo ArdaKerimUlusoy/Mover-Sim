@@ -53,8 +53,7 @@ public class RoomCamera : MonoBehaviour
     {
         if (p == null || !p.IsSpawned || !MuseumSession.IsLevelActive(requiredLevel)) return false;
         if (SecurityManager.Instance != null && SecurityManager.Instance.CamerasDisabled) return false;
-        if (Blinded || SprayPaint.IsBlinded(this)) return false; // lensi boyalı (sprey ya da fırça)
-        if (p.IsPaintingCamera(PaintBrush.CameraCode(this))) return false; // lensini boyayan kişiyi göremez
+        if (Blinded || SprayPaint.IsBlinded(this)) return false; // lensine boya topu isabet etti
         return Vision.CanSee(transform.position, Forward, viewRange, viewAngle, p);
     }
 
@@ -149,7 +148,6 @@ public class RoomCamera : MonoBehaviour
             foreach (PlayerStealth p in PlayerStealth.All)
             {
                 if (p == null || !p.IsSpawned) continue;
-                if (p.IsPaintingCamera(PaintBrush.CameraCode(this))) continue; // lensini boyayan kişiyi göremez (fırça lensi kapatıyor)
                 if (!Vision.CanSee(transform.position, fwd, viewRange, viewAngle, p)) continue;
 
                 p.ServerReportSeen(suspicionRate, transform.position);

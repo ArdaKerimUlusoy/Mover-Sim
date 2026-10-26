@@ -72,17 +72,17 @@ public static class GameAudio
         }
     }
 
-    public static void PlayAt(SoundId id, Vector3 position, float volume = 1f, float pitchVariation = 0.08f)
+    public static void PlayAt(SoundId id, Vector3 position, float volume = 1f, float pitchVariation = 0.08f, float basePitch = 1f)
     {
-        Play(id, position, true, volume, pitchVariation);
+        Play(id, position, true, volume, pitchVariation, basePitch);
     }
 
     public static void Play2D(SoundId id, float volume = 1f, float pitchVariation = 0.03f)
     {
-        Play(id, Vector3.zero, false, volume, pitchVariation);
+        Play(id, Vector3.zero, false, volume, pitchVariation, 1f);
     }
 
-    private static void Play(SoundId id, Vector3 position, bool spatial, float volume, float pitchVariation)
+    private static void Play(SoundId id, Vector3 position, bool spatial, float volume, float pitchVariation, float basePitch)
     {
         EnsureInitialized();
         if (!clips.TryGetValue(id, out AudioClip[] list) || list == null || list.Length == 0) return;
@@ -92,7 +92,7 @@ public static class GameAudio
         src.spatialBlend = spatial ? 1f : 0f;
         src.clip = list[UnityEngine.Random.Range(0, list.Length)];
         src.volume = Mathf.Clamp01(volume * volumes[id]);
-        src.pitch = 1f + UnityEngine.Random.Range(-pitchVariation, pitchVariation);
+        src.pitch = basePitch + UnityEngine.Random.Range(-pitchVariation, pitchVariation);
         src.Play();
     }
 

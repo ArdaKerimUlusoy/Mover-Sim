@@ -19,6 +19,36 @@ public class ForgeryWorkbench : Interactable
 
     public override bool HandleLocally => true;
 
+    // ---------------- Masa kaydı (birden fazla masa olabilir) ----------------
+    private static readonly List<ForgeryWorkbench> all = new List<ForgeryWorkbench>();
+    public static IReadOnlyList<ForgeryWorkbench> All => all;
+
+    private void OnEnable() { if (!all.Contains(this)) all.Add(this); }
+    private void OnDisable() { all.Remove(this); }
+
+    /// <summary>Verilen noktaya en yakın masa (yoksa null). Masalar sahnede sabit; çalışma anında eklenmez.</summary>
+    public static ForgeryWorkbench Nearest(Vector3 pos)
+    {
+        ForgeryWorkbench best = null;
+        float bd = float.MaxValue;
+        for (int i = all.Count - 1; i >= 0; i--)
+        {
+            ForgeryWorkbench b = all[i];
+            if (b == null) { all.RemoveAt(i); continue; }
+            float d = (b.transform.position - pos).sqrMagnitude;
+            if (d < bd) { bd = d; best = b; }
+        }
+        if (best == null) best = Object.FindFirstObjectByType<ForgeryWorkbench>(); // kayıt henüz dolmadıysa
+        return best;
+    }
+
+    /// <summary>Yerel oyuncuya (ana kameraya) en yakın masa.</summary>
+    public static ForgeryWorkbench NearestToLocal()
+    {
+        Camera c = Camera.main;
+        return Nearest(c != null ? c.transform.position : Vector3.zero);
+    }
+
     /// <summary>Kameranın duracağı yer (yoksa tezgahın önü-üstü).</summary>
     public Transform CameraPoint
     {

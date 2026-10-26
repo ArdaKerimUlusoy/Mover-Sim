@@ -11,8 +11,9 @@ using UnityEngine.InputSystem;
 ///  - DUVARA KAPI ÇİZ: duvara bak, SOL TIK basılı tutup fareyle çiz. Çizgiler duvarda kalır. Bir kapının iki yan kenarını
 ///    (eğri / yamuk olabilir, boy ≥ ~1 m) ve üst kenarını çizince kapı tamamlanır → duvarda sahte kapı belirir (E ile içine
 ///    saklanılır; SprayPaint). Sağ tık: çizimi sil. Ekranda hangi kenarların bittiği görünür.
-///  - KAMERA LENSİNİ BOYA: kameranın yanına git (≈3 m), lensine bak, SOL TIK basılı tutup fareyi küçük daireler çizerek
-///    oynat (fırçala). Lens dolunca kamera kör olur (SprayPaint.BlindSeconds).
+///  - KAMERAYI KÖR ET: SAĞ TIK ile BOYA TOPU fırlat (kapı çizerken değilken; ~1 sn bekleme, menzil ~12 m, yerçekimli).
+///    Top kamera lensine (~0,35 m) isabet ederse kamera kör olur (SprayPaint.BlindSeconds). İsabeti sunucu hesaplar (PaintProjectile.Trace).
+///    Her atış bir kutu harcar; duvara/zemine çarpan top leke bırakır. Fırlatmak suçtur.
 ///  - Her bitmiş iş bir BOYA kutusu harcar (garaj mağazası). Çizerken / boyarken suç işliyorsun: biri görürse şüphelenir.
 /// Görsel: kendi ekranında sağ altta fırça (çizerken sallanır), diğer oyuncularda karakterin sağ elinde.
 /// Çizim yerel görünür (yarım çizimi diğerleri görmez); biten kapı herkeste belirir.
@@ -24,12 +25,13 @@ public class PaintBrush : MonoBehaviour
     public static PaintBrush Instance { get; private set; }
 
     private const float WallReach = 4f;                       // duvara çizme menzili (eskisi 2,6 m)
-    private const float LensReach = 6f, LensAngle = 13f;      // lens boyama menzili (eskisi 3,4 m)
     private const float PointStep = 0.035f;
     // Boy / en sınırları gevşek: duvara küçük ya da yüksekte çizilen kapı da olur (kapı yine duvarın dibine yerleşir)
-    private const float DoorMinTop = 0f, DoorMinHeight = 0.45f, DoorMinWidth = 0.25f, DoorMaxWidth = 3f;
-    private const float EdgeNeed = 0.6f;
-    private const float LensScrubNeed = 420f; // fırçalama için gereken toplam fare hareketi (piksel)
+    private const float DoorMinTop = 0f, DoorMinHeight = 0.7f, DoorMinWidth = 0.35f, DoorMaxWidth = 2f;
+    private const float DoorRatioMin = 1.6f, DoorRatioMax = 3.2f; // yükseklik / genişlik: kapı oranı
+    private const float DoorMaxInterior = 0.35f;                  // iç bölgedeki nokta oranı (karalama / dolgu kapı sayılmaz)
+    private const float DoorSideVertical = 0.65f;                 // yan kenar noktalarının köşe şeridine yakın olma oranı (dikey kenar)
+    private const float EdgeNeed = 0.7f;
 
     private static ItemDefinition brushDef;
     private static int brushIndex = -2;
@@ -50,13 +52,10 @@ public class PaintBrush : MonoBehaviour
     private float submitAt = -1f;
     private Vector2 doneCenter;
 
-    private RoomCamera lens;
-    private float lensProgress;
-    private RoomCamera lensFor;
-    private GameObject lensBlob;
+    private float nextThrow;   // boya topu bekleme süresi (unscaled)
     private float nextHiss;
 
-    private bool holding, aimWall, aimLens;
+    private bool holding, aimWall;
     private Vector3 aimHit, aimBase, aimNormal;
 
     private static Material woodMat, metalMat, hairMat, tipMat;
@@ -100,8 +99,6 @@ public class PaintBrush : MonoBehaviour
 
     public static bool IsBrush(ItemDefinition d) => d != null && d.id == ItemId;
 
-    /// <summary>Kameranın ağda gönderilen kısa kodu (adından, herkeste aynı; ≥16).</summary>
-    public static int CameraCode(RoomCamera rc) => rc == null ? 0 : (ArtworkLook.Hash(rc.name) & 0x7FFFFFF0) | 0x10;
     private int paintCode;
 
     /// <summary>Bu oyuncu şu an fırçayı elinde tutuyor mu?</summary>
@@ -130,7 +127,6 @@ public class PaintBrush : MonoBehaviour
         {
             ClearSketch();
             ClearLeftovers();
-            ClearLens();
             SprayPaint.SetLocalPainting(false);
             if (fpBrush != null) fpBrush.gameObject.SetActive(false);
             return;
@@ -140,7 +136,6 @@ public class PaintBrush : MonoBehaviour
         LocalTick();
         TickDoodles();
         UpdateVisuals();
-        UpdateDroplets();
     }
 
     /// <summary>Sunucu: herkesin çantasında tam bir fırça olsun (yeni oyuncu, sıfırlama, el koyma sonrası da).</summary>
@@ -184,7 +179,7 @@ public class PaintBrush : MonoBehaviour
         }
 
         holding = IsHoldingBrush(inv);
-        aimWall = aimLens = false;
+        aimWall = false;
         Camera cam = Camera.main;
         if (!holding || !canAct || cam == null)
         {
@@ -192,7 +187,6 @@ public class PaintBrush : MonoBehaviour
             if (paintCode != 0 && me != null && me.IsSpawned) { paintCode = 0; me.SetPaintTarget(0); }
             EndStroke();
             if (!holding) AbandonSketch(); // fırça kaldırıldı: çizim duvarda süresi dolana kadar kalır
-            ClearLens();
             return;
         }
 
@@ -209,57 +203,32 @@ public class PaintBrush : MonoBehaviour
 
         // Çizim çok uzakta kaldıysa bırakılır (duvarda süresi dolana kadar kalır)
         if (hasPlane && Vector3.Distance(me.transform.position, planeBase) > 5f) AbandonSketch();
-        if (mouse != null && mouse.rightButton.wasPressedThisFrame) { ClearSketch(); ClearLens(); }
-
-        // 1) Kamera lensi (yakında, bakılıyorsa)
-        lens = FindLens(eye, fwd);
-        if (lens != null)
+        // Sağ tık: kapı çizerken (son 3 sn içinde çizgi çizildiyse) çizimi siler; aksi halde BOYA TOPU fırlatır
+        if (mouse != null && mouse.rightButton.wasPressedThisFrame)
         {
-            aimLens = true;
-            if (lensFor != lens) { ClearLens(); lensFor = lens; }
-            if (lmb)
-            {
-                painting = true;
-                float moved = mouse != null ? Mathf.Min(mouse.delta.ReadValue().magnitude, 60f) : 0f;
-                lensProgress += (moved + 40f * Time.deltaTime) / LensScrubNeed;
-                Hiss(lens.transform.position);
-                UpdateLensBlob();
-                SprayDroplets(lens.transform.position, moved);
-                if (lensProgress >= 1f)
-                {
-                    if (inv.SprayCount <= 0) { inv.ShowLocalToast(Loc.T("brush.needpaint", UpgradeCatalog.SprayPrice)); lensProgress = 0.95f; }
-                    else
-                    {
-                        if (SprayPaint.Instance != null) SprayPaint.Instance.RequestCamera(lens);
-                        ClearLens();
-                    }
-                }
-            }
-            else lensProgress = Mathf.Max(0f, lensProgress - Time.deltaTime * 0.08f);
-            EndStroke();
+            bool sketching = hasPlane && (current != null || (strokes.Count > 0 && Time.time - lastDrawTime < 3f));
+            if (sketching) ClearSketch();
+            else TryThrow(inv, cam, me);
         }
-        else
+
+        // Duvar (kapı çizme)
+        if (SprayPaint.WallCandidate(eye, fwd, WallReach, me, out aimHit, out aimBase, out aimNormal))
         {
-            ClearLens();
-            // 2) Duvar
-            if (SprayPaint.WallCandidate(eye, fwd, WallReach, me, out aimHit, out aimBase, out aimNormal))
+            aimWall = !SprayPaint.NearExistingDoor(aimBase) || hasPlane;
+            if (aimWall && lmb && submitAt < 0f)
             {
-                aimWall = !SprayPaint.NearExistingDoor(aimBase) || hasPlane;
-                if (aimWall && lmb && submitAt < 0f)
+                if (!hasPlane) StartPlane(aimBase, aimNormal);
+                if (OnPlane(aimHit, aimNormal))
                 {
-                    if (!hasPlane) StartPlane(aimBase, aimNormal);
-                    if (OnPlane(aimHit, aimNormal))
-                    {
-                        painting = true;
-                        AddPoint(aimHit);
-                        Hiss(aimHit);
-                    }
-                    else EndStroke();
+                    painting = true;
+                    AddPoint(aimHit);
+                    Hiss(aimHit);
                 }
                 else EndStroke();
             }
             else EndStroke();
         }
+        else EndStroke();
 
         if (mouse != null && mouse.leftButton.wasReleasedThisFrame) { EndStroke(); Evaluate(); TrySubmit(inv); }
         if (submitAt > 0f && Time.unscaledTime >= submitAt) { submitAt = -1f; ClearSketch(); }
@@ -267,8 +236,20 @@ public class PaintBrush : MonoBehaviour
         if (hasPlane && current == null && pts.Count > 0 && Time.time - lastDrawTime > DoodleSeconds) AbandonSketch();
 
         SprayPaint.SetLocalPainting(painting);
-        int code = !painting ? 0 : aimLens && lens != null ? CameraCode(lens) : 1;
+        int code = painting ? 1 : 0;
         if (code != paintCode) { paintCode = code; me.SetPaintTarget(code); }
+    }
+
+    /// <summary>Boya topu fırlat: boya kutusu gerekir, ~1 sn bekleme. Isabeti sunucu belirler (SprayPaint.ServerThrow).</summary>
+    private void TryThrow(PlayerInventory inv, Camera cam, PlayerStealth me)
+    {
+        if (Time.unscaledTime < nextThrow || SprayPaint.Instance == null) return;
+        if (inv.SprayCount <= 0) { inv.ShowLocalToast(Loc.T("spray.none")); nextThrow = Time.unscaledTime + 0.4f; return; }
+        nextThrow = Time.unscaledTime + PaintProjectile.Cooldown;
+        Vector3 fwd = cam.transform.forward;
+        Vector3 origin = cam.transform.position + fwd * 0.35f - cam.transform.up * 0.1f;
+        Vector3 dir = (fwd + Vector3.up * 0.07f).normalized; // çok hafif yukarı: yerçekimi payı
+        SprayPaint.Instance.RequestThrow(origin, dir);
     }
 
     private void Hiss(Vector3 at)
@@ -276,25 +257,6 @@ public class PaintBrush : MonoBehaviour
         if (Time.unscaledTime < nextHiss) return;
         nextHiss = Time.unscaledTime + 0.22f;
         GameAudio.PlayAt(SoundId.CoinThrow, at, 0.18f, 0.35f);
-    }
-
-    private RoomCamera FindLens(Vector3 eye, Vector3 fwd)
-    {
-        RoomCamera best = null;
-        float bestA = LensAngle;
-        foreach (RoomCamera rc in RoomCamera.All)
-        {
-            if (!SprayPaint.CanPaintCamera(rc)) continue;
-            Vector3 to = rc.transform.position - eye;
-            float dist = to.magnitude;
-            if (dist > LensReach || dist < 0.05f) continue;
-            float a = Vector3.Angle(fwd, to);
-            if (a > bestA) continue;
-            if (Physics.Raycast(eye, to / dist, dist - 0.4f, ~0, QueryTriggerInteraction.Ignore)) continue;
-            bestA = a;
-            best = rc;
-        }
-        return best;
     }
 
     // ---------------- Kapı çizimi ----------------
@@ -383,7 +345,9 @@ public class PaintBrush : MonoBehaviour
             vmin = Mathf.Min(vmin, p.y); vmax = Mathf.Max(vmax, p.y);
         }
         float w = umax - umin, h = vmax - vmin;
-        sizeOk = h >= DoorMinHeight && vmax >= DoorMinTop && w >= DoorMinWidth && w <= DoorMaxWidth;
+        float ratio = w > 0.001f ? h / w : 0f;
+        sizeOk = h >= DoorMinHeight && vmax >= DoorMinTop && w >= DoorMinWidth && w <= DoorMaxWidth && ratio >= DoorRatioMin && ratio <= DoorRatioMax;
+        if (sizeOk) sizeOk = LooksRectangular(umin, umax, vmin, vmax); // dikdörtgene yakın, dikey kenarlı, içi dolu değil
 
         float mid = (umin + umax) * 0.5f;
         float topBand = Mathf.Min(0.35f, h * 0.25f);
@@ -394,6 +358,32 @@ public class PaintBrush : MonoBehaviour
         // Üst: üst banttaki noktalar soldan sağa ne kadar uzanıyor
         edgeTop = TopCoverage(vmax - topBand, umin + w * 0.15f, umax - w * 0.15f);
         doneCenter = new Vector2(mid, 0f);
+    }
+
+    /// <summary>Şekil dikdörtgene yakın mı: yan kenarlar dikey (köşe şeridine yakın), iç bölge boş.</summary>
+    private bool LooksRectangular(float umin, float umax, float vmin, float vmax)
+    {
+        float w = umax - umin, h = vmax - vmin;
+        float band = w * 0.25f;
+        float mid = (umin + umax) * 0.5f;
+        float sideFrom = vmin + h * 0.1f, sideTo = vmax - h * 0.2f;
+        int sideN = 0, sideNear = 0, inner = 0, total = 0;
+        foreach (Vector2 p in pts)
+        {
+            total++;
+            bool nearL = p.x <= umin + band, nearR = p.x >= umax - band;
+            if (p.y >= sideFrom && p.y <= sideTo)
+            {
+                sideN++;
+                if (nearL || nearR) sideNear++;
+            }
+            // iç bölge: yanlardan ve üstten içeride kalan alan
+            if (!nearL && !nearR && p.y < vmax - h * 0.2f) inner++;
+        }
+        if (total < 6 || sideN < 4) return false;
+        if ((float)sideNear / sideN < DoorSideVertical) return false;
+        if ((float)inner / total > DoorMaxInterior) return false;
+        return true;
     }
 
     /// <summary>Bir yarıda (sol / sağ), yükseklik boyunca her 10 cm'lik dilimde en az bir nokta var mı.</summary>
@@ -512,34 +502,6 @@ public class PaintBrush : MonoBehaviour
         submitAt = -1f;
     }
 
-    // ---------------- Lens boyama ----------------
-
-    private void UpdateLensBlob()
-    {
-        if (lens == null) return;
-        if (lensBlob == null)
-        {
-            lensBlob = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            lensBlob.name = "LensPaintPreview";
-            Destroy(lensBlob.GetComponent<Collider>());
-            EnsureBrushMats();
-            lensBlob.GetComponent<Renderer>().sharedMaterial = SprayPaint.ColorMat(SprayPaint.LocalColor);
-            Transform head = lens.transform.Find("Head");
-            lensBlob.transform.SetParent(head != null ? head : lens.transform, false);
-            lensBlob.transform.localPosition = new Vector3(0f, 0f, 0.3f);
-        }
-        float k = Mathf.Clamp01(lensProgress);
-        lensBlob.transform.localScale = new Vector3(0.24f, 0.24f, 0.08f) * Mathf.Lerp(0.15f, 1f, k);
-    }
-
-    private void ClearLens()
-    {
-        lensProgress = 0f;
-        lensFor = null;
-        if (lensBlob != null) Destroy(lensBlob);
-        lensBlob = null;
-    }
-
     // =====================================================================
     //  Fırça görseli
     // =====================================================================
@@ -640,67 +602,6 @@ public class PaintBrush : MonoBehaviour
     private readonly Dictionary<ulong, PlayerAvatar> avatars = new Dictionary<ulong, PlayerAvatar>();
     private FirstPersonArms fpArms;
 
-    // ---------------- Lens boyarken boya sıçraması (küçük havuz: yeni obje üretmez) ----------------
-    private struct Drop { public Transform t; public Vector3 vel; public float life; }
-    private readonly Drop[] drops = new Drop[18];
-    private int dropColor = -1;
-    private int dropNext;
-    private float nextDrop;
-
-    private void SprayDroplets(Vector3 lensPos, float mouseMoved)
-    {
-        if (Time.unscaledTime < nextDrop) return;
-        nextDrop = Time.unscaledTime + 0.04f;
-        Camera cam = Camera.main;
-        if (cam == null) return;
-        if (dropColor != SprayPaint.LocalColor) // renk değiştiyse havuzdaki damlalar da yeni renge geçer (seyrek)
-        {
-            dropColor = SprayPaint.LocalColor;
-            foreach (Drop dr in drops) if (dr.t != null) dr.t.GetComponent<Renderer>().sharedMaterial = SprayPaint.ColorMat(dropColor);
-        }
-        Vector3 from = fpBrush != null && fpBrush.gameObject.activeInHierarchy ? fpBrush.TransformPoint(0f, 0.15f, 0f)
-                                                                               : cam.transform.position + cam.transform.forward * 0.5f;
-        int n = mouseMoved > 4f ? 2 : 1;
-        for (int k = 0; k < n; k++)
-        {
-            ref Drop d = ref drops[dropNext];
-            dropNext = (dropNext + 1) % drops.Length;
-            if (d.t == null)
-            {
-                GameObject g = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-                Destroy(g.GetComponent<Collider>());
-                g.name = "PaintDrop";
-                g.transform.SetParent(transform, false);
-                EnsureBrushMats();
-                Renderer r = g.GetComponent<Renderer>();
-                r.sharedMaterial = SprayPaint.ColorMat(SprayPaint.LocalColor);
-                r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-                d.t = g.transform;
-            }
-            Vector3 to = lensPos - from;
-            float dist = Mathf.Max(0.1f, to.magnitude);
-            const float speed = 9f;
-            d.vel = to / dist * speed + Random.insideUnitSphere * 1.1f;
-            d.life = dist / speed + Random.Range(0f, 0.08f);
-            d.t.position = from;
-            d.t.localScale = Vector3.one * Random.Range(0.018f, 0.035f);
-            d.t.gameObject.SetActive(true);
-        }
-    }
-
-    private void UpdateDroplets()
-    {
-        float dt = Time.deltaTime;
-        for (int i = 0; i < drops.Length; i++)
-        {
-            if (drops[i].t == null || !drops[i].t.gameObject.activeSelf) continue;
-            drops[i].life -= dt;
-            if (drops[i].life <= 0f) { drops[i].t.gameObject.SetActive(false); continue; }
-            drops[i].vel += Vector3.down * (3f * dt);
-            drops[i].t.position += drops[i].vel * dt;
-        }
-    }
-
     private Transform FindHand(PlayerStealth p, ulong id)
     {
         if (handCache.TryGetValue(id, out Transform h) && h != null && h.IsChildOf(p.transform)) return h;
@@ -736,12 +637,15 @@ public class PaintBrush : MonoBehaviour
         GUI.DrawTexture(new Rect(sw.x - 1f, sw.y - 1f, sw.width + 2f, sw.height + 2f), Texture2D.whiteTexture, ScaleMode.StretchToFill, false, 0f, new Color(0f, 0f, 0f, 0.8f), 0f, 0f);
         GUI.DrawTexture(sw, Texture2D.whiteTexture, ScaleMode.StretchToFill, false, 0f, SprayPaint.ColorOf(SprayPaint.LocalColor), 0f, 0f);
 
-        if (aimLens)
-        {
-            UIUtil.DrawPrompt(Loc.T("brush.lens"), UIUtil.CenterSlot(), Color.white);
-            UIUtil.DrawRing(new Vector2(Screen.width / 2f, Screen.height / 2f), 22f, Mathf.Clamp01(lensProgress), new Color(0.85f, 0.2f, 0.45f));
-            return;
-        }
+        // Nişangah (boya topu için) + bekleme halkası + ipucu
+        Vector2 mid = new Vector2(Screen.width / 2f, Screen.height / 2f);
+        Color pc = SprayPaint.ColorOf(SprayPaint.LocalColor);
+        GUI.DrawTexture(new Rect(mid.x - 3f, mid.y - 3f, 6f, 6f), Texture2D.whiteTexture, ScaleMode.StretchToFill, false, 0f, new Color(0f, 0f, 0f, 0.7f), 0f, 3f);
+        GUI.DrawTexture(new Rect(mid.x - 2f, mid.y - 2f, 4f, 4f), Texture2D.whiteTexture, ScaleMode.StretchToFill, false, 0f, pc, 0f, 2f);
+        float cd = nextThrow - Time.unscaledTime;
+        if (cd > 0f) UIUtil.DrawRing(mid, 14f, 1f - Mathf.Clamp01(cd / PaintProjectile.Cooldown), new Color(pc.r, pc.g, pc.b, 0.9f));
+        tipStyle.normal.textColor = new Color(1f, 1f, 1f, 0.8f);
+        GUI.Label(new Rect(0f, Screen.height - 148f, Screen.width, 20f), Loc.T("brush.throw"), tipStyle);
         if (aimWall || hasPlane)
         {
             UIUtil.DrawPrompt(Loc.T("brush.wall"), UIUtil.CenterSlot(), Color.white);

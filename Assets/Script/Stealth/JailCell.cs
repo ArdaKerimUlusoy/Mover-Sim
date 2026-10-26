@@ -37,6 +37,27 @@ public class JailCell : Interactable
         return false;
     }
 
+    /// <summary>Kat planında hapis simgesinin konacağı dünya konumu. Hapis bodrumdaysa üst kattaki planda MERDİVENİN üstü işaretlenir
+    /// (BodyCam da bunu kullanır); gerçek hücre konumu için TryGetJailPosition.</summary>
+    public static bool TryGetPlanPosition(out Vector3 pos)
+    {
+        pos = Vector3.zero;
+        if (Instance == null) return false;
+        MuseumLayout l = MuseumLayout.Instance;
+        if (l != null && l.HasBasement) { pos = l.StairsTopWorld; return true; }
+        pos = Instance.InsidePos;
+        return true;
+    }
+
+    /// <summary>Hücrenin içinin gerçek dünya konumu (bodrum dahil). Hapis yoksa false.</summary>
+    public static bool TryGetJailPosition(out Vector3 pos)
+    {
+        pos = Vector3.zero;
+        if (Instance == null) return false;
+        pos = Instance.InsidePos;
+        return true;
+    }
+
     private void OnEnable() => Instance = this;
     private void OnDisable() { if (Instance == this) Instance = null; }
 

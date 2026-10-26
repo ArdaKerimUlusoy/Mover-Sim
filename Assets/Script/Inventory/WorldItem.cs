@@ -72,10 +72,119 @@ public class WorldItem : NetworkBehaviour
             lookKey.Value = pendingLookKey;
             // Sahneye konmuş eşyalar oyun başında yere otururken ses çıkarmasın.
             ignoreImpactsUntil = Time.time + (thrown ? 0.05f : 1.5f);
+            ServerEnsurePhysics();
+            nextWake = Time.time + 1f;
+            if (!thrown && NetworkObject.IsSceneObject == true) { hasHome = true; homePos = transform.position; homeRot = transform.rotation; }
         }
+        All.Add(this);
         forgeryId.OnValueChanged += (a, b) => RefreshArtVisual();
         lookKey.OnValueChanged += (a, b) => RefreshArtVisual();
         RefreshArtVisual();
+    }
+
+    public override void OnNetworkDespawn()
+    {
+        All.Remove(this);
+        // Sahneye konmuş eşya oturum kapanınca yok olmaz: NetworkRigidbody onu kinematik bırakır, yeniden
+        // açılınca havada asılı kalırdı. Sunucuda fiziği geri aç.
+        if (IsServer && this != null && !IsConsumed) ServerEnsurePhysics();
+    }
+
+    /// <summary>Yaşayan tüm yerdeki eşyalar (sunucu temizliği ve uyandırma için).</summary>
+    public static readonly System.Collections.Generic.List<WorldItem> All = new System.Collections.Generic.List<WorldItem>();
+
+    private float nextWake;
+    private bool physicsByDesign; // prefab'da kinematik değil (fizikle düşer) → hep böyle kalmalı
+
+    private void Awake()
+    {
+        Rigidbody rb = GetComponent<Rigidbody>();
+        physicsByDesign = rb != null && !rb.isKinematic;
+    }
+
+    /// <summary>Sunucu: Rigidbody kinematik kalmasın, uyanık olsun ve yerçekimi çalışsın (havada asılı kalmayı önler).</summary>
+    private void ServerEnsurePhysics()
+    {
+        Rigidbody rb = GetComponent<Rigidbody>();
+        if (rb == null || !physicsByDesign) return;
+        rb.isKinematic = false;
+        rb.useGravity = true;
+        rb.detectCollisions = true;
+        rb.WakeUp();
+    }
+
+    /// <summary>Pivot noktasından eşyanın en alt noktasına olan mesafe (masaya / zemine oturturken).</summary>
+    public float PivotToBottom()
+    {
+        Collider[] cols = GetComponentsInChildren<Collider>();
+        float minY = float.MaxValue;
+        foreach (Collider c in cols) if (c != null && !c.isTrigger) minY = Mathf.Min(minY, c.bounds.min.y);
+        return minY == float.MaxValue ? 0.05f : Mathf.Max(0f, transform.position.y - minY);
+    }
+
+    /// <summary>Sunucu: eşyayı belirtilen yere ışınlar (ağ konumu ve fizik birlikte): hız sıfırlanır, NetworkTransform.Teleport kullanılır,
+    /// kinematik kaldıysa fizik yeniden açılır. Yeni haritada masa ganimetlerinin havada / yanlış yerde kalmasını önler.</summary>
+    public void ServerPlaceAt(Vector3 pos, Quaternion rot)
+    {
+        if (!IsServer || !IsSpawned || IsConsumed) return;
+        Rigidbody rb = GetComponent<Rigidbody>();
+        if (rb != null && !rb.isKinematic)
+        {
+            rb.linearVelocity = Vector3.zero;
+            rb.angularVelocity = Vector3.zero;
+        }
+        transform.SetPositionAndRotation(pos, rot);
+        if (rb != null) { rb.position = pos; rb.rotation = rot; }
+        Unity.Netcode.Components.NetworkTransform nt = GetComponent<Unity.Netcode.Components.NetworkTransform>();
+        if (nt != null && nt.CanCommitToTransform) nt.Teleport(pos, rot, transform.localScale);
+        ServerEnsurePhysics();
+        ignoreImpactsUntil = Time.time + 1.5f;
+        nextWake = Time.time + 0.5f;
+    }
+
+    /// <summary>Sunucu: eşyanın altındaki en yakın zemini bulur ve eşyayı oraya oturtur (yeni haritada havada kalan / zeminin altına düşen
+    /// sahne eşyaları için). Zemin bulunamazsa sahnede ilk görülen yerine döner.</summary>
+    public void ServerSettleOnGround()
+    {
+        if (!IsServer || !IsSpawned || IsConsumed) return;
+        Vector3 p = transform.position;
+        float bottom = PivotToBottom();
+        RaycastHit[] hits = Physics.RaycastAll(p + Vector3.up * 0.6f, Vector3.down, 12f, ~0, QueryTriggerInteraction.Ignore);
+        float bestY = float.NegativeInfinity;
+        foreach (RaycastHit h in hits)
+        {
+            if (h.collider == null || h.collider.transform.IsChildOf(transform)) continue;
+            if (h.collider.GetComponentInParent<PlayerStealth>() != null) continue;
+            bestY = Mathf.Max(bestY, h.point.y);
+        }
+        if (bestY > float.NegativeInfinity)
+        {
+            // Zemine zaten oturmuşsa (±0.15 m) dokunma; havada ya da gömülüyse oturt
+            if (Mathf.Abs(p.y - bottom - bestY) > 0.15f) ServerPlaceAt(new Vector3(p.x, bestY + bottom + 0.02f, p.z), transform.rotation);
+        }
+        else if (hasHome)
+        {
+            ServerPlaceAt(homePos, homeRot);
+        }
+    }
+
+    private bool hasHome;
+    private Vector3 homePos;
+    private Quaternion homeRot;
+
+    /// <summary>Sahneye baştan konmuş eşya mı (oyuncu atmamış)? Yeni görevde yerine döndürülebilir.</summary>
+    public bool IsSceneItem => hasHome;
+
+    /// <summary>Sunucu: oturum kapanırken / görev sıfırlanırken oyuncunun bıraktığı (atılan) eşyaları siler.
+    /// Sahneye baştan konmuş eşyalara dokunmaz.</summary>
+    public static void ServerClearDropped()
+    {
+        for (int i = All.Count - 1; i >= 0; i--)
+        {
+            WorldItem w = All[i];
+            if (w == null || !w.IsServer || !w.IsSpawned || !w.thrown || w.NetworkObject.IsSceneObject == true) continue;
+            w.ServerConsume();
+        }
     }
 
     // ---------------- Görünüm: yerdeki eser de gerçek haliyle görünür ----------------
@@ -94,6 +203,14 @@ public class WorldItem : NetworkBehaviour
         {
             ServerConsume();
             return;
+        }
+
+        // Uyuyan fizik: zemin değişince (oda yeniden kuruldu) altı boşalan eşya havada kalmasın → ara ara uyandır
+        if (IsServer && IsSpawned && Time.time >= nextWake)
+        {
+            nextWake = Time.time + 1f;
+            Rigidbody rb = GetComponent<Rigidbody>();
+            if (rb != null && !rb.isKinematic && rb.IsSleeping()) rb.WakeUp();
         }
 
         // Veri istenemediyse (oyuncumuz henüz doğmadıysa) ara ara tekrar dene

@@ -83,6 +83,24 @@ public static class UpgradeCatalog
     /// <summary>Adetle satılan (tüketilen) ürün mü? Mağazada "x2 (en fazla 5)" diye yazılır, cüzdan yetmezse ekip kasası öder.</summary>
     public static bool IsConsumable(UpgradeType t) => t == UpgradeType.Lockpick || t == UpgradeType.SprayPaint;
 
+    /// <summary>Yetenek puanıyla mı açılır? Tüketilmeyen (kalıcı) geliştirmeler; maymuncuk/sprey para ile alınır.</summary>
+    public static bool UsesSkillPoints(UpgradeType t) => !IsConsumable(t) && MaxLevel(t) > 0;
+
+    /// <summary>Bir sonraki seviyenin yetenek puanı bedeli (küçük ganimet ≈ 14-22 puan eder).</summary>
+    public static int SkillPrice(UpgradeType t, int currentLevel)
+    {
+        int[] prices;
+        switch (t)
+        {
+            case UpgradeType.BiggerBag: prices = new[] { 15, 30, 50 }; break;
+            case UpgradeType.SwiftGloves: prices = new[] { 20, 40 }; break;
+            case UpgradeType.TeamBackpacks: prices = new[] { 40, 80 }; break;
+            case UpgradeType.CameraBattery: prices = new[] { 12, 25, 45 }; break;
+            default: return int.MaxValue;
+        }
+        return currentLevel >= 0 && currentLevel < prices.Length ? prices[currentLevel] : int.MaxValue;
+    }
+
     public static PaidFrom Payer(UpgradeType t) => t == UpgradeType.TeamBackpacks ? PaidFrom.Team : PaidFrom.Personal;
 
     public static string NameKey(UpgradeType t) => "upg." + t.ToString().ToLowerInvariant() + ".name";

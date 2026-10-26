@@ -11,6 +11,9 @@ using UnityEngine.InputSystem;
 ///   Tekerlek        : fırça boyutu
 ///   1-7             : renk
 ///   B               : tüm tuvali seçili renkle doldur
+///   E               : silgi aç/kapat (tuvalin başlangıç rengiyle boyar)
+///   R               : fırça şekli (yuvarlak / kare / yatay / dikey çizgi)
+///   Ctrl+Z, Z       : son darbeyi geri al (en çok 20 adım)
 /// </summary>
 public class CanvasPainter
 {
@@ -21,7 +24,15 @@ public class CanvasPainter
     public int RegionsDone { get; private set; }
     public int RegionsTotal { get; private set; }
     public bool ShowGuide = false; // yeşil rehber kaldırıldı (her zaman kapalı)
-    public int BrushSize = 5;
+    public int BrushSize = 8;
+    /// <summary>Fırça şekilleri (R tuşu ya da araç çubuğu).</summary>
+    public enum BrushShape { Round, Square, HLine, VLine }
+    public BrushShape Shape { get; private set; } = BrushShape.Round;
+    /// <summary>true: silgi — tuvalin başlangıç rengiyle boyar.</summary>
+    public bool Eraser { get; private set; }
+    private const int MaxUndo = 20;
+    private readonly List<Color[]> undo = new List<Color[]>(MaxUndo + 1);
+    private readonly Color[] grid = new Color[PaintingRegions.GW * PaintingRegions.GH]; // skor için küçültülmüş tuval
     /// <summary>true: orijinal yerine canlı yayın (kamyon ekranı) gösterilir.</summary>
     public bool UseLiveFeed = true;
     public int PaletteIndex { get; private set; }
@@ -37,7 +48,7 @@ public class CanvasPainter
     private bool dirty;
 
     private Rect canvasRect, refRect;
-    private GUIStyle labelStyle, titleStyle, scoreStyle;
+    private GUIStyle labelStyle, titleStyle, scoreStyle, smallStyle, toolStyle;
 
     public static readonly Color CanvasBase = new Color(0.96f, 0.93f, 0.85f);
 
@@ -109,13 +120,16 @@ public class CanvasPainter
         if (kb != null)
         {
             for (int i = 0; i < palette.Length && i < 9; i++)
-                if (kb[Key.Digit1 + i].wasPressedThisFrame) PaletteIndex = i;
+                if (kb[Key.Digit1 + i].wasPressedThisFrame) { PaletteIndex = i; Eraser = false; }
+            if (kb.eKey.wasPressedThisFrame) Eraser = !Eraser;
+            if (kb.rKey.wasPressedThisFrame) Shape = (BrushShape)(((int)Shape + 1) % 4);
+            if (kb.zKey.wasPressedThisFrame) Undo(); // Ctrl+Z de zKey'i tetikler
             // Fırça boyutu: [ ] ya da - + tuşları (tekerleğe ek olarak)
             if (kb.leftBracketKey.wasPressedThisFrame || kb.minusKey.wasPressedThisFrame || kb.numpadMinusKey.wasPressedThisFrame)
                 BrushSize = Mathf.Clamp(BrushSize - 1, 1, 30);
             if (kb.rightBracketKey.wasPressedThisFrame || kb.equalsKey.wasPressedThisFrame || kb.numpadPlusKey.wasPressedThisFrame)
                 BrushSize = Mathf.Clamp(BrushSize + 1, 1, 30);
-            if (kb.bKey.wasPressedThisFrame) { for (int i = 0; i < px.Length; i++) px[i] = palette[PaletteIndex]; dirty = true; }
+            if (kb.bKey.wasPressedThisFrame) { PushUndo(); for (int i = 0; i < px.Length; i++) px[i] = CurColor(); dirty = true; }
         }
 
         if (mouse != null)
@@ -133,12 +147,12 @@ public class CanvasPainter
                 Vector2 p = ToPixel(gp);
                 if (shift)
                 {
-                    if (mouse.leftButton.wasPressedThisFrame) FloodFill((int)p.x, (int)p.y, palette[PaletteIndex]);
+                    if (mouse.leftButton.wasPressedThisFrame) { PushUndo(); FloodFill((int)p.x, (int)p.y, CurColor()); }
                 }
                 else
                 {
                     if (lastPix.HasValue) StrokeLine(lastPix.Value, p);
-                    else Stamp((int)p.x, (int)p.y);
+                    else { PushUndo(); Stamp((int)p.x, (int)p.y); } // darbe başı: geri alma noktası
                     lastPix = p;
                 }
             }
@@ -166,7 +180,7 @@ public class CanvasPainter
     void StrokeLine(Vector2 a, Vector2 b)
     {
         float dist = Vector2.Distance(a, b);
-        int steps = Mathf.Max(1, Mathf.CeilToInt(dist / Mathf.Max(1f, BrushSize * 0.5f)));
+        int steps = Mathf.Max(1, Mathf.CeilToInt(dist / Mathf.Max(1f, BrushSize * 0.35f))); // hızlı harekette boşluk kalmasın
         for (int i = 1; i <= steps; i++)
         {
             Vector2 p = Vector2.Lerp(a, b, (float)i / steps);
@@ -176,20 +190,46 @@ public class CanvasPainter
 
     void Stamp(int cx, int cy)
     {
-        Color c = palette[PaletteIndex];
+        Color c = CurColor();
         int r = BrushSize;
-        for (int y = -r; y <= r; y++)
+        int rx = r, ry = r;
+        if (Shape == BrushShape.HLine) ry = Mathf.Max(1, r / 4);
+        else if (Shape == BrushShape.VLine) rx = Mathf.Max(1, r / 4);
+        for (int y = -ry; y <= ry; y++)
         {
             int py = cy + y;
             if (py < 0 || py >= H) continue;
-            for (int x = -r; x <= r; x++)
+            for (int x = -rx; x <= rx; x++)
             {
                 int pxl = cx + x;
                 if (pxl < 0 || pxl >= W) continue;
-                if (x * x + y * y <= r * r) px[py * W + pxl] = c;
+                if (Shape != BrushShape.Round || x * x + y * y <= r * r) px[py * W + pxl] = c;
             }
         }
         dirty = true;
+    }
+
+    /// <summary>Aktif boya rengi (silgiyse tuvalin başlangıç rengi).</summary>
+    Color CurColor() => Eraser ? CanvasBase : palette[PaletteIndex];
+
+    /// <summary>Darbe / doldurma öncesi tuval kopyasını yığına alır (en çok MaxUndo adım).</summary>
+    void PushUndo()
+    {
+        Color[] snap;
+        if (undo.Count >= MaxUndo) { snap = undo[0]; undo.RemoveAt(0); } // en eski kopyanın dizisini yeniden kullan
+        else snap = new Color[px.Length];
+        System.Array.Copy(px, snap, px.Length);
+        undo.Add(snap);
+    }
+
+    public void Undo()
+    {
+        if (undo.Count == 0) return;
+        Color[] snap = undo[undo.Count - 1];
+        undo.RemoveAt(undo.Count - 1);
+        System.Array.Copy(snap, px, px.Length);
+        dirty = true;
+        lastPix = null;
     }
 
     void FloodFill(int sx, int sy, Color c)
@@ -218,10 +258,33 @@ public class CanvasPainter
     /// <summary>Sunucuyla aynı bölge bölge hesap (ForgeryScorer.Painting → PaintingRegions).</summary>
     float ComputeScore()
     {
-        float score = PaintingRegions.Score((u, v) => px[Mathf.Min(H - 1, (int)(v * H)) * W + Mathf.Min(W - 1, (int)(u * W))],
+        // Tuvali bölge ızgarasına (64x48) küçült: her hücre = blok ortalaması. Hafif renk farkı ve
+        // 1-2 piksellik kayma ortalamada erir; en yakın palet rengi eşlemesi renk toleransını sağlar.
+        int gw = PaintingRegions.GW, gh = PaintingRegions.GH;
+        int bw = W / gw, bh = H / gh;
+        int painted = 0;
+        for (int gy = 0; gy < gh; gy++)
+            for (int gx = 0; gx < gw; gx++)
+            {
+                float r = 0f, g = 0f, b = 0f;
+                for (int y = 0; y < bh; y++)
+                {
+                    int row = (gy * bh + y) * W + gx * bw;
+                    for (int x = 0; x < bw; x++) { Color c = px[row + x]; r += c.r; g += c.g; b += c.b; }
+                }
+                float inv = 1f / (bw * bh);
+                var avg = new Color(r * inv, g * inv, b * inv, 1f);
+                grid[gy * gw + gx] = avg;
+                if (Diff(avg, CanvasBase) > 0.09f) painted++;
+            }
+
+        float score = PaintingRegions.Score((u, v) => grid[Mathf.Min(gh - 1, (int)(v * gh)) * gw + Mathf.Min(gw - 1, (int)(u * gw))],
                                             look, out int done, out int total);
         RegionsDone = done;
         RegionsTotal = total;
+        // Boş (ya da neredeyse boş) tuval yüksek puan almasın
+        float coverage = painted / (float)grid.Length;
+        if (coverage < 0.04f) score *= coverage / 0.04f;
         return score;
     }
 
@@ -268,9 +331,11 @@ public class CanvasPainter
 
         // Referans: monitör (BodyCam) varsa orijinal yerine kamyon monitörünün görüntüsü
         Rect rframe = new Rect(refRect.x - 6, refRect.y - 6, refRect.width + 12, refRect.height + 12);
+        bool showScore = true; // kamera sinyali yokken benzerlik gizlenir
         if (ReferenceProvider != null)
         {
             Texture feed = ReferenceProvider(out string feedLabel);
+            showScore = feed != null;
             GUI.Label(new Rect(refRect.x - 60, refRect.y - 28, refRect.width + 120, 24), feedLabel, titleStyle);
             GUI.DrawTexture(rframe, Texture2D.whiteTexture, ScaleMode.StretchToFill, false, 0, new Color(0.12f, 0.12f, 0.14f), 0, 3);
             GUI.DrawTexture(refRect, Texture2D.whiteTexture, ScaleMode.StretchToFill, false, 0, Color.black, 0, 0);
@@ -295,56 +360,100 @@ public class CanvasPainter
             GUI.DrawTexture(refRect, reference, ScaleMode.StretchToFill, false);
         }
 
+        float x0 = refRect.x, w0 = refRect.width;
+        float y = refRect.yMax + 12;
+        if (smallStyle == null)
+        {
+            smallStyle = new GUIStyle(labelStyle) { fontSize = 12, alignment = TextAnchor.UpperCenter };
+            smallStyle.normal.textColor = new Color(1f, 1f, 1f, 0.75f);
+            toolStyle = new GUIStyle(GUI.skin.button) { fontSize = 13, clipping = TextClipping.Clip };
+        }
+
         // Palet
-        float by = refRect.yMax + 24;
-        GUI.Label(new Rect(refRect.x, by, refRect.width, 22), Loc.T("bench.colors"), labelStyle);
-        by += 26;
-        float bs = Mathf.Min(40f, (refRect.width - 8f * 3) / 4f);
+        GUI.Label(new Rect(x0, y, w0, 20), Loc.T("bench.colors"), smallStyle);
+        y += 22;
+        float bs = Mathf.Min(40f, (w0 - 8f * 3) / 4f);
         for (int i = 0; i < palette.Length; i++)
         {
             int col = i % 4, row = i / 4;
-            Rect b = new Rect(refRect.x + col * (bs + 8), by + row * (bs + 8), bs, bs);
+            Rect b = new Rect(x0 + col * (bs + 8), y + row * (bs + 8), bs, bs);
             GUI.DrawTexture(b, Texture2D.whiteTexture, ScaleMode.StretchToFill, false, 0, palette[i], 0, 6);
-            if (i == PaletteIndex)
+            if (i == PaletteIndex && !Eraser)
                 GUI.DrawTexture(new Rect(b.x - 3, b.y - 3, b.width + 6, b.height + 6), Texture2D.whiteTexture, ScaleMode.StretchToFill, false, 0, Color.white, 3, 8);
             GUI.Label(new Rect(b.x, b.y, b.width, b.height), (i + 1).ToString(), labelStyle);
-            if (GUI.Button(b, GUIContent.none, GUIStyle.none)) PaletteIndex = i;
+            if (GUI.Button(b, GUIContent.none, GUIStyle.none)) { PaletteIndex = i; Eraser = false; }
         }
+        y += 2 * (bs + 8) + 4;
 
-        // Puan
-        float sy = by + 2 * (bs + 8) + 12;
+        // Benzerlik: kamera sinyali yoksa gizli ("--")
         if (scoreStyle == null) scoreStyle = new GUIStyle(titleStyle) { wordWrap = false, fontSize = 18, clipping = TextClipping.Overflow };
-        GUI.Label(new Rect(refRect.x, sy, refRect.width, 24), Loc.T("bench.similarity", Mathf.RoundToInt(Score * 100), ItemDefinition.GradeName((byte)Mathf.RoundToInt(Score * 100))), scoreStyle);
-        GUI.Label(new Rect(refRect.x, sy + 50, refRect.width, 22), Loc.T("bench.regions", RegionsDone, RegionsTotal), labelStyle);
+        Rect bar = new Rect(x0, y + 26, w0, 10);
+        GUI.DrawTexture(bar, Texture2D.whiteTexture, ScaleMode.StretchToFill, false, 0, new Color(1, 1, 1, 0.15f), 0, 4);
+        if (showScore)
+        {
+            byte pct = (byte)Mathf.Clamp(Mathf.RoundToInt(Score * 100), 0, 100);
+            GUI.Label(new Rect(x0, y, w0, 24), Loc.T("bench.similarity", pct, ItemDefinition.GradeName(pct)), scoreStyle);
+            Color fill = Score >= 0.75f ? new Color(0.35f, 0.95f, 0.45f) : (Score >= 0.5f ? new Color(1f, 0.75f, 0.25f) : new Color(1f, 0.4f, 0.3f));
+            GUI.DrawTexture(new Rect(bar.x, bar.y, bar.width * Score, bar.height), Texture2D.whiteTexture, ScaleMode.StretchToFill, false, 0, fill, 0, 4);
+            GUI.Label(new Rect(x0, bar.yMax + 2, w0, 18), Loc.T("bench.regions", RegionsDone, RegionsTotal), smallStyle);
+        }
+        else GUI.Label(new Rect(x0, y, w0, 24), "--", scoreStyle);
+        y += 62;
 
         // Fırça boyutu: kaydırıcı + / − düğmeleri (boyut halkası imlecin üstünde çizilir)
-        float fy = sy + 80;
-        GUI.Label(new Rect(refRect.x, fy, refRect.width, 22), Loc.T("bench.brushsize", BrushSize), labelStyle);
-        fy += 24;
-        if (GUI.Button(new Rect(refRect.x, fy, 28, 22), "−")) BrushSize = Mathf.Clamp(BrushSize - 1, 1, 30);
-        if (GUI.Button(new Rect(refRect.xMax - 28, fy, 28, 22), "+")) BrushSize = Mathf.Clamp(BrushSize + 1, 1, 30);
-        float slid = GUI.HorizontalSlider(new Rect(refRect.x + 36, fy + 6, refRect.width - 72, 14), BrushSize, 1f, 30f);
+        GUI.Label(new Rect(x0, y, w0, 20), Loc.T("bench.brushsize", BrushSize), smallStyle);
+        y += 20;
+        if (GUI.Button(new Rect(x0, y, 28, 22), "−")) BrushSize = Mathf.Clamp(BrushSize - 1, 1, 30);
+        if (GUI.Button(new Rect(refRect.xMax - 28, y, 28, 22), "+")) BrushSize = Mathf.Clamp(BrushSize + 1, 1, 30);
+        float slid = GUI.HorizontalSlider(new Rect(x0 + 36, y + 6, w0 - 72, 14), BrushSize, 1f, 30f);
         BrushSize = Mathf.Clamp(Mathf.RoundToInt(slid), 1, 30);
-        Rect bar = new Rect(refRect.x, sy + 30, refRect.width, 12);
-        GUI.DrawTexture(bar, Texture2D.whiteTexture, ScaleMode.StretchToFill, false, 0, new Color(1, 1, 1, 0.15f), 0, 4);
-        Color fill = Score >= 0.75f ? new Color(0.35f, 0.95f, 0.45f) : (Score >= 0.5f ? new Color(1f, 0.75f, 0.25f) : new Color(1f, 0.4f, 0.3f));
-        GUI.DrawTexture(new Rect(bar.x, bar.y, bar.width * Score, bar.height), Texture2D.whiteTexture, ScaleMode.StretchToFill, false, 0, fill, 0, 4);
+        y += 28;
+
+        // Araç çubuğu: fırça / silgi / geri al
+        float gap = 4f, tw = (w0 - gap * 2f) / 3f;
+        if (ToolButton(new Rect(x0, y, tw, 24), Loc.T("bench.tool.brush"), !Eraser)) Eraser = false;
+        if (ToolButton(new Rect(x0 + tw + gap, y, tw, 24), Loc.T("bench.tool.eraser"), Eraser)) Eraser = true;
+        if (ToolButton(new Rect(x0 + (tw + gap) * 2f, y, tw, 24), Loc.T("bench.undo", undo.Count), false)) Undo();
+        y += 28;
+
+        // Şekil seçimi
+        float sw = (w0 - gap * 3f) / 4f;
+        string[] shapeKeys = { "bench.shape.round", "bench.shape.square", "bench.shape.hline", "bench.shape.vline" };
+        for (int i = 0; i < 4; i++)
+            if (ToolButton(new Rect(x0 + (sw + gap) * i, y, sw, 24), Loc.T(shapeKeys[i]), (int)Shape == i)) Shape = (BrushShape)i;
+        y += 28;
+
+        // Kısayol yardımı
+        GUI.Label(new Rect(x0 - 20f, y, w0 + 40f, 36), Loc.T("bench.toolhelp"), smallStyle);
 
         DrawBrushCursor();
     }
 
-    /// <summary>Fare tuvalin üstündeyken fırçanın gerçek boyutunu gösteren halka (imlecin etrafında).</summary>
+    /// <summary>Seçili durumu vurgulanan küçük araç düğmesi.</summary>
+    bool ToolButton(Rect r, string text, bool selected)
+    {
+        if (selected)
+            GUI.DrawTexture(new Rect(r.x - 2, r.y - 2, r.width + 4, r.height + 4), Texture2D.whiteTexture, ScaleMode.StretchToFill, false, 0, new Color(1f, 0.85f, 0.3f), 2, 5);
+        return GUI.Button(r, text, toolStyle);
+    }
+
+    /// <summary>Fare tuvalin üstündeyken fırçanın gerçek boyutunu/şeklini gösteren halka (imlecin etrafında).</summary>
     void DrawBrushCursor()
     {
         Vector2 mp = Event.current.mousePosition;
         if (!canvasRect.Contains(mp)) return;
-        float d = Mathf.Max(4f, BrushSize * 2f * canvasRect.width / W);
-        Rect r = new Rect(mp.x - d * 0.5f, mp.y - d * 0.5f, d, d);
+        float sc = canvasRect.width / W;
+        float hx = BrushSize * sc, hy = BrushSize * sc;
+        if (Shape == BrushShape.HLine) hy = Mathf.Max(1, BrushSize / 4) * sc;
+        else if (Shape == BrushShape.VLine) hx = Mathf.Max(1, BrushSize / 4) * sc;
+        float dw = Mathf.Max(4f, hx * 2f), dh = Mathf.Max(4f, hy * 2f);
+        float rad = Shape == BrushShape.Round ? dw * 0.5f : 0f;
+        Rect r = new Rect(mp.x - dw * 0.5f, mp.y - dh * 0.5f, dw, dh);
         Rect outer = new Rect(r.x - 1.5f, r.y - 1.5f, r.width + 3f, r.height + 3f);
-        // Koyu dış çizgi + seçili renkte iç çizgi: her zeminde görünür
-        GUI.DrawTexture(outer, Texture2D.whiteTexture, ScaleMode.StretchToFill, true, 0, new Color(0f, 0f, 0f, 0.75f), 1.5f, outer.width * 0.5f);
-        GUI.DrawTexture(r, Texture2D.whiteTexture, ScaleMode.StretchToFill, true, 0, Color.white, 2f, d * 0.5f);
-        Color pc = palette[PaletteIndex];
+        // Koyu dış çizgi + iç çizgi: her zeminde görünür
+        GUI.DrawTexture(outer, Texture2D.whiteTexture, ScaleMode.StretchToFill, true, 0, new Color(0f, 0f, 0f, 0.75f), 1.5f, rad > 0f ? outer.width * 0.5f : 0f);
+        GUI.DrawTexture(r, Texture2D.whiteTexture, ScaleMode.StretchToFill, true, 0, Eraser ? new Color(1f, 0.5f, 0.5f) : Color.white, 2f, rad);
+        Color pc = CurColor();
         GUI.DrawTexture(new Rect(mp.x - 2f, mp.y - 2f, 4f, 4f), Texture2D.whiteTexture, ScaleMode.StretchToFill, true, 0, new Color(pc.r, pc.g, pc.b, 1f), 0, 2f);
     }
 
@@ -357,6 +466,7 @@ public class CanvasPainter
                 px[y * W + x] = d.PixelColor(Mathf.Min(d.width - 1, x * d.width / W), Mathf.Min(d.height - 1, y * d.height / H));
         canvas.SetPixels(px);
         canvas.Apply();
+        undo.Clear();
         Score = ComputeScore();
     }
 

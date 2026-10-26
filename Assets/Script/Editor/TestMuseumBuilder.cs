@@ -36,6 +36,30 @@ public static class TestMuseumBuilder
         guardMat, cameraMat, lockerMat, staffFloorMat, coneMat,
         groundMat, truckMat, truckFloorMat, garageMat, curtainMat, darkMat, bushMat, lampMat;
 
+    /// <summary>
+    /// Sahneyi yeniden KURMADAN, kamyona ikinci sahte masasını ekler (yoksa).
+    /// Menü: Tools → Sahte Şaheser → Add Second Workbench. SceneAutoSetup da bir kez otomatik çağırır.
+    /// </summary>
+    [MenuItem("Tools/Sahte Şaheser/Add Second Workbench")]
+    public static void AddSecondWorkbenchFromMenu()
+    {
+        if (EnsureSecondWorkbench()) Debug.Log("[TestMuseum] İkinci masa eklendi. Sahneyi kaydedin (Ctrl+S).");
+        else Debug.Log("[TestMuseum] İkinci masa zaten var ya da TestMuseum/Truck bulunamadı.");
+    }
+
+    /// <summary>true: yeni masa eklendi.</summary>
+    public static bool EnsureSecondWorkbench()
+    {
+        GameObject root = GameObject.Find(RootName);
+        if (root == null) return false;
+        Transform truck = root.transform.Find("Truck");
+        if (truck == null || truck.Find("ForgeryWorkbench_2") != null) return false;
+        CreateMaterials();
+        Workbench(truck.gameObject, "ForgeryWorkbench_2", new Vector3(-30.7f, 0.45f, 6.45f), 2f);
+        EditorSceneManager.MarkSceneDirty(root.scene);
+        return true;
+    }
+
     [MenuItem("Tools/Sahte Şaheser/Create Test Museum")]
     public static void BuildFromMenu() => Build(false);
 
@@ -159,6 +183,7 @@ public static class TestMuseumBuilder
         }
 
         Workbench(truck, "ForgeryWorkbench", new Vector3(-33.2f, 0.45f, 6.45f));
+        Workbench(truck, "ForgeryWorkbench_2", new Vector3(-30.7f, 0.45f, 6.45f), 2f); // ikinci masa: iki oyuncu aynı anda çalışabilsin
         Terminal(truck, "BriefingTerminal", new Vector3(-34.8f, 0.6f, 2.3f));
         Cabinet(truck, "Cabinet_Coins", new Vector3(-32.2f, 0.6f, 2.4f), "distraction_coin", 5, -1);
 
@@ -541,9 +566,9 @@ public static class TestMuseumBuilder
     }
 
     /// <summary>Sahte atölyesi: tezgah + kamera/çalışma noktaları (kamera tezgahın güneyinde durur).</summary>
-    private static void Workbench(GameObject root, string name, Vector3 pos)
+    private static void Workbench(GameObject root, string name, Vector3 pos, float width = 2.6f)
     {
-        GameObject go = Box(root, name, pos, new Vector3(2.6f, 0.9f, 1f), cabinetMat);
+        GameObject go = Box(root, name, pos, new Vector3(width, 0.9f, 1f), cabinetMat);
         go.AddComponent<NetworkObject>();
         ForgeryWorkbench bench = go.AddComponent<ForgeryWorkbench>();
 

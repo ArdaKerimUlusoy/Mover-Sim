@@ -225,6 +225,9 @@ public partial class PlayerInventory : NetworkBehaviour
         heldSlot.OnValueChanged -= OnHeldChanged;
         ForgeryRegistry.Arrived -= OnForgeryArrived;
 
+        // Sunucu oturumu kapanıyor: yerde kalan (atılan) eşyaları temizle
+        if (IsServer && NetworkManager != null && NetworkManager.ShutdownInProgress) WorldItem.ServerClearDropped();
+
         if (Local == this)
         {
             Local = null;
@@ -273,15 +276,18 @@ public partial class PlayerInventory : NetworkBehaviour
         // Verisi henüz gelmemiş sahte: ara ara yeniden dene (herkeste)
         if (heldVisualPending && IsSpawned && Time.frameCount % 30 == 0 && ForgeryRegistry.TryGet(heldVisualSlot.ForgeryId, out _)) RefreshHeldVisual(true);
 
+        if (IsServer && IsSpawned && serverStealUntil > 0f) ServerStealTick();
+
         if (!IsOwner || !IsSpawned) return;
         Keyboard kb = Keyboard.current;
         if (kb == null) return;
 
-        // Çalma paneli açıkken hedeften uzaklaşırsan kapanır
+        // Alma paneli açıkken hedeften uzaklaşırsan iptal olur (sunucu da ayrıca doğrular)
         if (IsPanelOpen && stealTarget != null &&
-            (!stealTarget.IsSpawned || Vector3.Distance(transform.position, stealTarget.transform.position) > stealRange + 1.5f))
+            (!stealTarget.IsSpawned || Vector3.Distance(transform.position, stealTarget.transform.position) > StealCancelRange))
         {
             SetPanelOpen(false);
+            ShowToast(Loc.T("steal.cancel"), Bad);
         }
 
         if (IsPanelOpen && externalPanel != null && !externalPanel.StillValid(this))
@@ -593,6 +599,11 @@ public partial class PlayerInventory : NetworkBehaviour
         no.Spawn(true);
 
         Rigidbody rb = go.GetComponent<Rigidbody>();
+        if (rb != null && wi != null && rb.isKinematic)
+        {
+            rb.isKinematic = false; // atılan eşya havada asılı kalmasın
+            rb.WakeUp();
+        }
         if (rb != null && !rb.isKinematic)
         {
             rb.linearVelocity = velocity;
@@ -665,7 +676,7 @@ public partial class PlayerInventory : NetworkBehaviour
         serverStealUntil = Time.time + stealWindowSeconds;
 
         OpenStealRpc(targetRef);
-        target.ServerNotify("steal.rummage", MyName);
+        target.ServerNotify("steal.browse", MyName);
     }
 
     [Rpc(SendTo.Owner)]
@@ -689,7 +700,7 @@ public partial class PlayerInventory : NetworkBehaviour
 
         PlayerInventory target = no.GetComponent<PlayerInventory>();
         if (target == null || slotIndex < 0 || slotIndex >= target.slots.Count) return;
-        if (Vector3.Distance(transform.position, target.transform.position) > stealRange + 2f) return;
+        if (Vector3.Distance(transform.position, target.transform.position) > StealCancelRange + 0.3f) return;
 
         InventorySlot s = target.slots[slotIndex];
         if (!s.SameItem(expected)) return; // bu arada çanta değişmiş
@@ -707,12 +718,47 @@ public partial class PlayerInventory : NetworkBehaviour
         target.ServerRemoveAt(slotIndex, 1);
         serverStealUntil = -1f; // tek seferlik
 
-        ServerNotify("steal.success", target.MyName, def);
-        target.ServerNotify("steal.stolen", MyName, def);
-        ServerPlaySound(SoundId.Steal, target.transform.position);
-        NoiseSystem.Emit(target.transform.position, stealNoiseRadius);
+        // Aynı takım: bu "çalma" değil "arkadaştan alma". Gürültü / alarm / şüphe YOK.
+        ServerNotify("steal.taken", target.MyName, def);
+        target.ServerNotify("steal.takenfrom", MyName, def);
 
         CloseStealRpc();
+    }
+
+    /// <summary>Sahnedeki alma işlemi bu mesafeden (ve görüşten) çıkarsa iptal edilir.</summary>
+    private const float StealCancelRange = 3f;
+    private float nextStealCheck;
+
+    /// <summary>Sunucu: devam eden "arkadaştan alma" sırasında mesafeyi / görüşü tekrar doğrular, bozulduysa iptal eder.</summary>
+    private void ServerStealTick()
+    {
+        if (Time.time > serverStealUntil) { serverStealUntil = -1f; return; }
+        if (Time.time < nextStealCheck) return;
+        nextStealCheck = Time.time + 0.2f;
+
+        NetworkObject no = null;
+        bool ok = NetworkManager != null && NetworkManager.SpawnManager.SpawnedObjects.TryGetValue(serverStealTargetId, out no) && no != null;
+        if (ok)
+        {
+            Vector3 a = transform.position;
+            Vector3 b = no.transform.position;
+            if (Vector3.Distance(a, b) > StealCancelRange) ok = false;
+            else if (Physics.Linecast(a + Vector3.up * 1.4f, b + Vector3.up * 1.4f, out RaycastHit hit, ~0, QueryTriggerInteraction.Ignore) &&
+                     !hit.collider.transform.IsChildOf(transform) && !hit.collider.transform.IsChildOf(no.transform))
+                ok = false; // arada duvar / engel: görüş dışı
+        }
+        if (ok) return;
+
+        serverStealUntil = -1f;
+        CancelStealRpc();
+    }
+
+    [Rpc(SendTo.Owner)]
+    private void CancelStealRpc()
+    {
+        if (stealTarget == null) return;
+        SetPanelOpen(false);
+        ShowToast(Loc.T("steal.cancel"), Bad);
     }
 
     [Rpc(SendTo.Owner)]
@@ -748,12 +794,11 @@ public partial class PlayerInventory : NetworkBehaviour
 
         if (Loc.Has(arg)) arg = Loc.T(arg); // ör. upgrade adı anahtarı → oyuncunun dilinde
 
-        bool bad = key == "inv.full" || key == "inv.cantdrop" || key == "steal.stolen" || key == "steal.rummage" ||
-                   key.StartsWith("shop.not") || key.StartsWith("truck.") || key.StartsWith("cam.") || key == "display.badfake" ||
+        bool bad = key == "inv.full" || key == "inv.cantdrop" || key == "steal.cancel" ||
+                   key.StartsWith("shop.not") || key.StartsWith("truck.") || key.StartsWith("cam.") || key == "display.badfake" || key == "display.toobad" ||
                    key == "spray.none" || key == "spray.already" || key == "spray.badwall" || key == "spray.toonear" || key == "spray.nodoorslot";
         ShowToast(Loc.T(key, arg, itemName), bad ? Bad : Good);
 
-        if (key == "steal.stolen" || key == "steal.rummage") GameAudio.Play2D(SoundId.Steal, 0.8f);
     }
 
     [Rpc(SendTo.Everyone)]

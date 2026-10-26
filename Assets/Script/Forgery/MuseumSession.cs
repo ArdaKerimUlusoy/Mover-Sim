@@ -25,6 +25,8 @@ public class MuseumSession : NetworkBehaviour
     [SerializeField] private float quotaFactor = 0.68f;
     [Tooltip("Ana eserlerin üstüne eklenen miktar: her görevde biraz küçük ganimet / ekstra eser de çalmak gerekir.")]
     [SerializeField] private int quotaExtra = 100;
+    [Tooltip("1. seviyede kota, ortalama değerli 3 eserin toplamına uygulanan çarpan. Ekip payı (×0.8) ve orta kalite sahte (×0.65) hesaba katılır; seviye arttıkça quotaFactor'a yaklaşır.")]
+    [SerializeField] private float level1QuotaFactor = 0.5f;
     [SerializeField] private string museumRootName = "TestMuseum";
 
     private readonly NetworkVariable<int> themeIndex = new NetworkVariable<int>(-1);
@@ -184,6 +186,20 @@ public class MuseumSession : NetworkBehaviour
             if (quota.Value == 0 && ArtworkDisplay.All.Count > 0)
                 quota.Value = ComputeQuota();
 
+            if (!lootCaptured && quota.Value > 0) ServerCaptureLoot();
+
+            if (lootPending && lootCaptured && LayoutReady())
+            {
+                lootPending = false;
+                ServerPlaceLoot(false);
+                lootRecheckAt = Time.time + 1.5f;
+            }
+            else if (lootRecheckAt > 0f && Time.time >= lootRecheckAt)
+            {
+                lootRecheckAt = 0f;
+                ServerPlaceLoot(true); // yerleşimden sonra hâlâ kayan / düşen ganimet varsa masaya geri koy
+            }
+
             if (SequenceActive)
             {
                 // Sekans bitti: kaçış başarılıysa sonraki görev, polis / herkes yakalandı ise koşu sıfırlanır
@@ -269,9 +285,107 @@ public class MuseumSession : NetworkBehaviour
         ServerBeginSequence(met ? EscapeSequence.Departure : EscapeSequence.Police);
     }
 
+    // ---------------- Küçük ganimetler (galeri masalarındaki eşyalar) ----------------
+    // Sahneye konmuş ganimet eşyaları alınınca Despawn(true) ile yok olur ve hiç yeniden üretilmezdi:
+    // ilk haritadan sonra masalar boş kalıyordu. İlk görevde masa üstü eşyaları kaydedilir, her yeni görevde eksikler yeniden doğar.
+    // KÖK NEDEN (havada kalma): respawn, yeni masa yerleşimi kurulmadan ÖNCE yapılıyordu ve MuseumLayout masayı taşırken eşyayı
+    // masanın eski dönüşünü yok sayarak taşıyıp konumu NetworkTransform'a bildirmiyordu. Artık yerleşim bittikten SONRA her ganimet
+    // masanın üst yüzeyine (raycast) ışınlanır / yeniden doğar.
+    private sealed class LootEntry
+    {
+        public ItemDefinition def;
+        public Transform table;
+        public Vector3 localOffset; // masaya göre (masa dönüşü dahil) ofset
+        public WorldItem live;      // şu an masada duran eşya (çalınınca yok olur)
+    }
+
+    private readonly System.Collections.Generic.List<LootEntry> lootEntries = new System.Collections.Generic.List<LootEntry>();
+    private bool lootCaptured;
+    private bool lootPending;       // yeni görev başladı: yerleşim bitince ganimetler masalara oturtulacak
+    private float lootRecheckAt;    // ikinci kontrol zamanı (aşağı düşen / kayan eşya varsa düzeltir)
+
+    private void ServerCaptureLoot()
+    {
+        lootCaptured = true;
+        GameObject root = GameObject.Find(museumRootName);
+        if (root == null) return;
+        foreach (Transform table in root.transform)
+        {
+            if (!table.name.StartsWith("LootTable_")) continue;
+            foreach (WorldItem wi in WorldItem.All)
+            {
+                if (wi == null || wi.IsConsumed || wi.Item == null || wi.Item.worldPrefab == null) continue;
+                Vector3 rel = wi.transform.position - table.position;
+                if (new Vector2(rel.x, rel.z).magnitude > 1.4f || rel.y < -0.2f || rel.y > 1.5f) continue;
+                lootEntries.Add(new LootEntry { def = wi.Item, table = table, localOffset = Quaternion.Inverse(table.rotation) * rel, live = wi });
+            }
+        }
+    }
+
+    /// <summary>Masanın üst yüzeyinin dünya yüksekliği (raycast); bulunamazsa kayıtlı ofsetten.</summary>
+    private static float TableTopY(Transform table, Vector3 xz, float fallbackY)
+    {
+        RaycastHit[] hits = Physics.RaycastAll(new Vector3(xz.x, table.position.y + 3f, xz.z), Vector3.down, 5f, ~0, QueryTriggerInteraction.Ignore);
+        float best = float.NegativeInfinity;
+        foreach (RaycastHit h in hits)
+        {
+            if (h.collider == null || !h.collider.transform.IsChildOf(table)) continue;
+            best = Mathf.Max(best, h.point.y);
+        }
+        return best > float.NegativeInfinity ? best : fallbackY;
+    }
+
+    /// <summary>Sunucu: yerleşim bitti → tüm masa ganimetleri masanın üstüne oturur (yoksa yeniden doğar). recheck: yalnızca kaymış olanları düzelt.</summary>
+    private void ServerPlaceLoot(bool recheck)
+    {
+        if (!IsServer || !lootCaptured) return;
+        Physics.SyncTransforms();
+        foreach (LootEntry e in lootEntries)
+        {
+            if (e.table == null || e.def == null || e.def.worldPrefab == null) continue;
+            Vector3 xz = e.table.position + e.table.rotation * e.localOffset;
+            float topY = TableTopY(e.table, xz, e.table.position.y + e.localOffset.y - 0.02f);
+
+            bool alive = e.live != null && e.live.IsSpawned && !e.live.IsConsumed;
+            if (alive)
+            {
+                Vector3 target = new Vector3(xz.x, topY + e.live.PivotToBottom() + 0.02f, xz.z);
+                if (recheck && (e.live.transform.position - target).sqrMagnitude < 0.25f) continue; // zaten yerinde
+                e.live.ServerPlaceAt(target, e.live.transform.rotation);
+                continue;
+            }
+            if (recheck) continue;
+
+            GameObject go = Instantiate(e.def.worldPrefab, new Vector3(xz.x, topY + 0.1f, xz.z), Quaternion.identity);
+            NetworkObject no = go.GetComponent<NetworkObject>();
+            if (no == null) { Destroy(go); continue; }
+            WorldItem nw = go.GetComponent<WorldItem>();
+            if (nw != null) go.transform.position = new Vector3(xz.x, topY + nw.PivotToBottom() + 0.02f, xz.z);
+            no.Spawn(true);
+            e.live = nw;
+        }
+
+        if (recheck) return;
+        // Diğer sahne eşyaları (masa dışındakiler): havada ya da zeminin altında kalmasınlar
+        foreach (WorldItem wi in WorldItem.All.ToArray())
+        {
+            if (wi == null || !wi.IsSpawned || wi.IsConsumed || !wi.IsSceneItem) continue;
+            bool isLoot = false;
+            foreach (LootEntry e in lootEntries) if (e.live == wi) { isLoot = true; break; }
+            if (!isLoot) wi.ServerSettleOnGround();
+        }
+    }
+
+    /// <summary>Yerleşim (MuseumLayout) bu tohum + temayla kuruldu mu?</summary>
+    private bool LayoutReady()
+    {
+        MuseumLayout l = MuseumLayout.Instance;
+        return l != null && l.AppliedSeed == seed.Value && l.AppliedTheme == themeIndex.Value;
+    }
+
     private int ComputeQuota()
     {
-        int sum = 0;
+        int sum = 0, count = 0;
         foreach (ArtworkDisplay d in ArtworkDisplay.All)
         {
             if (d == null || d.Artwork == null || !IsDisplayActive(d)) continue;
@@ -279,9 +393,21 @@ public class MuseumSession : NetworkBehaviour
             // Staff Only eseri BONUS: kota için zorunlu değil (kapı maymuncukla açılır, maymuncuk bitebilir → görev kilitlenmesin)
             if (d.IsStaffOnlyPiece) continue;
             sum += d.Value;
+            count++;
         }
-        int q = Mathf.RoundToInt(sum * quotaFactor) + quotaExtra;
-        return Mathf.Max(50, Mathf.CeilToInt(q / 50f) * 50);
+        if (count == 0) return 50;
+
+        // 1. seviye: ortalama değerli 3 eser çalınınca kota dolsun (kasaya yalnızca ekip payı girer, sahte kalitesi fiyatı düşürür).
+        // Seviye arttıkça (6. seviyede) hedef tüm eserlerin toplamına ve eski formüle (quotaFactor + quotaExtra) yaklaşır.
+        float t = Mathf.Clamp01((level.Value - 1) / 5f);
+        float baseSum = Mathf.Min(sum, sum / (float)count * 3f);
+        float target = Mathf.Lerp(baseSum, sum, t);
+        float factor = Mathf.Lerp(level1QuotaFactor, quotaFactor, t);
+        float extra = Mathf.Lerp(0f, quotaExtra, t);
+        int q = Mathf.RoundToInt(target * factor + extra);
+        // Tek oyunculu denge: bağlı tek oyuncu varken kota ~%60'a düşer (tek kişi aynı yükü taşıyamaz)
+        if (NetworkManager != null && NetworkManager.ConnectedClientsIds.Count <= 1) q = Mathf.RoundToInt(q * 0.6f);
+        return Mathf.Max(50, Mathf.RoundToInt(q / 50f) * 50);
     }
 
     /// <summary>Sunucu: kaçış başarılı, sonraki müze (seviye + 1).</summary>
@@ -334,12 +460,14 @@ public class MuseumSession : NetworkBehaviour
         }
         ForgeryRegistry.Clear();
 
+
         if (SecurityManager.Instance != null) SecurityManager.Instance.ServerResetForMission(); // alarm / aranma / kovalama sıfırlanır
 
         // ÖNCE yeni tohum/harita (bölmeler, hapis, dolaplar yeniden konumlanır), SONRA oyuncular serbest bırakılıp kamyona ışınlanır:
         // böylece kimse eski hücrenin/dolabın yerindeki yeni duvarın içinde kalmaz.
         level.Value = Mathf.Max(1, newLevel);
         PickNewMuseum();
+        lootPending = true; // ganimetler, yerleşim kurulduktan SONRA (Update) masaların üstüne oturtulur
         baseline.Value = TeamBank.Instance != null ? TeamBank.Instance.TotalEarned : 0;
         doorClosed.Value = false; // kapı yeni görevde açık başlar
         sequence.Value = 0;

@@ -40,6 +40,7 @@ public class GarageShop : Interactable, IInventoryPanel
         GUILayout.FlexibleSpace();
         GUILayout.Label(Loc.T("money.personal", inv.PersonalMoney.ToString("N0")), UIUtil.AccentStyle);
         GUILayout.EndHorizontal();
+        if (bank != null) GUILayout.Label(Loc.T("skill.points", bank.SkillPoints.ToString("N0")), UIUtil.AccentStyle);
         GUILayout.Space(10f);
 
         int buy = -1;
@@ -54,20 +55,22 @@ public class GarageShop : Interactable, IInventoryPanel
             PaidFrom payer = UpgradeCatalog.Payer(t);
             // Maymuncuk: kişisel cüzdan yetmezse ekip kasasından ödenir (Staff Only erişimi cebe bağlı kalmasın)
             if (UpgradeCatalog.IsConsumable(t) && !maxed && inv.PersonalMoney < price && bank != null && bank.Money >= price) payer = PaidFrom.Team;
-            int available = payer == PaidFrom.Team ? (bank != null ? bank.Money : 0) : inv.PersonalMoney;
-            bool canAfford = !maxed && available >= price && (payer == PaidFrom.Personal || bank != null);
+            bool usePts = UpgradeCatalog.UsesSkillPoints(t); // kalıcı geliştirmeler yetenek puanıyla açılır
+            if (usePts) price = UpgradeCatalog.SkillPrice(t, level);
+            int available = usePts ? (bank != null ? bank.SkillPoints : 0) : payer == PaidFrom.Team ? (bank != null ? bank.Money : 0) : inv.PersonalMoney;
+            bool canAfford = !maxed && available >= price && (usePts ? bank != null : (payer == PaidFrom.Personal || bank != null));
 
             GUILayout.BeginHorizontal(GUILayout.Height(56f));
             GUILayout.BeginVertical();
             string lv = UpgradeCatalog.IsConsumable(t) ? Loc.T("shop.count", level, max) : Loc.T("shop.level", level, max); // maymuncuk adetle satılır
             GUILayout.Label(Loc.T(UpgradeCatalog.NameKey(t)) + "   " + lv, UIUtil.RowStyle);
             GUILayout.Label(Loc.T(UpgradeCatalog.DescKey(t)) + "  •  " +
-                            Loc.T(payer == PaidFrom.Team ? "shop.payteam" : "shop.payyou"), UIUtil.SmallStyle);
+                            Loc.T(usePts ? "shop.paypoints" : payer == PaidFrom.Team ? "shop.payteam" : "shop.payyou"), UIUtil.SmallStyle);
             GUILayout.EndVertical();
             GUILayout.FlexibleSpace();
 
             GUI.enabled = canAfford;
-            string label = maxed ? Loc.T("shop.max") : Loc.T("shop.buy", price.ToString("N0"));
+            string label = maxed ? Loc.T("shop.max") : (usePts ? Loc.T("shop.buypts", price.ToString("N0")) : Loc.T("shop.buy", price.ToString("N0")));
             if (GUILayout.Button(label, UIUtil.ButtonStyle, GUILayout.Width(130f), GUILayout.Height(30f)))
             {
                 buy = i;
@@ -99,7 +102,23 @@ public class GarageShop : Interactable, IInventoryPanel
         int price = UpgradeCatalog.Price(type, level);
         TeamBank bank = TeamBank.Instance;
 
-        if (UpgradeCatalog.IsConsumable(type))
+        if (UpgradeCatalog.UsesSkillPoints(type))
+        {
+            // Yetenek puanı (küçük ganimet satışından): ortak havuz
+            int pts = UpgradeCatalog.SkillPrice(type, level);
+            if (bank == null || !bank.ServerTrySpendSkillPoints(pts))
+            {
+                inv.ServerNotify("shop.notenoughpts");
+                return;
+            }
+            bool ok = type == UpgradeType.TeamBackpacks ? bank.ServerIncreaseTeamBag() : inv.ServerIncreaseUpgrade(type);
+            if (!ok)
+            {
+                bank.ServerAddSkillPoints(pts); // iade
+                return;
+            }
+        }
+        else if (UpgradeCatalog.IsConsumable(type))
         {
             // Önce kişisel cüzdan, yetmezse ekip kasası
             if (inv.ServerTrySpendMoney(price))

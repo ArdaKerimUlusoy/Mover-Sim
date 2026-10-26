@@ -17,6 +17,26 @@ public class TeamBank : NetworkBehaviour
     // Kasaya giren toplam gelir (harcamalar düşmez): görev kotası buna göre ölçülür, kasadan harcama kotayı geri düşürmesin
     private readonly NetworkVariable<int> earnedTotal = new NetworkVariable<int>(0);
 
+    // Yetenek puanı: yalnızca küçük ganimet satışından gelir, para/kota değildir; yetenek geliştirmelerini açar
+    private readonly NetworkVariable<int> skillPoints = new NetworkVariable<int>(0);
+
+    public int SkillPoints => skillPoints.Value;
+
+    /// <summary>Sunucu: yetenek puanı ekler (küçük ganimet satışı).</summary>
+    public void ServerAddSkillPoints(int amount)
+    {
+        if (!IsServer || amount <= 0) return;
+        skillPoints.Value += amount;
+    }
+
+    /// <summary>Sunucu: yeterli yetenek puanı varsa harcar ve true döner.</summary>
+    public bool ServerTrySpendSkillPoints(int amount)
+    {
+        if (!IsServer || amount < 0 || skillPoints.Value < amount) return false;
+        skillPoints.Value -= amount;
+        return true;
+    }
+
     public int Money => money.Value;
     public int TeamBagLevel => teamBagLevel.Value;
     public int TotalEarned => earnedTotal.Value;
@@ -87,6 +107,7 @@ public class TeamBank : NetworkBehaviour
     {
         if (!IsServer) return;
         teamBagLevel.Value = 0;
+        skillPoints.Value = 0; // yetenekler sıfırlanırken puanlar da sıfırlanır
         foreach (NetworkClient c in NetworkManager.ConnectedClientsList)
         {
             if (c.PlayerObject == null) continue;

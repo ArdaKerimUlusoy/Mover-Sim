@@ -29,6 +29,16 @@ public enum SoundId : byte
     TruckEngine = 21,   // kamyon kalkış motoru
     PoliceSiren = 22,   // polis sireni (yumuşak, yükselip alçalan)
     TruckBrake = 23,    // sert fren / lastik sesi
+    AlarmSting = 24,    // kısa gerilim vuruşu
+    Spotted = 25,       // "fark edildin" keskin uyarısı
+    CoinToss = 26,      // bozuk para fırlatma çınlaması
+    CoinLandSoft = 27,  // yere düşen para şıngırtısı
+    Slip = 28,          // kayma/düşme (komik)
+    Pickpocket = 29,    // hafif hışırtı
+    PaintThrow = 30,    // boya topu fırlatma
+    PaintSplat = 31,    // boya sıçraması
+    FootstepSoft = 32,  // halı/yumuşak zemin adımı
+    FootstepMetal = 33, // metal zemin (kamyon) adımı
 }
 
 /// <summary>

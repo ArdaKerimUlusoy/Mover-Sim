@@ -42,6 +42,9 @@ public class VisitorManager : MonoBehaviour
         public Vector3 crimePos;
         public GuardAI targetGuard;
         public bool recordReport; // suç değil: uzun süre kayıt yapan birinin kırmızı ışığını gördü
+        public float staggerUntil; // itildi: bu ana kadar sendeler (yürümez), sonra kaldığı yerden devam eder
+        public bool staggered;
+        public bool robbed;   // cebi boşaltıldı (her ziyaretçi bir kez soyulabilir)
         // istemci: hedef konum
         public Vector3 netPos;
         public float netYaw;
@@ -70,6 +73,80 @@ public class VisitorManager : MonoBehaviour
             if (d < best) { best = d; id = v.id; pos = v.t.position; }
         }
         return best < float.MaxValue;
+    }
+
+    // ---------------- Yankesicilik ----------------
+
+    public const float PickpocketRange = 1.9f;
+    private const float PickpocketBehindAngle = 110f; // ziyaretçinin baktığı yönle arasındaki açı bundan büyükse arkasındayız
+
+    private static bool IsBehindOf(Visitor v, Vector3 from)
+    {
+        Vector3 toMe = from - v.t.position;
+        toMe.y = 0f;
+        Vector3 fwd = v.t.forward;
+        fwd.y = 0f;
+        if (toMe.sqrMagnitude < 0.0001f) return false;
+        return Vector3.Angle(fwd, toMe) >= PickpocketBehindAngle;
+    }
+
+    /// <summary>Herkes: önümüzdeki, soyulabilir en yakın ziyaretçi. behind = arkasındayız mı (değilse "arkasına geç" ipucu).</summary>
+    public bool FindPickpocketTarget(Vector3 from, Vector3 forward, out byte id, out bool behind)
+    {
+        id = 0;
+        behind = false;
+        float best = float.MaxValue;
+        Vector3 flatFwd = new Vector3(forward.x, 0f, forward.z);
+        foreach (Visitor v in visitors)
+        {
+            if (v.t == null || v.robbed || v.mode == Mode.Knocked) continue;
+            Vector3 to = v.t.position - from;
+            to.y = 0f;
+            float d = to.magnitude;
+            if (d > PickpocketRange || d < 0.01f || Vector3.Angle(flatFwd, to) > 45f) continue;
+            if (d < best) { best = d; id = v.id; behind = IsBehindOf(v, from); }
+        }
+        return best < float.MaxValue;
+    }
+
+    /// <summary>Sunucu: soygunu doğrular (menzil, arkadan, daha önce soyulmamış). Başarılıysa ziyaretçi soyuldu sayılır.</summary>
+    public bool ServerTryPickpocket(byte id, Vector3 playerPos, out Vector3 visitorPos)
+    {
+        visitorPos = Vector3.zero;
+        foreach (Visitor v in visitors)
+        {
+            if (v.id != id || v.t == null) continue;
+            if (v.robbed || v.mode == Mode.Knocked) return false;
+            Vector3 to = v.t.position - playerPos;
+            to.y = 0f;
+            if (to.magnitude > PickpocketRange + 1.2f || !IsBehindOf(v, playerPos)) return false;
+            v.robbed = true;
+            visitorPos = v.t.position;
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>İstemci: bu ziyaretçi soyuldu (ipucu artık çıkmasın).</summary>
+    public void ClientMarkRobbed(byte id)
+    {
+        foreach (Visitor v in visitors) if (v.id == id) v.robbed = true;
+    }
+
+    /// <summary>Sunucu: muz kabuğuna basan ziyaretçiler kısa süre sendeler. Kaç kişi kaydığını döner.</summary>
+    public int ServerSlipNear(Vector3 pos, float radius, float seconds)
+    {
+        int n = 0;
+        foreach (Visitor v in visitors)
+        {
+            if (v.t == null || v.agent == null || v.mode == Mode.Knocked) continue;
+            Vector3 d = v.t.position - pos;
+            d.y = 0f;
+            if (d.magnitude > radius) continue;
+            ServerStagger(v.id, seconds);
+            n++;
+        }
+        return n;
     }
 
     /// <summary>Herkes: bu ziyaretçi bir suç gördü mü (başında "!")? F ile itilince bayılır. (İtme ipucu için.)</summary>
@@ -103,6 +180,20 @@ public class VisitorManager : MonoBehaviour
     {
         foreach (Visitor v in visitors) if (v.id == id) return v.agent;
         return null;
+    }
+
+    /// <summary>Sunucu: itilen ziyaretçi kısa süre sendeler (yürüyüşü durur, geri tepme TickShoves'ta uygulanır).
+    /// Mod (tanık / rapor) değişmez: itme suçsa durumu korunur, kaçan tanık sadece yavaşlar.</summary>
+    public void ServerStagger(byte id, float seconds)
+    {
+        foreach (Visitor v in visitors)
+        {
+            if (v.id != id || v.agent == null) continue;
+            v.staggerUntil = Mathf.Max(v.staggerUntil, Time.time + seconds);
+            v.staggered = true;
+            if (v.agent.isOnNavMesh) v.agent.velocity = Vector3.zero;
+            return;
+        }
     }
 
     private void OnDestroy()
@@ -197,6 +288,14 @@ public class VisitorManager : MonoBehaviour
         {
             if (v.agent == null || !v.agent.isOnNavMesh) continue;
             float now = Time.time;
+
+            // İtildi: sendelerken yürüme (bayılmış ziyaretçi zaten kendi durumunda durur)
+            if (v.staggered)
+            {
+                if (now < v.staggerUntil) { v.agent.isStopped = true; continue; }
+                v.staggered = false;
+                if (v.mode != Mode.Knocked) v.agent.isStopped = false;
+            }
 
             // Göz: sakin dolaşırken suç işleyen birini görüyor mu?
             if ((v.mode == Mode.Walk || v.mode == Mode.Look) && now >= v.nextSight)

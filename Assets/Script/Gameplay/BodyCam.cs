@@ -38,6 +38,7 @@ public class BodyCam : MonoBehaviour
     private const float LiveFps = 15f;
     private const float EyeHeight = 0.6f;           // PlayerController.standingCameraY ile aynı
     private const float ReadDistance = 1.4f;
+    private const float FeedForward = 0.12f;        // kayıt kamerası gözün bu kadar önünde (kafanın içinden çekmesin)
     private const ulong Nobody = ulong.MaxValue;
 
     // ---------------- Herkeste: ortak durum ----------------
@@ -79,6 +80,11 @@ public class BodyCam : MonoBehaviour
     // Görüntü
     private Camera feedCam;
     private RenderTexture liveRT;
+    private bool liveHasFrame;      // canlı dokuya bu oturumda gerçekten kare çizildi mi (eski/boş kare gösterilmesin)
+    private bool wasLive;
+    // Kayıt yapanın kendi avatarı: kayıt kamerası çizilirken geçici gizlenir (kafa / burun / göz görünmesin)
+    private readonly List<Renderer> hideBuf = new List<Renderer>();
+    private readonly List<Renderer> hiddenNow = new List<Renderer>();
     private Texture2D noSignal;
     private float nextLiveRender;
     private bool renderedThisFrame;
@@ -135,12 +141,17 @@ public class BodyCam : MonoBehaviour
     {
         Instance = this;
         CanvasPainter.ReferenceProvider = PaintingReference;
+        UnityEngine.Rendering.RenderPipelineManager.beginCameraRendering += OnBeginFeedCamera;
+        UnityEngine.Rendering.RenderPipelineManager.endCameraRendering += OnEndFeedCamera;
         CanvasPainter.ExtraPanelDrawer = DrawCanvasPlan;
     }
 
     private void OnDestroy()
     {
         Unregister();
+        UnityEngine.Rendering.RenderPipelineManager.beginCameraRendering -= OnBeginFeedCamera;
+        UnityEngine.Rendering.RenderPipelineManager.endCameraRendering -= OnEndFeedCamera;
+        RestoreHidden();
         if (Instance == this) Instance = null;
         CanvasPainter.ReferenceProvider = null;
         CanvasPainter.ExtraPanelDrawer = null;
@@ -166,7 +177,8 @@ public class BodyCam : MonoBehaviour
             plaqueVersion++;
             ClosePanel();
             UpdateRecLight();
-            if (feedCam != null) feedCam.enabled = false;
+            ClearFeed(); // oturum bitti: monitör / önizleme temizlenir, feed kamerası kapanır
+            wasLive = false;
             return;
         }
         if (regCmm != nm.CustomMessagingManager) Register(nm);
@@ -548,7 +560,7 @@ public class BodyCam : MonoBehaviour
         feedCam.enabled = false;
         feedCam.targetTexture = liveRT;
         feedCam.fieldOfView = 70f;
-        feedCam.nearClipPlane = 0.35f; // kayıt yapanın kendi kafası görünmesin
+        feedCam.nearClipPlane = 0.12f; // kafa avatar gizlemeyle çıkarılır; kamera ayrıca göz önüne alınır
         feedCam.farClipPlane = 80f;
         feedCam.allowMSAA = false;
         feedCam.allowHDR = false;
@@ -643,7 +655,7 @@ public class BodyCam : MonoBehaviour
         if (RecorderEye(out Vector3 pos, out Quaternion rot, out _))
         {
             EnsureFeed();
-            feedCam.transform.SetPositionAndRotation(pos, rot);
+            feedCam.transform.SetPositionAndRotation(pos + rot * Vector3.forward * FeedForward, rot); // göz önüne biraz ileri
 
             // Canlı: sadece biri bakıyorsa (monitör ekranda / büyük ekran / atölye)
             float fps = LiveFpsNeeded();
@@ -668,15 +680,72 @@ public class BodyCam : MonoBehaviour
                 render = true;
             }
         }
+        // Kayıt kapandı / yok: önizleme ve monitör temizlenir (eski görüntü kalmasın)
+        if (!Live && (wasLive || liveHasFrame)) ClearFeed();
+        if (Live && render && feedCam != null && RecorderEyeExists()) liveHasFrame = true;
+        wasLive = Live;
         if (feedCam != null && feedCam.enabled != render) feedCam.enabled = render;
         renderedThisFrame = render;
 
-        if (monitorMat != null && monitorMat.mainTexture != (Live ? (Texture)liveRT : noSignal))
+        ApplyMonitorTexture();
+    }
+
+    /// <summary>Canlı doku gösterilebilir mi: kayıt var, doku var ve en az bir kare çizilmiş.</summary>
+    private bool LiveShown => Live && liveRT != null && liveHasFrame;
+
+    private static bool RecorderEyeExists() => RecorderEye(out _, out _, out _);
+
+    private void ApplyMonitorTexture()
+    {
+        if (monitorMat == null) return;
+        Texture tex = LiveShown ? (Texture)liveRT : noSignal;
+        if (monitorMat.mainTexture == tex) return;
+        if (monitorMat.HasProperty("_BaseMap")) monitorMat.SetTexture("_BaseMap", tex);
+        monitorMat.mainTexture = tex;
+    }
+
+    /// <summary>Kayıt bitince / oturum kapanınca: canlı doku silinir, feed kamerası kapanır, monitör "sinyal yok" olur.</summary>
+    private void ClearFeed()
+    {
+        if (feedCam != null && feedCam.enabled) feedCam.enabled = false;
+        pendingStill = null;
+        lookTarget = null;
+        if (liveHasFrame && liveRT != null)
         {
-            Texture tex = Live ? (Texture)liveRT : noSignal;
-            if (monitorMat.HasProperty("_BaseMap")) monitorMat.SetTexture("_BaseMap", tex);
-            monitorMat.mainTexture = tex;
+            RenderTexture prev = RenderTexture.active;
+            RenderTexture.active = liveRT;
+            GL.Clear(true, true, Color.black);
+            RenderTexture.active = prev;
         }
+        liveHasFrame = false;
+        ApplyMonitorTexture();
+    }
+
+    // Kayıt kamerası çizilirken kayıt yapanın avatar renderer'larını geçici kapat (herkesin bilgisayarında aynı)
+    private void OnBeginFeedCamera(UnityEngine.Rendering.ScriptableRenderContext ctx, Camera cam)
+    {
+        if (cam == null || cam != feedCam || !Live) return;
+        RestoreHidden();
+        foreach (PlayerNetworkSetup p in PlayerNetworkSetup.All)
+        {
+            if (p == null || !p.IsSpawned || p.OwnerClientId != Recorder) continue;
+            p.GetComponentsInChildren(true, hideBuf);
+            foreach (Renderer r in hideBuf)
+                if (r != null && r.enabled) { r.enabled = false; hiddenNow.Add(r); }
+            hideBuf.Clear();
+            break;
+        }
+    }
+
+    private void OnEndFeedCamera(UnityEngine.Rendering.ScriptableRenderContext ctx, Camera cam)
+    {
+        if (cam != null && cam == feedCam) RestoreHidden();
+    }
+
+    private void RestoreHidden()
+    {
+        for (int i = 0; i < hiddenNow.Count; i++) if (hiddenNow[i] != null) hiddenNow[i].enabled = true;
+        hiddenNow.Clear();
     }
 
     /// <summary>Kayıt yapanın baktığı eser (≤5 m, ±18°, arada duvar yok).</summary>
@@ -704,7 +773,7 @@ public class BodyCam : MonoBehaviour
     private Texture PaintingReference(out string label)
     {
         ArtworkDisplay target = WorkbenchUI.CurrentTarget;
-        if (Live && liveRT != null)
+        if (LiveShown)
         {
             PlayerNetworkSetup who = null;
             RecorderEye(out _, out _, out who);
@@ -780,7 +849,7 @@ public class BodyCam : MonoBehaviour
     private void EnsureMonitor()
     {
         if (monitor != null) return;
-        ForgeryWorkbench bench = FindFirstObjectByType<ForgeryWorkbench>();
+        ForgeryWorkbench bench = ForgeryWorkbench.NearestToLocal(); // birden fazla masa olabilir: yerel oyuncuya en yakını
         if (bench == null) return;
         EnsureFeed();
 
@@ -1105,7 +1174,7 @@ public class BodyCam : MonoBehaviour
         float fw = pw * 0.52f, fh = fw * 9f / 16f;
         Rect feed = new Rect(p.x + 14f, p.y + 40f, fw, fh);
         UIUtil.DrawRect(new Rect(feed.x - 2f, feed.y - 2f, feed.width + 4f, feed.height + 4f), new Color(0.2f, 0.2f, 0.22f));
-        if (Live && liveRT != null)
+        if (LiveShown)
         {
             GUI.DrawTexture(feed, liveRT, ScaleMode.ScaleToFit, false);
             RecorderEye(out _, out _, out PlayerNetworkSetup who);
@@ -1185,6 +1254,16 @@ public class BodyCam : MonoBehaviour
             UIUtil.DrawRect(new Rect(s.x - 4f, s.y - 4f, 8f, 8f), c);
             planStyle.normal.textColor = c;
             GUI.Label(new Rect(s.x - 70f, s.y + 4f, 140f, 14f), PlanName(d, ms), planStyle);
+        }
+
+        // Hapishane hücresi (ikon + etiket)
+        if (JailCell.TryGetPlanPosition(out Vector3 jailW))
+        {
+            Vector2 js = ToScreen(new Vector2(jailW.x, jailW.z));
+            TextAnchor oldAl = planStyle.alignment;
+            planStyle.alignment = TextAnchor.UpperCenter;
+            FloorPlanUI.DrawJailMarker(js, area, planStyle);
+            planStyle.alignment = oldAl;
         }
 
         // Takım arkadaşları

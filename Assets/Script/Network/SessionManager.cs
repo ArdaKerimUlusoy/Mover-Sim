@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Threading.Tasks;
 using Unity.Netcode;
+using Unity.Netcode.Transports.UTP;
 using Unity.Services.Authentication;
 using Unity.Services.Core;
 using Unity.Services.Multiplayer;
@@ -22,6 +23,10 @@ public class SessionManager : MonoBehaviour
     [SerializeField] private bool uniqueProfilePerRun = true;
 
     public ISession ActiveSession { get; private set; }
+    /// <summary>Tek oyunculu mod: Relay / oda olmadan yerel host (127.0.0.1) çalışıyor.</summary>
+    public bool IsSinglePlayer { get; private set; }
+    /// <summary>Bir oyunun içinde miyiz (oda ya da tek oyunculu)? Menü bu değere göre ana ekranı gizler.</summary>
+    public bool InGame => ActiveSession != null || IsSinglePlayer;
     public bool IsBusy { get; private set; }
     // Durum mesajı çeviri anahtarı olarak tutulur; dil değişirse menüde hemen yeni dilde görünür.
     private string statusKey = "";
@@ -205,10 +210,51 @@ public class SessionManager : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// TEK OYUNCULU: Relay / lobi / internet gerekmez. NetworkManager'ın taşıyıcısı yerel adrese (127.0.0.1) çevrilir ve HOST başlatılır;
+    /// oyun mantığı (kamyon, kayıt, çizim...) çok oyunculu ile aynı akışla çalışır.
+    /// </summary>
+    public bool StartSinglePlayer()
+    {
+        if (IsBusy || InGame || isLeaving) return false;
+
+        NetworkManager nm = NetworkManager.Singleton;
+        if (nm == null)
+        {
+            SetStatus("status.singlefail");
+            return false;
+        }
+
+        // Önceki bir oturumdan kalan bağlantıyı kapat
+        if (nm.IsListening) nm.Shutdown();
+
+        UnityTransport utp = nm.NetworkConfig != null ? nm.NetworkConfig.NetworkTransport as UnityTransport : null;
+        if (utp != null)
+        {
+            // forceOverrideCommandLineArgs=true: komut satırı -ip/-port yok sayılır; protokol Relay'den normal UTP'ye döner
+            utp.SetConnectionData(true, "127.0.0.1", 7777, "127.0.0.1");
+        }
+
+        SetStatus("");
+        IsSinglePlayer = true;
+        if (!nm.StartHost())
+        {
+            IsSinglePlayer = false;
+            SetStatus("status.singlefail");
+            SessionChanged?.Invoke();
+            return false;
+        }
+
+        Debug.Log("[Session] Tek oyunculu mod: yerel host başlatıldı.");
+        SessionChanged?.Invoke();
+        return true;
+    }
+
     public async Task LeaveRoomAsync()
     {
         if (isLeaving) return;
         isLeaving = true;
+        IsSinglePlayer = false;
 
         ISession session = ActiveSession;
         ActiveSession = null;
@@ -234,7 +280,15 @@ public class SessionManager : MonoBehaviour
     /// <summary>Host oyunu kapatırsa / bağlantı koparsa menüye dön.</summary>
     private void OnNetworkStopped(bool wasHost)
     {
-        if (ActiveSession == null || isLeaving) return;
+        if (isLeaving) return;
+        if (IsSinglePlayer && ActiveSession == null)
+        {
+            // Tek oyunculu oyun beklenmedik şekilde durdu: ana menüye dön
+            IsSinglePlayer = false;
+            SessionChanged?.Invoke();
+            return;
+        }
+        if (ActiveSession == null) return;
 
         // Host bizi attıysa sebebi bir çeviri anahtarı olarak gelir ("status.kicked").
         string reason = NetworkManager.Singleton != null ? NetworkManager.Singleton.DisconnectReason : null;

@@ -201,10 +201,23 @@ public class GuardLook : MonoBehaviour
         return go.transform;
     }
 
+    private float slipUntil = -1f;
+    private float slipT;
+
+    /// <summary>Muz kabuğunda kaydı: bu kadar saniye yere yatar (sadece görsel).</summary>
+    public void PlaySlip(float seconds) => slipUntil = Time.time + seconds;
+
     private void Update()
     {
         if (body == null) return;
         float dt = Mathf.Max(Time.deltaTime, 0.0001f);
+
+        // Kayma: kapsül arkasına devrilir, sonra kalkar
+        slipT = Mathf.MoveTowards(slipT, Time.time < slipUntil ? 1f : 0f, dt * 5f);
+        if (root != null)
+        {
+            root.localRotation = Quaternion.Euler(-80f * slipT, 0f, 0f);
+        }
 
         Vector3 delta = transform.position - lastPos;
         lastPos = transform.position;

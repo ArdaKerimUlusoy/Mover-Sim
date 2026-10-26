@@ -66,6 +66,12 @@ public class SecurityManager : NetworkBehaviour
     [Rpc(SendTo.Everyone)]
     private void ClearBlindedRpc() => blindedCameras.Clear();
 
+    [Rpc(SendTo.Everyone)]
+    private void SpottedRpc(string playerName, int colorIndex)
+    {
+        AlarmFeedback.PushSpotted(playerName, colorIndex);
+    }
+
     private float nextSirenTime;
 
     public bool AlarmActive => alarmActive.Value;
@@ -107,7 +113,13 @@ public class SecurityManager : NetworkBehaviour
                 PlayerNetworkSetup ps = culprit.GetComponent<PlayerNetworkSetup>();
                 name = ps != null ? ps.PlayerName : "";
             }
-            if (ChatManager.Instance != null) ChatManager.Instance.ServerSystemMessage(reasonKey, name, "");
+            if (reasonKey == "alarm.spotted")
+            {
+                // "X FARK EDİLDİ!" sohbet satırı yerine herkesin ekranında kısa bildirim
+                PlayerNetworkSetup cps = culprit != null ? culprit.GetComponent<PlayerNetworkSetup>() : null;
+                SpottedRpc(name, cps != null ? cps.ColorIndex : 0);
+            }
+            else if (ChatManager.Instance != null) ChatManager.Instance.ServerSystemMessage(reasonKey, name, "");
         }
 
         foreach (GuardAI g in Guards)
@@ -164,7 +176,8 @@ public class SecurityManager : NetworkBehaviour
         camerasOffUntil.Value = 0;
         consoleReadyAt.Value = 0;
         ClearBlindedRpc(); // yeni müzede kameraların lensleri temiz
-        foreach (PlayerStealth p in PlayerStealth.All) if (p != null && p.IsSpawned) p.ServerClearHeat();
+        GadgetWorld.ServerClearAll(); // yerdeki muz kabukları kalksın
+        foreach (PlayerStealth p in PlayerStealth.All) if (p != null && p.IsSpawned) { p.ServerClearHeat(); p.ServerResetGadgets(); }
         foreach (GuardAI g in Guards) if (g != null) g.ServerResetForLayout();
     }
 

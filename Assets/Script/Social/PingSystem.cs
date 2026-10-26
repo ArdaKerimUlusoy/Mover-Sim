@@ -67,6 +67,18 @@ public class PingSystem : NetworkBehaviour
         return true;
     }
 
+    /// <summary>Haritadan (kamyon, kat planı) bir güvenliğe tıklayınca: o güvenliğin konumuna ekibin gördüğü "Güvenlik" işareti koyar.
+    /// İşaret dünyada kısa süre (GuardPingSeconds) kalır; güvenlik hareket etse de işaret ilk konumunda durur.</summary>
+    public bool RequestGuardPing(Vector3 position)
+    {
+        return RequestPingAt(position + Vector3.up * 1.9f, GuardPingIndex);
+    }
+
+    public const int GuardPingIndex = -2;
+    /// <summary>Bir güvenlik pinglenince (herkeste) tetiklenir: kat planı o güvenliği birkaç sn herkese gösterir.</summary>
+    public static System.Action<Vector3> GuardPinged;
+    private const float GuardPingSeconds = 5f;
+
     [Rpc(SendTo.Server)]
     private void PingRpc(Vector3 position, int itemIndex, RpcParams rpcParams = default)
     {
@@ -79,7 +91,8 @@ public class PingSystem : NetworkBehaviour
     [Rpc(SendTo.ClientsAndHost)]
     private void ShowPingRpc(Vector3 position, ulong owner, int itemIndex)
     {
-        pings[owner] = new Ping { Position = position, Owner = owner, ItemIndex = itemIndex, Until = Time.unscaledTime + lifetime };
+        pings[owner] = new Ping { Position = position, Owner = owner, ItemIndex = itemIndex, Until = Time.unscaledTime + (itemIndex == GuardPingIndex ? GuardPingSeconds : lifetime) };
+        if (itemIndex == GuardPingIndex && GuardPinged != null) GuardPinged(position);
         GameAudio.Play2D(SoundId.Ping, 0.6f);
     }
 
@@ -111,6 +124,7 @@ public class PingSystem : NetworkBehaviour
                 if (ps != null && ps.OwnerClientId == p.Owner) { color = ps.PlayerColor; who = ps.PlayerName; }
             }
 
+            if (p.ItemIndex == GuardPingIndex) color = new Color(1f, 0.3f, 0.25f); // güvenlik işareti kırmızı
             float fade = Mathf.Clamp01((p.Until - now) / 1.5f);
             float bob = Mathf.Sin(now * 5f) * 3f;
             Vector2 c = new Vector2(sp.x, Screen.height - sp.y + bob);
@@ -123,7 +137,8 @@ public class PingSystem : NetworkBehaviour
             GUI.matrix = old;
 
             string text = who + "  " + Mathf.RoundToInt(sp.z) + "m";
-            if (p.ItemIndex >= 0 && ItemDatabase.Instance != null)
+            if (p.ItemIndex == GuardPingIndex) text = Loc.T("ping.guard") + "\n" + text;
+            else if (p.ItemIndex >= 0 && ItemDatabase.Instance != null)
             {
                 ItemDefinition d = ItemDatabase.Instance.Get(p.ItemIndex);
                 if (d != null) text = d.DisplayName + "\n" + text;

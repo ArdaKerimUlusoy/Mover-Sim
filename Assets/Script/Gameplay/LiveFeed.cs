@@ -175,9 +175,28 @@ public class LiveFeed : MonoBehaviour
             if (monitor != null) Destroy(monitor);
             if (Time.unscaledTime < nextBenchSearch) return;
             nextBenchSearch = Time.unscaledTime + 1f;
-            monitorBench = FindAnyObjectByType<ForgeryWorkbench>();
+            monitorBench = ForgeryWorkbench.NearestToLocal();
             if (monitorBench == null) return;
             BuildMonitor();
+        }
+        else if (monitor != null && Time.unscaledTime >= nextBenchSearch)
+        {
+            // Oyuncu başka bir masaya yaklaştıysa monitör o masaya taşınsın
+            nextBenchSearch = Time.unscaledTime + 1f;
+            Camera cm = Camera.main;
+            if (cm != null)
+            {
+                ForgeryWorkbench nb = ForgeryWorkbench.Nearest(cm.transform.position);
+                if (nb != null && nb != monitorBench &&
+                    (nb.transform.position - cm.transform.position).sqrMagnitude + 1f <
+                    (monitorBench.transform.position - cm.transform.position).sqrMagnitude)
+                {
+                    Destroy(monitor);
+                    monitor = null;
+                    monitorBench = null;
+                    return;
+                }
+            }
         }
         if (monitor == null) return;
 

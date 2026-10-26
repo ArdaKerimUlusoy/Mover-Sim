@@ -71,6 +71,7 @@ public class SessionMenuUI : MonoBehaviour
         localPlayer = null;
         localPlayerSpawned = false;
         IsPaused = false;
+        screen = MenuScreen.Home;
         SetMenuCamera(true);
         ShowCursor(true);
     }
@@ -157,7 +158,7 @@ public class SessionMenuUI : MonoBehaviour
 
         EnsureStyles();
 
-        if (sm.ActiveSession == null)
+        if (!sm.InGame)
         {
             DrawMainMenu(sm);
             return;
@@ -181,18 +182,52 @@ public class SessionMenuUI : MonoBehaviour
         }
     }
 
+    private enum MenuScreen { Home, Multi, Settings }
+    private MenuScreen screen = MenuScreen.Home;
+
     private void DrawMainMenu(SessionManager sm)
     {
-        Rect panel = CenteredRect(400f, 640f);
+        Rect panel = CenteredRect(420f, Mathf.Min(Screen.height - 30f, screen == MenuScreen.Home ? 700f : 560f));
         GUI.Box(panel, GUIContent.none, boxStyle);
 
-        GUILayout.BeginArea(new Rect(panel.x + 24f, panel.y + 20f, panel.width - 48f, panel.height - 40f));
+        GUILayout.BeginArea(new Rect(panel.x + 24f, panel.y + 18f, panel.width - 48f, panel.height - 36f));
 
         GUILayout.Label(gameTitle, titleStyle);
-        GUILayout.Space(14f);
+        GUILayout.Label(Loc.T("menu.tagline"), statusStyle);
+        GUILayout.Space(8f);
 
         GUI.enabled = !sm.IsBusy;
 
+        switch (screen)
+        {
+            case MenuScreen.Home: DrawHomeScreen(sm); break;
+            case MenuScreen.Multi: DrawMultiScreen(sm); break;
+            case MenuScreen.Settings: DrawSettingsScreen(); break;
+        }
+
+        GUI.enabled = true;
+
+        GUILayout.Space(6f);
+        if (!string.IsNullOrEmpty(sm.Status))
+        {
+            GUILayout.Label(sm.Status, statusStyle);
+        }
+
+        GUILayout.FlexibleSpace();
+        if (screen != MenuScreen.Settings)
+        {
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(Loc.T("menu.language"), labelStyle, GUILayout.Width(90f), GUILayout.Height(28f));
+            DrawLanguagePicker();
+            GUILayout.EndHorizontal();
+        }
+
+        GUILayout.EndArea();
+    }
+
+    /// <summary>Ana ekran: karakter (isim / renk / kıyafet) + mod seçimi (Tek / Çok oyunculu), öğretici, ayarlar, çıkış.</summary>
+    private void DrawHomeScreen(SessionManager sm)
+    {
         GUILayout.Label(Loc.T("menu.name"), labelStyle);
         string newName = GUILayout.TextField(nameInput ?? "", 20, fieldStyle, GUILayout.Height(38f));
         if (newName != nameInput)
@@ -201,22 +236,61 @@ public class SessionMenuUI : MonoBehaviour
             PlayerNetworkSetup.SavedName = newName;
         }
 
-        GUILayout.Space(8f);
+        GUILayout.Space(6f);
         GUILayout.Label(Loc.T("menu.color"), labelStyle);
         int picked = DrawColorPicker(PlayerNetworkSetup.SavedColorIndex);
         if (picked != PlayerNetworkSetup.SavedColorIndex) PlayerNetworkSetup.SavedColorIndex = picked;
 
-        GUILayout.Space(8f);
+        GUILayout.Space(6f);
         GUILayout.Label(Loc.T("menu.outfit"), labelStyle);
         int outfit = DrawOutfitPicker(PlayerNetworkSetup.SavedOutfit);
         if (outfit != PlayerNetworkSetup.SavedOutfit) PlayerNetworkSetup.SavedOutfit = outfit;
 
         GUILayout.Space(14f);
+        if (GUILayout.Button(Loc.T("menu.single"), buttonStyle, GUILayout.Height(46f)))
+        {
+            sm.StartSinglePlayer();
+        }
+        GUILayout.Label(Loc.T("menu.single.desc"), smallStyle);
 
-        if (GUILayout.Button(Loc.T("menu.create"), buttonStyle, GUILayout.Height(44f)))
+        GUILayout.Space(4f);
+        if (GUILayout.Button(Loc.T("menu.multi"), buttonStyle, GUILayout.Height(46f)))
+        {
+            screen = MenuScreen.Multi;
+        }
+        GUILayout.Label(Loc.T("menu.multi.desc"), smallStyle);
+
+        GUILayout.Space(6f);
+        GUILayout.BeginHorizontal();
+        if (GUILayout.Button(Loc.T("menu.tutorial"), smallButtonStyle, GUILayout.Height(34f)))
+        {
+            // Öğretici tek oyunculu başlar (kayıt -> kamyon -> çizim akışı tek kişiyle de çalışır)
+            TutorialUI.Restart();
+            sm.StartSinglePlayer();
+        }
+        if (GUILayout.Button(Loc.T("menu.settings"), smallButtonStyle, GUILayout.Height(34f)))
+        {
+            screen = MenuScreen.Settings;
+        }
+        if (GUILayout.Button(Loc.T("menu.quit"), smallButtonStyle, GUILayout.Height(34f)))
+        {
+            GameSettings.Save();
+            Application.Quit();
+        }
+        GUILayout.EndHorizontal();
+    }
+
+    /// <summary>Çok oyunculu: oda kur / koda göre katıl.</summary>
+    private void DrawMultiScreen(SessionManager sm)
+    {
+        GUILayout.Label(Loc.T("menu.multi"), sectionStyle);
+        GUILayout.Space(6f);
+
+        if (GUILayout.Button(Loc.T("menu.create"), buttonStyle, GUILayout.Height(46f)))
         {
             _ = sm.CreateRoomAsync();
         }
+        GUILayout.Label(Loc.T("menu.create.desc"), smallStyle);
 
         GUILayout.Space(14f);
         GUILayout.Label(Loc.T("menu.joincode"), labelStyle);
@@ -226,40 +300,75 @@ public class SessionMenuUI : MonoBehaviour
         bool enterPressed = Event.current.type == EventType.KeyDown &&
                             (Event.current.keyCode == KeyCode.Return || Event.current.keyCode == KeyCode.KeypadEnter);
 
-        if (GUILayout.Button(Loc.T("menu.join"), buttonStyle, GUILayout.Height(44f)) || (enterPressed && joinCode.Length > 0))
+        if (GUILayout.Button(Loc.T("menu.join"), buttonStyle, GUILayout.Height(46f)) || (enterPressed && joinCode.Length > 0))
         {
             _ = sm.JoinRoomAsync(joinCode);
         }
 
-        GUI.enabled = true;
+        GUILayout.Space(14f);
+        if (GUILayout.Button(Loc.T("menu.back"), smallButtonStyle, GUILayout.Height(34f)))
+        {
+            screen = MenuScreen.Home;
+        }
+    }
+
+    /// <summary>Ana ekran ayarları: ses, fare hassasiyeti, dil, öğretici.</summary>
+    private void DrawSettingsScreen()
+    {
+        GUILayout.Label(Loc.T("menu.settings"), sectionStyle);
+        GUILayout.Space(8f);
+
+        GUILayout.Label(Loc.T("pause.volume", Mathf.RoundToInt(GameSettings.MasterVolume * 100f)), smallStyle);
+        float vol = GUILayout.HorizontalSlider(GameSettings.MasterVolume, 0f, 1f);
+        if (!Mathf.Approximately(vol, GameSettings.MasterVolume)) GameSettings.MasterVolume = vol;
 
         GUILayout.Space(8f);
-        if (!string.IsNullOrEmpty(sm.Status))
-        {
-            GUILayout.Label(sm.Status, statusStyle);
-        }
+        GUILayout.Label(Loc.T("pause.sensitivity", GameSettings.MouseSensitivity.ToString("0.0")), smallStyle);
+        float sens = GUILayout.HorizontalSlider(GameSettings.MouseSensitivity,
+            GameSettings.MinSensitivity, GameSettings.MaxSensitivity);
+        if (!Mathf.Approximately(sens, GameSettings.MouseSensitivity)) GameSettings.MouseSensitivity = sens;
 
-        GUILayout.FlexibleSpace();
+        GUILayout.Space(14f);
+        GUILayout.Label(Loc.T("pause.language"), sectionStyle);
         GUILayout.BeginHorizontal();
-        GUILayout.Label(Loc.T("menu.language"), labelStyle, GUILayout.Width(90f), GUILayout.Height(28f));
         DrawLanguagePicker();
         GUILayout.EndHorizontal();
 
-        GUILayout.EndArea();
+        GUILayout.Space(14f);
+        GUILayout.Label(Loc.T(TutorialUI.Completed ? "menu.tutorial.done" : "menu.tutorial.pending"), smallStyle);
+        if (GUILayout.Button(Loc.T("menu.tutorial.reset"), smallButtonStyle, GUILayout.Height(32f)))
+        {
+            TutorialUI.Restart(); // Tek oyunculu ya da çok oyunculu fark etmez: oyuna girince başlar
+        }
+
+        GUILayout.Space(14f);
+        if (GUILayout.Button(Loc.T("menu.back"), smallButtonStyle, GUILayout.Height(34f)))
+        {
+            GameSettings.Save();
+            screen = MenuScreen.Home;
+        }
     }
 
     private void DrawHud(SessionManager sm)
     {
         if (WorkbenchUI.IsOpen) return; // atölye panelinin üstüne binmesin
-        string code = sm.ActiveSession.Code;
-        int count = PlayerNetworkSetup.All.Count > 0 ? PlayerNetworkSetup.All.Count
-                  : (sm.ActiveSession.Players != null ? sm.ActiveSession.Players.Count : 1);
-
         Rect r = new Rect(12f, 12f, 270f, 64f);
         GUI.Box(r, GUIContent.none, boxStyle);
-        GUI.Label(new Rect(r.x + 12f, r.y + 6f, r.width, 28f), Loc.T("hud.code", code), codeStyle);
-        GUI.Label(new Rect(r.x + 12f, r.y + 36f, r.width, 22f),
-            Loc.T("hud.players", count, sm.MaxPlayers), labelStyle);
+        if (sm.ActiveSession == null)
+        {
+            // Tek oyunculu: oda kodu yok
+            GUI.Label(new Rect(r.x + 12f, r.y + 6f, r.width, 28f), Loc.T("hud.single"), codeStyle);
+            GUI.Label(new Rect(r.x + 12f, r.y + 36f, r.width, 22f), Loc.T("hud.single.menu"), labelStyle);
+        }
+        else
+        {
+            string code = sm.ActiveSession.Code;
+            int count = PlayerNetworkSetup.All.Count > 0 ? PlayerNetworkSetup.All.Count
+                      : (sm.ActiveSession.Players != null ? sm.ActiveSession.Players.Count : 1);
+            GUI.Label(new Rect(r.x + 12f, r.y + 6f, r.width, 28f), Loc.T("hud.code", code), codeStyle);
+            GUI.Label(new Rect(r.x + 12f, r.y + 36f, r.width, 22f),
+                Loc.T("hud.players", count, sm.MaxPlayers), labelStyle);
+        }
 
         if (!string.IsNullOrEmpty(pingText))
         {
@@ -354,6 +463,21 @@ public class SessionMenuUI : MonoBehaviour
         DrawLanguagePicker();
         GUILayout.EndHorizontal();
 
+        // --- Öğretici ---
+        GUILayout.Space(10f);
+        GUILayout.Label(Loc.T("pause.tutorial"), sectionStyle);
+        GUILayout.BeginHorizontal();
+        if (GUILayout.Button(Loc.T("pause.tutorial.restart"), smallButtonStyle, GUILayout.Height(28f)))
+        {
+            TutorialUI.Restart();
+            SetPaused(false);
+        }
+        if (TutorialUI.Active && GUILayout.Button(Loc.T("pause.tutorial.skip"), smallButtonStyle, GUILayout.Height(28f)))
+        {
+            TutorialUI.Skip();
+        }
+        GUILayout.EndHorizontal();
+
         // --- Sesli sohbet ---
         GUILayout.Space(10f);
         VoiceChat.DrawSettings(sectionStyle, smallStyle, smallButtonStyle);
@@ -368,13 +492,15 @@ public class SessionMenuUI : MonoBehaviour
         GUILayout.Space(8f);
 
         GUILayout.BeginHorizontal();
-        if (GUILayout.Button(Loc.T("pause.copycode", sm.ActiveSession.Code), smallButtonStyle, GUILayout.Height(36f)))
+        if (sm.ActiveSession != null &&
+            GUILayout.Button(Loc.T("pause.copycode", sm.ActiveSession.Code), smallButtonStyle, GUILayout.Height(36f)))
         {
             GUIUtility.systemCopyBuffer = sm.ActiveSession.Code;
         }
 
         GUI.enabled = !sm.IsBusy;
-        if (GUILayout.Button(IsHost ? Loc.T("pause.close") : Loc.T("pause.leave"), smallButtonStyle, GUILayout.Height(36f)))
+        string leaveText = sm.IsSinglePlayer ? Loc.T("pause.tomenu") : IsHost ? Loc.T("pause.close") : Loc.T("pause.leave");
+        if (GUILayout.Button(leaveText, smallButtonStyle, GUILayout.Height(36f)))
         {
             GameSettings.Save();
             _ = sm.LeaveRoomAsync();
@@ -425,10 +551,15 @@ public class SessionMenuUI : MonoBehaviour
         {
             Rect r = GUILayoutUtility.GetRect(34f, 34f, GUILayout.Width(34f), GUILayout.Height(34f));
 
-            if (i == selected) DrawColorRect(r, Color.white);
-            DrawColorRect(new Rect(r.x + 3f, r.y + 3f, r.width - 6f, r.height - 6f), PlayerNetworkSetup.Colors[i]);
+            // Başka bir oyuncunun kullandığı renk: soluk ve seçilemez
+            bool taken = i != selected && PlayerNetworkSetup.IsColorTakenByOther(i);
 
-            if (GUI.enabled && GUI.Button(r, GUIContent.none, GUIStyle.none)) result = i;
+            if (i == selected) DrawColorRect(r, Color.white);
+            Color c = PlayerNetworkSetup.Colors[i];
+            if (taken) c = new Color(c.r * 0.35f + 0.1f, c.g * 0.35f + 0.1f, c.b * 0.35f + 0.1f, 1f);
+            DrawColorRect(new Rect(r.x + 3f, r.y + 3f, r.width - 6f, r.height - 6f), c);
+
+            if (!taken && GUI.enabled && GUI.Button(r, GUIContent.none, GUIStyle.none)) result = i;
             GUILayout.Space(4f);
         }
         GUILayout.EndHorizontal();

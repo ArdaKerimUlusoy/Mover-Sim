@@ -129,6 +129,28 @@ public class GuardAI : NetworkBehaviour
 
     // ---------------- Dışarıdan olaylar (sunucu) ----------------
 
+    private float slipUntil = -1f;
+    private bool slipping;
+
+    /// <summary>Sunucu: muz kabuğuna bastı, bu kadar saniye yere düşer. Kaydıysa true.</summary>
+    public bool ServerSlip(float seconds)
+    {
+        if (!IsServer || !Online || Time.time < slipUntil) return false;
+        slipUntil = Time.time + seconds;
+        slipping = true;
+        if (agent.enabled && agent.isOnNavMesh) { agent.isStopped = true; agent.velocity = Vector3.zero; }
+        SlipRpc(seconds);
+        return true;
+    }
+
+    [Rpc(SendTo.Everyone)]
+    private void SlipRpc(float seconds)
+    {
+        GameAudio.PlayAt(SoundId.Slip, transform.position);
+        GuardLook look = GetComponent<GuardLook>();
+        if (look != null) look.PlaySlip(seconds);
+    }
+
     private void OnNoise(Vector3 pos, float radius)
     {
         if (!Online) return;
@@ -355,6 +377,10 @@ public class GuardAI : NetworkBehaviour
             GoToWaypoint();
         }
         if (!agent.isOnNavMesh) return;
+
+        // Muz kabuğunda kaydı: yerde yatarken hiçbir şey yapmaz (bitince kaldığı yerden devam)
+        if (Time.time < slipUntil) { agent.isStopped = true; return; }
+        if (slipping) { slipping = false; agent.isStopped = false; }
 
         if (UpdateUnstuck()) return;
         OpenNearbyDoors();

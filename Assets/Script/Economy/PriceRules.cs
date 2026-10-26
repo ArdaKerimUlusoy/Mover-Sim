@@ -44,6 +44,16 @@ public static class PriceRules
         return d != null ? d.ValueMultiplier : 1f;
     }
 
+    /// <summary>Küçük ganimet satış değeri kaça bölünüp yetenek puanına çevrilir (160$ değerli eşya ≈ 16 puan).</summary>
+    public const int SkillPointDivisor = 10;
+
+    /// <summary>Küçük ganimetin tek adedinin kazandıracağı yetenek puanı (küçük ganimet değilse 0).</summary>
+    public static int SkillPointsFor(ItemDefinition def, InventorySlot slot)
+    {
+        if (def == null || !def.IsSmallLoot) return 0;
+        return Mathf.Max(1, Mathf.RoundToInt(SalePrice(def, slot) / (float)SkillPointDivisor));
+    }
+
     public static void Split(int price, bool hasTeamBank, out int team, out int personal)
     {
         if (!hasTeamBank)

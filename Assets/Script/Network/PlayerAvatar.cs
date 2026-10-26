@@ -270,9 +270,22 @@ public partial class PlayerAvatar : MonoBehaviour
     /// <summary>Oyuncunun seçtiği renk: kazak ve bere.</summary>
     public void SetColor(Color c)
     {
+        // Renkler arkadaşlar arasında net ayrışsın: doygunluk yükseltilir, parlaklık sabitlenir
+        c = Vivid(c);
         SetMat(mainMat, c);
-        SetMat(hatMat, Color.Lerp(c, Color.black, 0.28f));
+        SetMat(hatMat, Color.Lerp(c, Color.black, 0.32f));
         TintModel(c);
+    }
+
+    /// <summary>Pastel palet rengini daha doygun / canlı hale getirir (aynı ton).</summary>
+    private static Color Vivid(Color c)
+    {
+        Color.RGBToHSV(c, out float h, out float s, out float v);
+        s = Mathf.Clamp01(Mathf.Max(s * 1.3f, 0.72f));
+        v = Mathf.Max(v, 0.92f);
+        Color r = Color.HSVToRGB(h, s, v);
+        r.a = 1f;
+        return r;
     }
 
     private static void SetMat(Material m, Color c)
