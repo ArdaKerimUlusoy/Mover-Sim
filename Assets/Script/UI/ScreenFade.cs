@@ -28,7 +28,6 @@ public class ScreenFade : MonoBehaviour
     private float titleStart = -100f;
     private string title = "", subtitle = "";
 
-    private GUIStyle titleStyle, subStyle;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void Boot()
@@ -110,10 +109,11 @@ public class ScreenFade : MonoBehaviour
     private void OnGUI()
     {
         if (!GameFlow.LocalSpawned) return;
+        if (Event.current.type != EventType.Repaint) return;
         float t = Time.unscaledTime;
         GUI.depth = -1000;
 
-        // ---- Karartma ----
+        // ---- Karartma (kömür rengi) ----
         float a = 0f;
         float dt = t - dipStart;
         if (dt >= 0f && dt < DipIn + DipHold + DipOut)
@@ -125,42 +125,42 @@ public class ScreenFade : MonoBehaviour
         float ot = t - openStart;
         if (ot >= 0f && ot < OpenFadeSeconds)
         {
-            // Açılış: kısa süre tam siyah, sonra açılır
+            // Açılış: kısa süre tam kömür, sonra açılır
             float oa = ot < 0.3f ? 1f : 1f - (ot - 0.3f) / (OpenFadeSeconds - 0.3f);
             a = Mathf.Max(a, oa);
         }
-        if (a > 0.003f)
-        {
-            Color old = GUI.color;
-            GUI.color = new Color(0f, 0f, 0f, Mathf.Clamp01(a));
-            GUI.DrawTexture(new Rect(0f, 0f, Screen.width, Screen.height), Texture2D.whiteTexture);
-            GUI.color = old;
-        }
+        if (a > 0.003f) UIUtil.Scrim(UITheme.WithAlpha(UITheme.Charcoal, Mathf.Clamp01(a)));
 
-        // ---- Aşama başlığı ----
+        // ---- Aşama başlığı: Section üst satır + Display ad + süslü ayraç ----
         float tt = t - titleStart;
         float total = TitleIn + TitleHold + TitleOut;
         if (tt < 0f || tt > total || string.IsNullOrEmpty(title)) return;
         float ta = tt < TitleIn ? tt / TitleIn : tt < TitleIn + TitleHold ? 1f : 1f - (tt - TitleIn - TitleHold) / TitleOut;
         ta = Mathf.Clamp01(ta);
+        float ease = UIUtil.Ease.OutCubic(tt / TitleIn);
 
-        if (titleStyle == null)
+        float sc = UITheme.Scale;
+        float bandH = 190f * sc;
+        float cy = Screen.height * 0.34f - (1f - ease) * 12f * sc;
+        Rect band = new Rect(0f, cy - bandH * 0.5f, Screen.width, bandH);
+        // Karartma zaten ağırsa bant ayrıca çizilmez
+        if (a < 0.6f)
         {
-            titleStyle = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold, fontSize = 46 };
-            subStyle = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold, fontSize = 20 };
+            UIUtil.DrawRect(band, UITheme.WithAlpha(UITheme.Charcoal, 0.62f * ta));
+            UIUtil.DrawRect(new Rect(0f, band.y, Screen.width, 1f), UITheme.WithAlpha(UITheme.Brass, 0.5f * ta));
+            UIUtil.DrawRect(new Rect(0f, band.yMax - 1f, Screen.width, 1f), UITheme.WithAlpha(UITheme.Brass, 0.5f * ta));
         }
 
-        float y = Screen.height * 0.28f;
-        DrawShadowed(new Rect(0f, y, Screen.width, 62f), title, titleStyle, new Color(1f, 0.88f, 0.45f, ta), ta);
-        if (!string.IsNullOrEmpty(subtitle))
-            DrawShadowed(new Rect(0f, y + 60f, Screen.width, 32f), subtitle, subStyle, new Color(0.95f, 0.95f, 0.95f, ta), ta);
-    }
-
-    private static void DrawShadowed(Rect r, string text, GUIStyle style, Color color, float alpha)
-    {
-        style.normal.textColor = new Color(0f, 0f, 0f, 0.85f * alpha);
-        GUI.Label(new Rect(r.x + 2f, r.y + 2f, r.width, r.height), text, style);
-        style.normal.textColor = color;
-        GUI.Label(r, text, style);
+        bool hasSub = !string.IsNullOrEmpty(subtitle);
+        float y = cy - (hasSub ? 52f : 36f) * sc;
+        if (hasSub)
+        {
+            UIUtil.Text(new Rect(0f, y, Screen.width, 20f * sc), UITheme.Caps(subtitle), TextRole.Section, UITheme.WithAlpha(UITheme.BrassLight, ta), TextAnchor.MiddleCenter);
+            y += 26f * sc;
+        }
+        UIUtil.Text(new Rect(0f, y, Screen.width, 66f * sc), UITheme.Caps(title), TextRole.Display, UITheme.WithAlpha(UITheme.Ivory, ta), TextAnchor.MiddleCenter);
+        y += 74f * sc;
+        float dw = Mathf.Min(Screen.width * 0.4f, 360f * sc);
+        UIUtil.Divider((Screen.width - dw) * 0.5f, y, dw, UITheme.WithAlpha(UITheme.Brass, ta), true);
     }
 }

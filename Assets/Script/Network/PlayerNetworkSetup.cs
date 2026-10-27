@@ -390,6 +390,6 @@ public class PlayerNetworkSetup : NetworkBehaviour
 
         // Oyuncunun kendi renginde, siyah konturlu ve koyu arka planlı etiket (uzaklaştıkça hafif solar)
         float alpha = Mathf.Clamp01((nameTagMaxDistance - screen.z) / 6f);
-        WorldLabel.DrawTag(new Vector2(screen.x, Screen.height - screen.y), PlayerName, PlayerColor, alpha, 16);
+        WorldLabel.DrawTag(new Vector2(screen.x, Screen.height - screen.y), PlayerName, PlayerColor, alpha, 13);
     }
 }

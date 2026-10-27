@@ -417,49 +417,6 @@ public partial class MuseumLayout : MonoBehaviour
             VisitorPoints.Add(new Vector3(front.x, museum.position.y, front.z));
         }
         LobbyWorld = W(lobby.Center);
-        BuildSecurityMirrors();
-    }
-
-    /// <summary>Kapı yanlarına 3–6 güvenlik aynası (ayrı tohumlu Random: diğer yerleşimleri etkilemez). Runtime_Interior altında, düzen yenilenince silinir.</summary>
-    private void BuildSecurityMirrors()
-    {
-        var mrng = new System.Random(appliedSeed ^ 0x3A11);
-        var cands = new List<(Vector2 pos, Vector2 nrm)>();
-        foreach (DoorEdge d in doors)
-        {
-            Vector2 c = d.Center;
-            Vector2 along = d.vertical ? new Vector2(0f, 1f) : new Vector2(1f, 0f);
-            Vector2 across = d.vertical ? new Vector2(1f, 0f) : new Vector2(0f, 1f);
-            int s = mrng.Next(2) == 0 ? -1 : 1;     // kapının hangi yanı
-            int side = mrng.Next(2) == 0 ? -1 : 1;  // hangi odaya bakar (across yönü)
-            int ni = d.vertical ? d.i : d.i + s, nj = d.vertical ? d.j + s : d.j;
-            if (ni < 0 || ni >= NX || nj < 0 || nj >= NZ) continue;
-            // Komşu hücrede de duvar olmalı (kapı değil)
-            int ga = d.vertical ? grid[ni - 1, nj] : grid[ni, nj - 1];
-            int gb = grid[ni, nj];
-            if (ga == gb || IsDoorEdge(d.vertical, ni, nj)) continue;
-            int roomId = side > 0 ? gb : ga;
-            string role = rooms[roomId].role;
-            if (role == "stairs" || role == "staff" || role == "security") continue;
-            Vector2 n0 = across * side;
-            Vector2 toDoor = -along * s;
-            Vector2 pos = c + along * (s * 1.9f) + n0 * 0.15f;
-            Vector2 nrm = (n0 * Mathf.Cos(30f * Mathf.Deg2Rad) + toDoor * Mathf.Sin(30f * Mathf.Deg2Rad)).normalized; // kapıya doğru hafif dönük
-            cands.Add((pos, nrm));
-        }
-        // Karıştır, birbirine 5 m'den yakın olmayan en fazla 3–6 tanesini al
-        for (int i = cands.Count - 1; i > 0; i--) { int k = mrng.Next(i + 1); (cands[i], cands[k]) = (cands[k], cands[i]); }
-        int want = 3 + mrng.Next(4);
-        var placed = new List<Vector2>();
-        foreach (var cd in cands)
-        {
-            if (placed.Count >= want) break;
-            if (TooClose(cd.pos, placed, 5f)) continue;
-            placed.Add(cd.pos);
-            const float pitch = 20f * Mathf.Deg2Rad;
-            Vector3 n3 = museum.TransformDirection(new Vector3(cd.nrm.x * Mathf.Cos(pitch), -Mathf.Sin(pitch), cd.nrm.y * Mathf.Cos(pitch)));
-            SecurityMirror.Create(interior, W(cd.pos, 3.2f), n3);
-        }
     }
 
     // ---------------- Duvarlar ve kapılar ----------------

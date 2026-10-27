@@ -148,62 +148,84 @@ public class HeistControls : MonoBehaviour
         PlayerStealth me = PlayerStealth.Local;
         PlayerInventory inv = me != null ? me.GetComponent<PlayerInventory>() : null;
         if (me == null || inv == null || !me.IsSpawned || SessionMenuUI.IsPaused || WorkbenchUI.IsOpen || FloorPlanUI.IsOpen || me.IsJailed) return;
-        if (small == null)
-        {
-            small = new GUIStyle(GUI.skin.label) { fontSize = 12, wordWrap = false };
-            small.normal.textColor = new Color(0.9f, 0.9f, 0.9f);
-            bold = new GUIStyle(small) { fontSize = 14, fontStyle = FontStyle.Bold };
-        }
+        if (Event.current.type != EventType.Repaint) return;
+
+        float sc = UITheme.Scale;
+        float pad = UITheme.S3 * sc;
         if (!FeatureMerge.FriendCamcorder && !FeatureMerge.FriendSpray)
         {
             // Birleştirme: kayıt / boya göstergesi BodyCam ve fırçada. Kamyonda sadece kat planı ipucu kalır.
             if (FloorPlanUI.LocalInTruck)
             {
                 string th = Loc.T("heist.hint.truck");
-                Rect hr = UIUtil.HudRect(UIUtil.HudCorner.BottomLeft, UIUtil.HudOrder.TruckHint, small.CalcSize(new GUIContent(th)).x + 28f, 26f);
-                UIUtil.Panel(hr, 0.85f);
-                small.normal.textColor = UIUtil.Cream;
-                GUI.Label(new Rect(hr.x + 13f, hr.y + 5f, hr.width - 18f, 16f), th, small);
+                float hw = HudKit.KeyLineWidth(th) + pad * 2f + 6f;
+                Rect hr = UIUtil.HudRect(UIUtil.HudCorner.BottomLeft, UIUtil.HudOrder.TruckHint, hw, 30f * sc);
+                UIUtil.Panel(hr, PanelKind.Plaque, 0.9f);
+                HudKit.KeyLine(new Rect(hr.x + pad, hr.y + (hr.height - 22f * sc) * 0.5f, hw - pad * 2f, 22f * sc), th, UITheme.IvoryDim, true);
             }
             return;
         }
 
         bool inTruck = FloorPlanUI.LocalInTruck;
+        float w = 300f * sc;
+        float innerW = w - pad * 2f - 26f * sc; // sol simge sütunu
+        float tx = 26f * sc;
 
-        // Sol alt: kamera / pil / dikkat / sprey
-        Rect r = UIUtil.HudRect(UIUtil.HudCorner.BottomLeft, UIUtil.HudOrder.TruckHint, 270f, 98f);
-        UIUtil.Panel(r);
+        // Metinler (gerçek durumdan)
         float cap = Mathf.Max(1f, me.BatteryCapacity);
         float bat = me.BatterySeconds;
         string batText = $"{Mathf.FloorToInt(bat / 60f)}:{Mathf.FloorToInt(bat % 60f):00}";
-        if (me.IsRecording)
-        {
-            bool blink = Mathf.Repeat(Time.unscaledTime, 1f) < 0.6f;
-            bold.normal.textColor = new Color(1f, 0.35f, 0.3f);
-            GUI.Label(new Rect(r.x + 10f, r.y + 4f, r.width - 20f, 20f), (blink ? "● " : "   ") + Loc.T("cam.rec", batText), bold);
-        }
-        else
-        {
-            bold.normal.textColor = Color.white;
-            GUI.Label(new Rect(r.x + 10f, r.y + 4f, r.width - 20f, 20f), Loc.T(inTruck ? "cam.charging" : "cam.off", batText), bold);
-        }
-        Rect bar = new Rect(r.x + 10f, r.y + 26f, r.width - 20f, 6f);
-        UIUtil.DrawRect(bar, new Color(1f, 1f, 1f, 0.15f));
-        UIUtil.DrawRect(new Rect(bar.x, bar.y, bar.width * Mathf.Clamp01(bat / cap), bar.height), bat / cap < 0.25f ? new Color(1f, 0.4f, 0.3f) : new Color(0.45f, 0.85f, 0.5f));
+        bool rec = me.IsRecording;
+        string recText = rec ? Loc.T("cam.rec", batText) : Loc.T(inTruck ? "cam.charging" : "cam.off", batText);
 
-        // Dikkat: kesintisiz kayıt süresi (9 sn'ye kadar kimse fark etmez)
         float grace = UpgradeCatalog.RecordGraceSeconds;
         float att = me.RecordAttention;
-        string attText = att >= grace ? Loc.T("cam.noticed") : me.IsRecording ? Loc.T("cam.calm", Mathf.CeilToInt(grace - att)) : Loc.T("cam.ready");
-        small.normal.textColor = att >= grace ? new Color(1f, 0.45f, 0.4f) : new Color(0.85f, 0.85f, 0.85f);
-        GUI.Label(new Rect(r.x + 10f, r.y + 36f, r.width - 20f, 18f), attText, small);
-        Rect abar = new Rect(r.x + 10f, r.y + 55f, r.width - 20f, 4f);
-        UIUtil.DrawRect(abar, new Color(1f, 1f, 1f, 0.12f));
-        UIUtil.DrawRect(new Rect(abar.x, abar.y, abar.width * Mathf.Clamp01(att / grace), abar.height), att >= grace ? new Color(1f, 0.35f, 0.3f) : new Color(1f, 0.8f, 0.3f));
+        bool noticed = att >= grace;
+        string attText = noticed ? Loc.T("cam.noticed") : rec ? Loc.T("cam.calm", Mathf.CeilToInt(grace - att)) : Loc.T("cam.ready");
+        string sprayText = Loc.T("spray.count", inv.SprayCount);
+        string hintText = Loc.T(inTruck ? "heist.hint.truck" : "heist.hint");
 
-        small.normal.textColor = new Color(0.85f, 0.85f, 0.85f);
-        GUI.Label(new Rect(r.x + 10f, r.y + 62f, r.width - 20f, 16f), Loc.T("spray.count", inv.SprayCount), small);
-        GUI.Label(new Rect(r.x + 10f, r.y + 78f, r.width - 20f, 16f), Loc.T(inTruck ? "heist.hint.truck" : "heist.hint"), small);
+        // Dikkat satırı yalnızca kayıttayken ya da dikkat birikmişken gösterilir (HUD sade kalsın)
+        bool showAtt = rec || att > 0.05f;
+        float recH = HudKit.KeyLine(new Rect(0f, 0f, innerW, 0f), recText, UITheme.Ivory, false, TextRole.BodyStrong);
+        float attH = showAtt ? UIUtil.MeasureHeight(attText, TextRole.Caption, innerW) : 0f;
+        float sprayH = HudKit.KeyLine(new Rect(0f, 0f, innerW + tx, 0f), sprayText, UITheme.IvoryDim, false);
+        float hintH = HudKit.KeyLine(new Rect(0f, 0f, innerW + tx, 0f), hintText, UITheme.IvoryDim, false);
+        float barH = 8f * sc;
+        float h = pad + recH + 4f * sc + barH
+                + (showAtt ? 6f * sc + attH + 3f * sc + 5f * sc : 0f)
+                + 6f * sc + sprayH + hintH + pad;
+
+        // Sol alt: kamera / pil / dikkat / sprey
+        Rect r = UIUtil.HudRect(UIUtil.HudCorner.BottomLeft, UIUtil.HudOrder.TruckHint, w, h);
+        UIUtil.Panel(r, PanelKind.Plaque, 0.94f);
+        float x = r.x + pad, y = r.y + pad;
+        float iconS = 20f * sc;
+
+        // Kayıt rozeti: kayıttayken kırmızı nabızlı Camera simgesi + REC rozeti
+        Color camCol = rec ? Color.Lerp(UITheme.Danger, UITheme.DangerLight, UIUtil.Pulse(5f)) : UITheme.IvoryDim;
+        UIUtil.Icon(new Rect(x, y + (recH - iconS) * 0.5f, iconS, iconS), IconId.Camera, camCol);
+        HudKit.KeyLine(new Rect(x + tx, y, innerW, recH), recText, rec ? UITheme.DangerLight : UITheme.Ivory, true, TextRole.BodyStrong);
+        y += recH + 4f * sc;
+
+        // Pil: dolu Sage, %25 altı Danger
+        UIUtil.ProgressBar(new Rect(x, y, w - pad * 2f, barH), Mathf.Clamp01(bat / cap), bat / cap < 0.25f ? UITheme.Danger : UITheme.Sage);
+        y += barH;
+
+        if (showAtt)
+        {
+            // Dikkat: kesintisiz kayıt süresi (9 sn'ye kadar kimse fark etmez)
+            y += 6f * sc;
+            UIUtil.Text(new Rect(x, y, w - pad * 2f, attH), attText, TextRole.Caption, noticed ? UITheme.DangerLight : UITheme.IvoryDim);
+            y += attH + 3f * sc;
+            UIUtil.ProgressBar(new Rect(x, y, w - pad * 2f, 5f * sc), Mathf.Clamp01(att / grace), noticed ? UITheme.Danger : UITheme.Ochre);
+            y += 5f * sc;
+        }
+
+        y += 6f * sc;
+        HudKit.KeyLine(new Rect(x, y, w - pad * 2f, sprayH), sprayText, UITheme.IvoryDim, true);
+        y += sprayH;
+        HudKit.KeyLine(new Rect(x, y, w - pad * 2f, hintH), hintText, UITheme.IvoryDim, true);
 
         if (inTruck) return;
 
@@ -211,7 +233,7 @@ public class HeistControls : MonoBehaviour
         if (me.LingerSeconds > UpgradeCatalog.LingerGraceSeconds - 2.5f)
         {
             bool bad = me.IsLingeringConspicuous;
-            UIUtil.DrawPrompt(Loc.T(bad ? "linger.bad" : "linger.warn"), UIUtil.CenterSlot(26f) + 60f, bad ? new Color(1f, 0.45f, 0.4f) : new Color(1f, 0.85f, 0.45f), 15);
+            UIUtil.DrawPrompt(Loc.T(bad ? "linger.bad" : "linger.warn"), UIUtil.CenterSlot(26f) + 60f, bad ? UITheme.DangerLight : UITheme.Ochre, 15);
         }
 
         // Sprey hedefi / basılı tutma halkası
@@ -219,13 +241,13 @@ public class HeistControls : MonoBehaviour
         if (hold > 0f)
         {
             Vector2 c = new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
-            UIUtil.DrawRing(c, 26f, hold / HoldDuration(target), new Color(0.35f, 0.95f, 0.45f));
-            UIUtil.DrawPrompt(Loc.T(target == TargetKind.Camera ? "spray.doing.cam" : "spray.doing.wall"), UIUtil.CenterSlot(), new Color(0.5f, 1f, 0.55f), 17);
+            UIUtil.DrawRing(c, 26f, hold / HoldDuration(target), UITheme.BrassLight);
+            UIUtil.DrawPrompt(Loc.T(target == TargetKind.Camera ? "spray.doing.cam" : "spray.doing.wall"), UIUtil.CenterSlot(), UITheme.BrassLight, 17);
         }
         else
         {
             string key = target == TargetKind.Camera ? "spray.prompt.cam" : "spray.prompt.wall";
-            UIUtil.DrawPrompt(Loc.T(key, inv.SprayCount), UIUtil.CenterSlot(), new Color(0.6f, 1f, 0.65f), 16);
+            UIUtil.DrawPrompt(Loc.T(key, inv.SprayCount), UIUtil.CenterSlot(), UITheme.Ivory, 16);
         }
     }
 }

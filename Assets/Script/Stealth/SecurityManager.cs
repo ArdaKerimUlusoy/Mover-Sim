@@ -207,18 +207,16 @@ public class SecurityManager : NetworkBehaviour
     {
         if (CamerasDisabled)
         {
-            Rect cr = new Rect((Screen.width - 300f) / 2f, UIUtil.TopSlot(28f), 300f, 28f);
-            UIUtil.DrawRect(cr, new Color(0.1f, 0.3f, 0.6f, 0.75f));
-            UIUtil.DrawPrompt(Loc.T("console.banner", Mathf.CeilToInt(CamerasOffRemaining)), cr.y + 1f, Color.white, 17);
+            // Kameralar kapalı: Forest şerit + Camera simgesi (güvenli / sakin ton)
+            HudKit.Banner(Loc.T("console.banner", Mathf.CeilToInt(CamerasOffRemaining)), IconId.Camera, UITheme.Forest, UITheme.Ivory, 1f, UITheme.Sage);
         }
         if (!alarmActive.Value || !IsSpawned) return;
 
         double remaining = alarmEndsAt.Value - NetworkManager.ServerTime.Time;
         if (remaining < 0) remaining = 0;
 
-        float pulse = 0.55f + 0.45f * Mathf.Abs(Mathf.Sin(Time.unscaledTime * 4f));
-        Rect r = new Rect((Screen.width - 340f) / 2f, UIUtil.TopSlot(34f), 340f, 34f);
-        UIUtil.DrawRect(r, new Color(0.8f, 0.1f, 0.1f, 0.75f * pulse));
-        UIUtil.DrawPrompt(Loc.T("alarm.banner", Mathf.CeilToInt((float)remaining)), r.y + 2f, Color.white, 20);
+        // Alarm bandı: Danger şerit + Alarm simgesi, hafif nabız
+        float pulse = 0.82f + 0.18f * Mathf.Abs(Mathf.Sin(Time.unscaledTime * 4f));
+        HudKit.Banner(Loc.T("alarm.banner", Mathf.CeilToInt((float)remaining)), IconId.Alarm, UITheme.Danger, UITheme.DangerLight, pulse);
     }
 }

@@ -700,8 +700,9 @@ public static class SoundSynth
     private static AudioClip MakeLoop(string name, float duration, float fade, Func<float, float> sample, float peak)
     {
         int n = Mathf.CeilToInt(duration * Rate);
-        int f = Mathf.CeilToInt(fade * Rate);
         float[] ext = Render(duration + fade, sample);
+        // Yuvarlama yüzünden ext, n + f'den kısa olabilir: karışım ext'in sonunu aşmasın
+        int f = Mathf.Clamp(Mathf.CeilToInt(fade * Rate), 0, Mathf.Max(0, ext.Length - n));
         float[] d = new float[n];
         for (int i = 0; i < n; i++)
         {

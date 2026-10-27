@@ -23,8 +23,7 @@ public class ChatUI : MonoBehaviour
     private int openedFrame = -1;
     private bool localPlayerSpawned;
 
-    private GUIStyle lineStyle, inputStyle, hintStyle;
-    private Texture2D bgTex;
+    private GUIStyle lineStyle, inputStyle;
 
     private void OnEnable()
     {
@@ -110,22 +109,32 @@ public class ChatUI : MonoBehaviour
         if (chat == null || !localPlayerSpawned) return;
 
         EnsureStyles();
+        float sc = UITheme.Scale;
+        lineStyle.fontSize = Mathf.RoundToInt(15f * sc);
+        float W = Mathf.Min(width * sc, Screen.width - 24f);
+        float inputH = Mathf.Round(32f * sc);
+        float padX = 10f * sc, padY = 6f * sc, gap = 3f * sc;
 
-        float lineH = 22f;
-        float inputH = 30f;
-
-        // Kaç satır görünecek (yerleşim için önceden say; aşağıdaki çizim döngüsüyle aynı kural)
+        // Görünecek satırları topla (en yeniden eskiye) ve sarılmış yüksekliklerini ölç (metin kırpılmasın)
         var all = chat.Lines;
-        int visibleNow = 0;
-        for (int i = all.Count - 1; i >= 0 && visibleNow < visibleLines; i--)
+        int count = 0;
+        for (int i = all.Count - 1; i >= 0 && count < visibleLines && count < measured.Length; i--)
         {
             if (!IsTyping && Time.unscaledTime - all[i].Time > fadeAfterSeconds + 1f) break;
-            visibleNow++;
+            measured[count] = all[i];
+            heights[count] = Mathf.Max(Mathf.Round(20f * sc), lineStyle.CalcHeight(new GUIContent(Format(all[i])), W - padX * 2f));
+            count++;
         }
-        bool showHint = !IsTyping && !SessionMenuUI.IsPaused && visibleNow == 0;
-        float totalH = (IsTyping ? inputH + 4f : 0f) + lineH * visibleNow + (showHint ? 18f : 0f);
+
+        bool showHint = !IsTyping && !SessionMenuUI.IsPaused && count == 0;
+        float linesH = 0f;
+        for (int i = 0; i < count; i++) linesH += heights[i] + gap;
+        float blockH = count > 0 ? linesH + padY * 2f - gap : 0f;
+        float hintH = showHint ? Mathf.Round(22f * sc) : 0f;
+        float totalH = (IsTyping ? inputH + 6f * sc : 0f) + blockH + hintH;
+
         // Sol alt köşe: ipucu satırı ve kamera pilinin ÜSTÜNE dizilir (çakışmaz)
-        Rect area = UIUtil.HudRect(UIUtil.HudCorner.BottomLeft, UIUtil.HudOrder.Chat, width, Mathf.Max(1f, totalH));
+        Rect area = UIUtil.HudRect(UIUtil.HudCorner.BottomLeft, UIUtil.HudOrder.Chat, W, Mathf.Max(1f, totalH));
         float x = area.x;
         float bottom = area.yMax;
 
@@ -139,54 +148,70 @@ public class ChatUI : MonoBehaviour
             {
                 e.Use();
             }
-        }
 
-        if (IsTyping)
-        {
-            Rect inputRect = new Rect(x, bottom - inputH, width, inputH);
+            Rect inputRect = new Rect(x, bottom - inputH, W, inputH);
+            UIUtil.Panel(inputRect, PanelKind.Plaque, 0.95f);
+            Rect fieldRect = new Rect(inputRect.x + 4f, inputRect.y + 3f, inputRect.width - 8f, inputRect.height - 6f);
+            inputStyle.fontSize = Mathf.RoundToInt(16f * sc);
             GUI.SetNextControlName(InputControlName);
-            input = GUI.TextField(inputRect, input, ChatManager.MaxMessageLength, inputStyle);
+            input = GUI.TextField(fieldRect, input, ChatManager.MaxMessageLength, inputStyle);
             if (GUI.GetNameOfFocusedControl() != InputControlName) GUI.FocusControl(InputControlName);
-            bottom -= inputH + 4f;
+            bottom -= inputH + 6f * sc;
         }
 
-        // --- Mesajlar ---
-        var lines = chat.Lines;
-        int shown = 0;
-        float now = Time.unscaledTime;
-
-        for (int i = lines.Count - 1; i >= 0 && shown < visibleLines; i--)
+        // --- Mesajlar: tek plaket + satırlar (eskiden yeniye, yukarıdan aşağı) ---
+        if (count > 0)
         {
-            ChatManager.ChatLine line = lines[i];
+            float now = Time.unscaledTime;
+            float panelAlpha = 1f;
+            if (!IsTyping) panelAlpha = Mathf.Clamp01(fadeAfterSeconds + 1f - (now - measured[0].Time));
+            Rect block = new Rect(x, bottom - blockH, W, blockH);
+            UIUtil.Panel(block, PanelKind.Plaque, 0.88f * panelAlpha);
 
-            float alpha = 1f;
-            if (!IsTyping)
+            float y = block.y + padY;
+            for (int i = count - 1; i >= 0; i--)
             {
-                float age = now - line.Time;
-                if (age > fadeAfterSeconds + 1f) break; // daha eskiler de görünmez
-                alpha = Mathf.Clamp01(fadeAfterSeconds + 1f - age);
+                float alpha = 1f;
+                if (!IsTyping) alpha = Mathf.Clamp01(fadeAfterSeconds + 1f - (now - measured[i].Time));
+                Color old = GUI.color;
+                GUI.color = new Color(1f, 1f, 1f, alpha);
+                GUI.Label(new Rect(x + padX, y, W - padX * 2f, heights[i]), Format(measured[i]), lineStyle);
+                GUI.color = old;
+                y += heights[i] + gap;
             }
-
-            string text = line.IsSystem
-                ? $"<color=#FFD166>• {Escape(line.Display)}</color>"
-                : $"<b><color=#7FD1FF>{Escape(line.Sender)}:</color></b> {Escape(line.Text)}";
-
-            Rect r = new Rect(x, bottom - lineH * (shown + 1), width, lineH);
-
-            Color old = GUI.color;
-            GUI.color = new Color(1f, 1f, 1f, alpha * 0.55f);
-            GUI.DrawTexture(r, bgTex);
-            GUI.color = new Color(1f, 1f, 1f, alpha);
-            GUI.Label(new Rect(r.x + 8f, r.y, r.width - 12f, r.height), text, lineStyle);
-            GUI.color = old;
-
-            shown++;
         }
-
-        if (showHint && shown == 0)
+        else if (showHint)
         {
-            GUI.Label(new Rect(x, bottom - 18f, width, 18f), Loc.T("chat.hint"), hintStyle);
+            // Boşta ipucu: "[Enter] Sohbet" → tuş kapağı + etiket
+            UIUtil.SplitKey(Loc.T("chat.hint"), out string key, out string label);
+            float kw = string.IsNullOrEmpty(key) ? 0f : UIUtil.KeyCapWidth(key, 13);
+            float lx = x;
+            if (kw > 0f)
+            {
+                UIUtil.KeyCap(new Rect(x, bottom - hintH + 2f, kw, hintH - 4f), key, 13);
+                lx += kw + 6f;
+            }
+            UIUtil.Text(new Rect(lx, bottom - hintH, W - (lx - x), hintH), label, TextRole.Caption, UITheme.IvoryDim);
         }
+    }
+
+    private readonly ChatManager.ChatLine[] measured = new ChatManager.ChatLine[32];
+    private readonly float[] heights = new float[32];
+
+    // Satırın zengin metni: sistem mesajı Ochre, oyuncu adı kendi renginde kalın
+    private static string Format(ChatManager.ChatLine line)
+    {
+        if (line.IsSystem)
+            return "<color=#" + ColorUtility.ToHtmlStringRGB(UITheme.Ochre) + ">- " + Escape(line.Display) + "</color>";
+        Color c = UITheme.BrassLight;
+        var list = PlayerNetworkSetup.All;
+        for (int i = 0; i < list.Count; i++)
+            if (list[i] != null && list[i].PlayerName == line.Sender)
+            {
+                c = Color.Lerp(list[i].PlayerColor, UITheme.Ivory, 0.25f); // koyu zeminde okunsun
+                break;
+            }
+        return "<b><color=#" + ColorUtility.ToHtmlStringRGB(c) + ">" + Escape(line.Sender) + "</color></b>  " + Escape(line.Text);
     }
 
     // Kullanıcının yazdığı < > işaretleri renk kodu gibi yorumlanmasın.
@@ -200,20 +225,13 @@ public class ChatUI : MonoBehaviour
         if (lineStyle != null) return;
 
         UIUtil.ApplySkin();
-        bgTex = new Texture2D(1, 1);
-        bgTex.SetPixel(0, 0, new Color(0.13f, 0.095f, 0.115f, 0.75f)); // tema zemini (mürdüm)
-        bgTex.Apply();
 
-        lineStyle = new GUIStyle(GUI.skin.label)
+        lineStyle = new GUIStyle(UITheme.Style(TextRole.Body, UITheme.Ivory, TextAnchor.UpperLeft))
         {
-            fontSize = 15, richText = true, alignment = TextAnchor.MiddleLeft, clipping = TextClipping.Clip
+            richText = true, wordWrap = true, clipping = TextClipping.Clip
         };
-        lineStyle.normal.textColor = UIUtil.Cream;
 
         inputStyle = UIUtil.ThemeField(new GUIStyle(GUI.skin.textField) { fontSize = 16, alignment = TextAnchor.MiddleLeft });
         inputStyle.padding = new RectOffset(8, 8, 4, 4);
-
-        hintStyle = new GUIStyle(GUI.skin.label) { fontSize = 12 };
-        hintStyle.normal.textColor = new Color(1f, 1f, 1f, 0.5f);
     }
 }

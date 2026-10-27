@@ -127,9 +127,13 @@ public class GarageTravel : MonoBehaviour
 
     private void OnGUI()
     {
-        if (target != this || targetFrame < Time.frameCount - 1 || !InputFree) return;
-        if (Event.current.type != EventType.Repaint) return;
+        // Yalnızca bu hedefin örneği çizer/söndürür; kendi kanalı (3)
+        if (target != this || targetFrame < Time.frameCount - 1 || !InputFree)
+        {
+            if (target == this || target == null) PromptHud.Idle(3);
+            return;
+        }
         string key = destination == Destination.ToTruck ? "garage.exit.prompt" : "garage.return.prompt";
-        UIUtil.DrawPrompt(Loc.T(key), UIUtil.CenterSlot(), Color.white);
+        PromptHud.Show(Loc.T(key), PromptTone.Normal, -1f, 3);
     }
 }

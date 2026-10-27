@@ -16,7 +16,6 @@ public static class BenchGuide
 
     private static ArtKind shownKind;
     private static bool dontShow;
-    private static GUIStyle bodyStyle, ruleStyle, noteStyle, headStyle, stepStyle;
 
     private static string Suffix(ArtKind k)
     {
@@ -76,76 +75,132 @@ public static class BenchGuide
         Showing = false;
     }
 
-    private static void EnsureStyles()
+    // ---------------- Yardımcılar ----------------
+
+    /// <summary>Yazı yüksekliği tahmini (GUI'ye dokunmaz; Update içinden de çağrılabilir). Caption ~ 12 px @1080.</summary>
+    private static float Estimate(string text, float width)
     {
-        if (bodyStyle != null) return;
-        bodyStyle = new GUIStyle(GUI.skin.label) { fontSize = 16, wordWrap = true, richText = true };
-        bodyStyle.normal.textColor = Color.white;
-        ruleStyle = new GUIStyle(bodyStyle) { fontSize = 13, alignment = TextAnchor.MiddleLeft };
-        ruleStyle.normal.textColor = new Color(1f, 0.93f, 0.7f);
-        noteStyle = new GUIStyle(bodyStyle) { fontSize = 12, alignment = TextAnchor.UpperRight };
-        noteStyle.normal.textColor = new Color(1f, 1f, 1f, 0.78f);
-        headStyle = new GUIStyle(bodyStyle) { fontSize = 20, fontStyle = FontStyle.Bold };
-        stepStyle = new GUIStyle(bodyStyle) { fontSize = 14 };
+        float fontPx = 12f * UITheme.Scale;
+        float charW = fontPx * 0.58f;
+        int cpl = Mathf.Max(8, Mathf.FloorToInt(width / charW));
+        int lines = 0;
+        foreach (string part in text.Split('\n')) lines += Mathf.Max(1, Mathf.CeilToInt(part.Length / (float)cpl));
+        return lines * fontPx * 1.35f;
+    }
+
+    private static GUIStyle richCaption;
+    private static int richCaptionSize;
+
+    /// <summary>Caption ölçüsünde, zengin metin destekli paylaşılmayan stil (çözünürlük değişince yenilenir).</summary>
+    private static GUIStyle RichCaption()
+    {
+        GUIStyle c = UITheme.Style(TextRole.Caption);
+        if (richCaption == null || richCaptionSize != c.fontSize)
+        {
+            richCaption = new GUIStyle(c) { richText = true, wordWrap = true, alignment = TextAnchor.MiddleLeft };
+            richCaptionSize = c.fontSize;
+        }
+        richCaption.normal.textColor = UITheme.Ivory;
+        return richCaption;
     }
 
     // ---------------- Öğretici kutu ----------------
 
-    /// <summary>Açıksa ekranın ortasına öğretici kutuyu çizer (her şeyin ÜSTÜNDE; GUI.enabled = true iken çağır).</summary>
+    /// <summary>Açıksa ekranın ortasına öğretici kutuyu çizer (her şeyin ÜSTÜNDE; GUI.enabled = true iken çağır). Eskiz kâğıdı kartı.</summary>
     public static void DrawTutorial()
     {
         if (!Showing) return;
-        EnsureStyles();
+        UIUtil.ApplySkin();
         string k = Suffix(shownKind);
+        float sc = UITheme.Scale;
+        float m = BenchKit.M;
 
-        GUI.DrawTexture(new Rect(0, 0, Screen.width, Screen.height), Texture2D.whiteTexture, ScaleMode.StretchToFill, false, 0, new Color(0f, 0f, 0f, 0.6f), 0, 0);
-        float w = Mathf.Min(680f, Screen.width - 40f);
-        float h = Mathf.Min(Screen.height - 60f, 470f);
+        UIUtil.Scrim(UITheme.Scrim);
+        UIUtil.Vignette(0.8f);
+        float w = Mathf.Min(Mathf.Clamp(Screen.width * 0.5f, 460f, 700f), Screen.width - m * 2f);
+        float pad = BenchKit.Px(30f, 22f);
+        float iw = w - pad * 2f;
+        string title = Loc.T("tut." + k + ".title");
+        string body = Loc.T("tut." + k + ".body");
+        string dont = " " + Loc.T("tut.dontshow");
+        float titleH = Mathf.Max(34f, 38f * sc);
+        float bodyH = UIUtil.MeasureHeight(body, TextRole.Body, iw - 16f);
+        float toggleH = Mathf.Max(26f, 28f * sc);
+        float btnH = Mathf.Max(36f, 42f * sc);
+        float fixedH = pad + titleH + 14f + 10f + toggleH + 10f + btnH + 8f + 22f + pad;
+        float h = Mathf.Min(Screen.height - m * 2f, fixedH + bodyH);
         Rect r = new Rect((Screen.width - w) * 0.5f, (Screen.height - h) * 0.5f, w, h);
-        UIUtil.Panel(r);
-        UIUtil.DrawRect(new Rect(r.x, r.y, 6f, r.height), new Color(1f, 0.82f, 0.3f));
+        UIUtil.Panel(r, PanelKind.Sketch);
+        UIUtil.Corners(r);
 
-        GUILayout.BeginArea(new Rect(r.x + 24f, r.y + 16f, r.width - 48f, r.height - 32f));
-        GUILayout.Label(Loc.T("tut." + k + ".title"), headStyle);
-        GUILayout.Space(8f);
-        GUILayout.Label(Loc.T("tut." + k + ".body"), bodyStyle);
-        GUILayout.FlexibleSpace();
-        dontShow = GUILayout.Toggle(dontShow, " " + Loc.T("tut.dontshow"), GUILayout.Height(26f));
-        GUILayout.Space(6f);
-        if (GUILayout.Button(Loc.T("tut.ok"), UIUtil.ButtonStyle, GUILayout.Height(38f))) Close();
-        GUILayout.Label(Loc.T("tut.hinth"), UIUtil.SmallStyle);
-        GUILayout.EndArea();
+        // Başlık
+        BenchKit.FitText(new Rect(r.x + pad, r.y + pad, iw, titleH), title, TextRole.Title, UITheme.Charcoal);
+        UIUtil.Divider(r.x + pad, r.y + pad + titleH + 6f, iw, UITheme.WithAlpha(UITheme.Bordeaux, 0.7f), true);
+
+        // Gövde (taşarsa kaydırılır)
+        float bodyTop = r.y + pad + titleH + 14f;
+        Rect view = new Rect(r.x + pad, bodyTop, iw, r.yMax - pad - 22f - btnH - 8f - toggleH - 10f - bodyTop - 10f);
+        bool scrolls = bodyH > view.height;
+        tutScroll = GUI.BeginScrollView(view, tutScroll, new Rect(0f, 0f, iw - (scrolls ? 16f : 0f), bodyH));
+        BenchKit.Wrapped(new Rect(0f, 0f, iw - (scrolls ? 16f : 0f) - 8f, bodyH), body, TextRole.Body, UITheme.Charcoal);
+        GUI.EndScrollView();
+
+        // Bir daha gösterme + Tamam
+        float y = view.yMax + 10f;
+        dontShow = GUI.Toggle(new Rect(r.x + pad, y, iw, toggleH), dontShow, dont);
+        y += toggleH + 10f;
+        if (UIUtil.Button(new Rect(r.x + pad, y, iw, btnH), Loc.T("tut.ok"), ButtonKind.Primary, true, true)) Close();
+        y += btnH + 8f;
+
+        // H ipucu (KeyCap)
+        string hText = Loc.T("tut.hinth");
+        int cut = hText.IndexOf(": ");
+        string key = cut > 0 && cut <= 4 ? hText.Substring(0, cut) : "H";
+        string lab = cut > 0 && cut <= 4 ? hText.Substring(cut + 2) : hText;
+        float kh = Mathf.Max(20f, 22f * sc);
+        float kw = UIUtil.KeyCapWidth(key);
+        UIUtil.KeyCap(new Rect(r.x + pad, y, kw, kh), key);
+        UIUtil.Text(new Rect(r.x + pad + kw + 8f, y, iw - kw - 8f, kh), lab, TextRole.Caption, UITheme.Graphite);
     }
+
+    private static Vector2 tutScroll;
 
     // ---------------- Kural şeridi ----------------
 
-    /// <summary>Eserin yapım kuralı + başarı ölçütü (tek / iki satır).</summary>
+    /// <summary>Kural şeridi yüksekliği (tahmin; GUI gerektirmez).</summary>
+    public static float RulesHeight(ArtKind kind, float width)
+    {
+        return Mathf.Max(BenchKit.Px(30f, 26f), Estimate(Loc.T("rules." + Suffix(kind)), width - 36f) + 12f);
+    }
+
+    /// <summary>Eserin yapım kuralı + başarı ölçütü: koyu plaket şerit, başlık pirinç, metin fildişi.</summary>
     public static void DrawRules(ArtKind kind, Rect r)
     {
-        EnsureStyles();
-        UIUtil.DrawRect(r, new Color(0f, 0f, 0f, 0.6f));
-        UIUtil.DrawRect(new Rect(r.x, r.y, 4f, r.height), new Color(1f, 0.82f, 0.3f));
-        GUI.Label(new Rect(r.x + 10f, r.y, r.width - 14f, r.height), Loc.T("rules." + Suffix(kind)), ruleStyle);
+        UIUtil.Panel(r, PanelKind.Plaque);
+        UIUtil.DrawRect(new Rect(r.x + 1f, r.y + 3f, 3f, r.height - 6f), UITheme.Brass);
+        string t = Loc.T("rules." + Suffix(kind));
+        int cut = t.IndexOf(": ");
+        if (cut > 0 && cut < 24)
+            t = "<b><color=#" + ColorUtility.ToHtmlStringRGB(UITheme.BrassLight) + ">" + t.Substring(0, cut + 1) + "</color></b>" + t.Substring(cut + 1);
+        GUI.Label(new Rect(r.x + 14f, r.y, r.width - 22f, r.height), t, RichCaption());
     }
 
     // ---------------- Arkadaşlar ne yapabilir? ----------------
 
-    /// <summary>Küçük, sağa yaslı not (çizim uzun sürerken diğerleri boş durmasın).</summary>
+    public static float NoteHeight(float width) => Mathf.Max(BenchKit.Px(30f, 26f), Estimate(Loc.T("bench.others"), width - 20f) + 8f);
+
+    /// <summary>Küçük not (çizim uzun sürerken diğerleri boş durmasın).</summary>
     public static void DrawOthersNote(Rect r)
     {
-        EnsureStyles();
-        GUI.Label(r, Loc.T("bench.others"), noteStyle);
+        BenchKit.Wrapped(r, Loc.T("bench.others"), TextRole.Caption, UITheme.IvoryDim, TextAnchor.MiddleRight);
     }
 
     // ---------------- Yüzük rehberi ----------------
 
-    /// <summary>Sağ tarafta adım adım yüzük yapımı: aktif adım vurgulu, tamamlananlar işaretli.</summary>
+    /// <summary>Sağ tarafta adım adım yüzük yapımı (eskiz kâğıdı): aktif adım bordo, tamamlananlar onay işaretli.</summary>
     public static void DrawRingGuide(Rect r, int step, JewelCraft craft)
     {
-        EnsureStyles();
-        UIUtil.Panel(r);
-        UIUtil.DrawRect(new Rect(r.x, r.y, 4f, r.height), new Color(1f, 0.82f, 0.3f));
-
+        UIUtil.Panel(r, PanelKind.Sketch);
         bool[] done =
         {
             craft != null && craft.fill > 0.05f,
@@ -154,36 +209,34 @@ public static class BenchGuide
         };
         string[] titles = { Loc.T("ring.step.cast"), Loc.T("ring.step.stones"), Loc.T("ring.step.polish") };
 
-        GUILayout.BeginArea(new Rect(r.x + 14f, r.y + 8f, r.width - 22f, r.height - 12f));
-        GUILayout.Label(Loc.T("ring.guide.title"), headStyle);
-        GUILayout.Space(4f);
+        float px = BenchKit.Px(20f, 16f), py = BenchKit.Px(18f, 14f);
+        Rect inner = new Rect(r.x + px, r.y + py, r.width - px * 2f, r.height - py * 2f);
+        GUI.BeginGroup(inner); // taşan içerik kırpılır
+        var f = new Flow(0f, 0f, inner.width);
+        f.Section(Loc.T("ring.guide.title"), PanelKind.Sketch);
+        float icon = Mathf.Max(16f, 18f * UITheme.Scale);
         for (int i = 0; i < 3; i++)
         {
             bool cur = i == step;
-            string mark = done[i] ? "[x] " : "[ ] ";
-            string head = (cur ? "<color=#FFD54D>" : "<color=#BBBBBB>") + mark + (i + 1) + ". " + titles[i] + "</color>";
-            GUILayout.Label("<b>" + head + "</b>", stepStyle);
-            if (cur) GUILayout.Label(Loc.T("ring.guide.d" + (i + 1)), bodyStyle.FontSize(13));
-            GUILayout.Space(2f);
+            Color tc = cur ? UITheme.Bordeaux : UITheme.Graphite;
+            Rect row = f.Row(icon + 4f);
+            if (done[i]) UIUtil.Icon(new Rect(row.x, row.y + 1f, icon, icon), IconId.Check, UITheme.Forest);
+            else UIUtil.Outline(new Rect(row.x + 3f, row.y + 4f, icon - 6f, icon - 6f), 1f, UITheme.Graphite);
+            UIUtil.Text(new Rect(row.x + icon + 8f, row.y, row.width - icon - 8f, row.height), (i + 1) + ". " + titles[i], cur ? TextRole.BodyStrong : TextRole.Body, tc);
+            if (cur)
+            {
+                var sub = new Flow(f.X + icon + 8f, f.Y, f.W - icon - 8f);
+                sub.Text(Loc.T("ring.guide.d" + (i + 1)), TextRole.Caption, UITheme.Charcoal);
+                f.Y = sub.Y;
+            }
+            f.Gap(6f);
         }
-        GUILayout.FlexibleSpace();
-        GUILayout.Label(Loc.T("ring.guide.goal"), bodyStyle.FontSize(12));
-        GUILayout.Label(Loc.T("bench.others"), noteStyle);
-        GUILayout.EndArea();
+        f.Gap(4f);
+        UIUtil.DrawRect(new Rect(0f, f.Y, inner.width, 1f), UITheme.WithAlpha(UITheme.Graphite, 0.35f));
+        f.Gap(6f);
+        f.Text(Loc.T("ring.guide.goal"), TextRole.Caption, UITheme.Charcoal);
+        f.Gap(4f);
+        f.Text(Loc.T("bench.others"), TextRole.Caption, UITheme.Graphite);
+        GUI.EndGroup();
     }
-
-    private static GUIStyle FontSize(this GUIStyle s, int size)
-    {
-        // Paylaşılan stili değiştirmeden boyutu ayarla: ucuz kopya önbelleği
-        if (s == null) return null;
-        GUIStyle c;
-        if (!sizeCache.TryGetValue(s.fontSize * 1000 + size, out c) || c == null)
-        {
-            c = new GUIStyle(s) { fontSize = size };
-            sizeCache[s.fontSize * 1000 + size] = c;
-        }
-        return c;
-    }
-
-    private static readonly System.Collections.Generic.Dictionary<int, GUIStyle> sizeCache = new System.Collections.Generic.Dictionary<int, GUIStyle>();
 }

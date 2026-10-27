@@ -29,23 +29,60 @@ public class GarageShop : Interactable, IInventoryPanel
                Vector3.Distance(inv.transform.position, GetClosestPoint(inv.transform.position)) <= maxDistance + 1f;
     }
 
+    private int focus;      // klavye odağı (satır)
+    private Vector2 scroll;
+
+    /// <summary>Geliştirme türüne göre yuva simgesi.</summary>
+    private static IconId UpgradeIcon(UpgradeType t)
+    {
+        switch (t)
+        {
+            case UpgradeType.Lockpick: return IconId.Lockpick;
+            case UpgradeType.SprayPaint: return IconId.Brush;
+            case UpgradeType.CameraBattery: return IconId.Camera;
+            case UpgradeType.TeamBackpacks: return IconId.Players;
+            case UpgradeType.SwiftGloves: return IconId.Interact;
+            default: return IconId.Bag;
+        }
+    }
+
     public void DrawPanel(PlayerInventory inv)
     {
         TeamBank bank = TeamBank.Instance;
-        UIUtil.BeginCenteredPanel(560f, 590f);
+        float sc = EconomyPanelUI.Sc;
+        EconomyPanelUI.PageRects pg = EconomyPanelUI.BeginPage(700f, 680f, Loc.T("shop.title"), IconId.Truck, null);
+        Rect c = pg.content;
 
-        GUILayout.Label(Loc.T("shop.title"), UIUtil.TitleStyle);
-        GUILayout.BeginHorizontal();
-        if (bank != null) GUILayout.Label(Loc.T("money.team", bank.Money.ToString("N0")), UIUtil.AccentStyle);
-        GUILayout.FlexibleSpace();
-        GUILayout.Label(Loc.T("money.personal", inv.PersonalMoney.ToString("N0")), UIUtil.AccentStyle);
-        GUILayout.EndHorizontal();
-        if (bank != null) GUILayout.Label(Loc.T("skill.points", bank.SkillPoints.ToString("N0")), UIUtil.AccentStyle);
-        GUILayout.Space(10f);
+        // Bakiye: ekip kasası + kişisel cüzdan, altında ortak yetenek puanı
+        float y = c.y, balH = 30f * sc;
+        if (bank != null) EconomyPanelUI.Balance(new Rect(c.x, y, c.width * 0.5f, balH), IconId.Players, Loc.T("money.team", bank.Money.ToString("N0")), false);
+        EconomyPanelUI.Balance(new Rect(c.x + c.width * 0.5f, y, c.width * 0.5f, balH), IconId.Money, Loc.T("money.personal", inv.PersonalMoney.ToString("N0")), true);
+        y += balH;
+        if (bank != null)
+        {
+            EconomyPanelUI.Balance(new Rect(c.x, y, c.width, balH), IconId.Gear, Loc.T("skill.points", bank.SkillPoints.ToString("N0")), false);
+            y += balH;
+        }
+        y += 2f;
+        UIUtil.DrawRect(new Rect(c.x, y, c.width, 1f), UITheme.WithAlpha(UITheme.Graphite, 0.45f));
+        y += 6f;
+
+        float hintH = 24f * sc;
+        Rect hintR = new Rect(c.x, c.yMax - hintH, c.width, hintH);
+        Rect view = new Rect(c.x, y, c.width, Mathf.Max(60f, hintR.y - 8f - y));
+
+        int n = UpgradeCatalog.All.Length;
+        focus = Mathf.Clamp(focus, 0, n - 1);
+        focus = UIUtil.NavigateVertical(focus, n);
 
         int buy = -1;
+        float rowH = 78f * sc;
+        bool overflow = n * rowH > view.height;
+        float cw = view.width - (overflow ? 16f : 0f);
+        if (Event.current.type == EventType.KeyDown) scroll.y = EconomyPanelUI.EnsureVisible(scroll.y, focus, rowH, view.height);
+        scroll = GUI.BeginScrollView(view, scroll, new Rect(0f, 0f, cw, n * rowH));
 
-        for (int i = 0; i < UpgradeCatalog.All.Length; i++)
+        for (int i = 0; i < n; i++)
         {
             UpgradeType t = UpgradeCatalog.All[i];
             int level = inv.GetUpgradeLevel(t);
@@ -60,29 +97,29 @@ public class GarageShop : Interactable, IInventoryPanel
             int available = usePts ? (bank != null ? bank.SkillPoints : 0) : payer == PaidFrom.Team ? (bank != null ? bank.Money : 0) : inv.PersonalMoney;
             bool canAfford = !maxed && available >= price && (usePts ? bank != null : (payer == PaidFrom.Personal || bank != null));
 
-            GUILayout.BeginHorizontal(GUILayout.Height(56f));
-            GUILayout.BeginVertical();
-            string lv = UpgradeCatalog.IsConsumable(t) ? Loc.T("shop.count", level, max) : Loc.T("shop.level", level, max); // maymuncuk adetle satılır
-            GUILayout.Label(Loc.T(UpgradeCatalog.NameKey(t)) + "   " + lv, UIUtil.RowStyle);
-            GUILayout.Label(Loc.T(UpgradeCatalog.DescKey(t)) + "  •  " +
-                            Loc.T(usePts ? "shop.paypoints" : payer == PaidFrom.Team ? "shop.payteam" : "shop.payyou"), UIUtil.SmallStyle);
-            GUILayout.EndVertical();
-            GUILayout.FlexibleSpace();
+            Rect row = new Rect(0f, i * rowH, cw, rowH);
+            EconomyPanelUI.RowBack(row, focus == i);
+            Rect slot = EconomyPanelUI.RowSlot(row, !maxed);
+            EconomyPanelUI.SlotIcon(slot, UpgradeIcon(t), maxed ? UITheme.Graphite : UITheme.BrassLight);
 
-            GUI.enabled = canAfford;
-            string label = maxed ? Loc.T("shop.max") : (usePts ? Loc.T("shop.buypts", price.ToString("N0")) : Loc.T("shop.buy", price.ToString("N0")));
-            if (GUILayout.Button(label, UIUtil.ButtonStyle, GUILayout.Width(130f), GUILayout.Height(30f)))
+            string lv = UpgradeCatalog.IsConsumable(t) ? Loc.T("shop.count", level, max) : Loc.T("shop.level", level, max); // maymuncuk adetle satılır
+            string sub = Loc.T(UpgradeCatalog.DescKey(t)) + "  •  " +
+                         Loc.T(usePts ? "shop.paypoints" : payer == PaidFrom.Team ? "shop.payteam" : "shop.payyou");
+            float priceW = 104f * sc, btnW = 100f * sc;
+            EconomyPanelUI.RowText(row, slot, Loc.T(UpgradeCatalog.NameKey(t)), sub, priceW + btnW + 22f, lv);
+
+            // Fiyat: para ($) ya da yetenek puanı; tükendiyse fiyat yok, düğme "MAKS"
+            string priceText = maxed ? null : (usePts ? Loc.T("shop.buypts", price.ToString("N0")) : "$" + price.ToString("N0"));
+            string label = maxed ? Loc.T("shop.max") : EconomyPanelUI.Tx("ui.buy", "Buy");
+            if (EconomyPanelUI.PriceButton(row, priceText, label, ButtonKind.Primary, canAfford, focus == i, priceW, btnW))
             {
+                focus = i;
                 buy = i;
             }
-            GUI.enabled = true;
-            GUILayout.EndHorizontal();
-            GUILayout.Space(4f);
         }
+        GUI.EndScrollView();
 
-        GUILayout.FlexibleSpace();
-        GUILayout.Label(Loc.T("panel.close"), UIUtil.HintStyle);
-        UIUtil.EndCenteredPanel();
+        EconomyPanelUI.KeyHints(hintR, Loc.T("panel.close"), UITheme.Graphite, false, false);
 
         if (buy >= 0) BuyRpc(UpgradeCatalog.All[buy]);
     }

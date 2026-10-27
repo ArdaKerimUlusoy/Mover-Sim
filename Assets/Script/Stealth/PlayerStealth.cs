@@ -372,12 +372,11 @@ public partial class PlayerStealth : NetworkBehaviour
         if (IsJailed)
         {
             double left = jailedUntil.Value - NetworkManager.ServerTime.Time;
-            float jy = UIUtil.TopSlot(60f);
-            UIUtil.DrawPrompt(Loc.T("jail.banner"), jy, new Color(1f, 0.6f, 0.4f), 24);
+            HudKit.Banner(Loc.T("jail.banner"), IconId.Jail, UITheme.Danger, UITheme.DangerLight);
             string jailLine = SoloGame
                 ? Loc.T("jail.wait", Mathf.Max(0, Mathf.CeilToInt((float)left)))
                 : Loc.T("jail.waitmulti"); // çok oyunculu: geri sayım yok, arkadaş kurtarmalı
-            UIUtil.DrawPrompt(jailLine, jy + 30f, Color.white, 16);
+            HudKit.Banner(jailLine, IconId.Clock, UITheme.Brass, UITheme.Ivory);
             return;
         }
 
@@ -385,16 +384,19 @@ public partial class PlayerStealth : NetworkBehaviour
         bool showEye = watched.Value && SuspiciousLevel > 0f;
         if (s <= 0.01f && !showEye && !hidden.Value) return;
 
-        float w = 260f;
-        Rect r = new Rect((Screen.width - w) / 2f, UIUtil.TopSlot(34f), w, 34f);
-        GUI.Box(r, GUIContent.none, UIUtil.BoxStyle);
+        // Şüphe göstergesi: üst ortada küçük plaket; Ochre -> Danger dolan çubuk, Eye simgesi
+        float sc = UITheme.Scale;
+        float w = 280f * sc, h = 44f * sc, pad = UITheme.S3 * sc;
+        Rect r = new Rect((Screen.width - w) * 0.5f, UIUtil.TopSlot(h), w, h);
+        if (Event.current.type != EventType.Repaint) return;
+        UIUtil.Panel(r, PanelKind.Plaque, 0.94f);
 
+        Color c = hidden.Value ? UITheme.Sage : Color.Lerp(UITheme.Ochre, UITheme.Danger, s);
         string label = hidden.Value ? Loc.T("stealth.hidden") : showEye ? Loc.T("stealth.watched") : Loc.T("stealth.suspicion");
-        GUI.Label(new Rect(r.x + 10f, r.y + 2f, r.width - 20f, 16f), label, UIUtil.SmallStyle);
-
-        Rect bar = new Rect(r.x + 10f, r.y + 20f, r.width - 20f, 7f);
-        UIUtil.DrawRect(bar, new Color(1f, 1f, 1f, 0.15f));
-        Color c = Color.Lerp(new Color(1f, 0.85f, 0.3f), new Color(1f, 0.3f, 0.25f), s);
-        UIUtil.DrawRect(new Rect(bar.x, bar.y, bar.width * s, bar.height), c);
+        float iconS = 20f * sc;
+        UIUtil.Icon(new Rect(r.x + pad, r.y + 6f * sc, iconS, iconS), IconId.Eye, c);
+        UIUtil.Text(new Rect(r.x + pad + iconS + 8f * sc, r.y + 6f * sc, w - pad * 2f - iconS - 8f * sc, iconS), label, TextRole.Caption,
+            hidden.Value ? UITheme.Sage : showEye ? UITheme.DangerLight : UITheme.IvoryDim);
+        UIUtil.ProgressBar(new Rect(r.x + pad, r.yMax - 14f * sc, w - pad * 2f, 8f * sc), hidden.Value ? 1f : s, c);
     }
 }

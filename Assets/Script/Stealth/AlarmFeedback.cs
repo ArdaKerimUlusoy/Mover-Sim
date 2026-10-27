@@ -142,21 +142,20 @@ public class AlarmFeedback : MonoBehaviour
         {
             if (alarm)
             {
-                // Kırmızı yanıp sönen kenar + durum metni
+                // Tehlike renginde nabızlı kenar vinyeti + durum bandı (kovalıyor: Danger, arıyor: Ochre)
                 if (repaint)
                 {
                     float pulse = 0.5f + 0.5f * Mathf.Abs(Mathf.Sin(Time.unscaledTime * 3.2f));
-                    DrawVignette(new Color(0.95f, 0.05f, 0.05f, Mathf.Lerp(0.3f, 0.8f, pulse)));
+                    DrawVignette(UITheme.WithAlpha(UITheme.Danger, Mathf.Lerp(0.25f, 0.65f, pulse)));
                 }
                 string status = anyChase ? Loc.T("fx.chased") : Loc.T("fx.searching");
-                Color sc = anyChase ? new Color(1f, 0.4f, 0.35f) : new Color(1f, 0.75f, 0.35f);
-                UIUtil.DrawPrompt(status, UIUtil.TopSlot(30f), sc, 20);
+                HudKit.Banner(status, IconId.Alarm, anyChase ? UITheme.Danger : UITheme.Ochre, anyChase ? UITheme.DangerLight : UITheme.Ochre);
             }
             else if (me.Suspicion > 0.04f && repaint)
             {
-                // Şüphe arttıkça sarıdan turuncuya dolan kenar
+                // Şüphe arttıkça Ochre -> Danger'a dolan hafif kenar
                 float s = me.Suspicion;
-                DrawVignette(new Color(1f, Mathf.Lerp(0.85f, 0.45f, s), 0.1f, Mathf.Lerp(0.08f, 0.6f, s)));
+                DrawVignette(UITheme.WithAlpha(Color.Lerp(UITheme.Ochre, UITheme.Danger, s), Mathf.Lerp(0.06f, 0.45f, s)));
             }
 
             DrawHints(me);
@@ -167,15 +166,28 @@ public class AlarmFeedback : MonoBehaviour
 
     private void DrawHints(PlayerStealth me)
     {
-        if (!HintsVisible) return;
+        if (!HintsVisible || Event.current.type != EventType.Repaint) return;
+        // "Q: bozuk para (x3) — ..." -> tuş kapağı + etiket
         string text = Loc.T("gadget.hints", me.CoinsLeft, me.BananasLeft);
-        float tw = Mathf.Min(hintStyle.CalcSize(new GUIContent(text)).x + 26f, Screen.width * 0.5f);
+        string key = "", label = text;
+        int colon = text.IndexOf(": ");
+        if (colon > 0 && colon <= 3) { key = text.Substring(0, colon); label = text.Substring(colon + 2); }
+
+        float sc = UITheme.Scale;
+        int fs = Mathf.RoundToInt(14f * sc);
+        GUIStyle ls = UITheme.Style(TextRole.Caption, UITheme.IvoryDim, TextAnchor.MiddleLeft);
+        bool ww = ls.wordWrap; ls.wordWrap = false;
+        float keyW = key.Length > 0 ? UIUtil.KeyCapWidth(key, fs) : 0f;
+        float labelW = ls.CalcSize(new GUIContent(label)).x;
+        float h = Mathf.Max(HintRowHeight + 4f, 26f * sc);
+        float tw = Mathf.Min(keyW + (keyW > 0f ? 8f : 0f) + labelW + 28f, Screen.width * 0.5f);
         // Sol alt köşe (en altta): kamera pili ve sohbet bunun üstüne dizilir
-        Rect box = UIUtil.HudRect(UIUtil.HudCorner.BottomLeft, UIUtil.HudOrder.GadgetHints, tw, HintRowHeight + 4f);
-        UIUtil.Panel(box, 0.8f);
-        Rect r = new Rect(box.x + 13f, box.y + 4f, box.width - 18f, HintRowHeight - 4f);
-        GUI.Label(new Rect(r.x + 1f, r.y + 1f, r.width, r.height), text, hintShadow);
-        GUI.Label(r, text, hintStyle);
+        Rect box = UIUtil.HudRect(UIUtil.HudCorner.BottomLeft, UIUtil.HudOrder.GadgetHints, tw, h);
+        UIUtil.Panel(box, PanelKind.Plaque, 0.85f);
+        float x = box.x + 14f;
+        if (keyW > 0f) { UIUtil.KeyCap(new Rect(x, box.y + 4f, keyW, h - 8f), key, fs); x += keyW + 8f; }
+        GUI.Label(new Rect(x, box.y, box.xMax - x - 8f, h), label, ls);
+        ls.wordWrap = ww;
     }
 
     private void DrawSpotted(bool repaint)
@@ -184,45 +196,26 @@ public class AlarmFeedback : MonoBehaviour
         for (int i = spotted.Count - 1; i >= 0; i--)
             if (Time.unscaledTime - spotted[i].start > SpottedSeconds) spotted.RemoveAt(i);
 
+        float sc = UITheme.Scale;
         float baseY = Screen.height * 0.26f; // üst ortadaki şüphe / alarm yazılarının altında kalsın
+        float rowH = 52f * sc, pad = UITheme.S4 * sc, iconS = 30f * sc;
         for (int i = 0; i < spotted.Count; i++)
         {
             Spotted s = spotted[i];
             float t = Time.unscaledTime - s.start;
             float fade = Mathf.Clamp01(t / 0.15f) * Mathf.Clamp01((SpottedSeconds - t) / 0.4f);
-            float pop = 1f + 0.12f * Mathf.Clamp01(1f - t / 0.25f);
+            float slide = (1f - UIUtil.Ease.OutCubic(t / UITheme.MotionBase)) * 10f * sc;
 
             string text = Loc.T("fx.spotted", s.name);
-            float w = Mathf.Clamp(text.Length * 17f + 90f, 300f, Screen.width - 24f) * pop;
-            float h = 52f * pop;
-            Rect box = new Rect((Screen.width - w) / 2f, baseY + i * 60f - (h - 52f) / 2f, w, h);
+            GUIStyle ts = UITheme.Style(TextRole.Title, UITheme.WithAlpha(UITheme.Ivory, fade), TextAnchor.MiddleLeft);
+            float tw = Mathf.Min(ts.CalcSize(new GUIContent(text)).x + 4f, Screen.width - 24f - pad * 2f - iconS - UITheme.S3 * sc);
+            float w = pad * 2f + iconS + UITheme.S3 * sc + tw;
+            Rect box = new Rect((Screen.width - w) * 0.5f, baseY + i * (rowH + 8f * sc) - slide, w, rowH);
 
-            UIUtil.Panel(box, new Color(1f, 0.3f, 0.25f), fade);
-            UIUtil.DrawRect(new Rect(box.x + 3f, box.y + 3f, box.width - 6f, box.height - 6f), new Color(0.45f, 0.05f, 0.05f, 0.55f * fade));
-
-            // Simge: kırmızı rozet içinde "!"
-            Rect icon = new Rect(box.x + 14f, box.y + (box.height - 34f) / 2f, 34f, 34f);
-            UIUtil.DrawRect(icon, new Color(1f, 0.85f, 0.2f, fade));
-            Color old = GUI.color;
-            GUI.color = new Color(1f, 1f, 1f, fade);
-            GUI.Label(new Rect(icon.x + 1f, icon.y + 1f, icon.width, icon.height), "!", MakeIconStyle(new Color(0f, 0f, 0f, 0.9f)));
-            GUI.Label(icon, "!", MakeIconStyle(new Color(0.55f, 0.05f, 0.05f, 1f)));
-
-            Rect tr = new Rect(icon.xMax + 8f, box.y, box.xMax - icon.xMax - 14f, box.height);
-            bigShadow.normal.textColor = new Color(0f, 0f, 0f, 0.9f * fade);
-            bigStyle.normal.textColor = new Color(s.color.r, s.color.g, s.color.b, fade);
-            GUI.Label(new Rect(tr.x + 1f, tr.y + 1f, tr.width, tr.height), text, bigShadow);
-            GUI.Label(tr, text, bigStyle);
-            GUI.color = old;
+            // Plaket + oyuncu renginde sol şerit; uyarı simgesi tehlike renginde
+            UIUtil.Panel(box, s.color, fade);
+            UIUtil.Icon(new Rect(box.x + pad, box.y + (rowH - iconS) * 0.5f, iconS, iconS), IconId.Warning, UITheme.WithAlpha(UITheme.DangerLight, fade));
+            GUI.Label(new Rect(box.x + pad + iconS + UITheme.S3 * sc, box.y, tw + 2f, rowH), text, ts);
         }
-    }
-
-    private GUIStyle iconStyle;
-    private GUIStyle MakeIconStyle(Color c)
-    {
-        if (iconStyle == null)
-            iconStyle = new GUIStyle(GUI.skin.label) { fontSize = 26, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
-        iconStyle.normal.textColor = c;
-        return iconStyle;
     }
 }

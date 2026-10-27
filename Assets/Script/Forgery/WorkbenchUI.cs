@@ -54,7 +54,6 @@ public class WorkbenchUI : MonoBehaviour
     private Phase phase;
     private readonly List<Option> options = new List<Option>();
     private Option target;
-    private Vector2 chooseScroll;
 
     // Vazo
     private VaseLook vase;
@@ -97,7 +96,6 @@ public class WorkbenchUI : MonoBehaviour
     private float previewYaw;
     private Vector3 previewPos;
 
-    private GUIStyle label, big, ready;
 
     /// <summary>Eser türünün atölyedeki yapım yöntemi (çeviri anahtarı).</summary>
     public static string MethodKey(ArtKind kind)
@@ -336,6 +334,13 @@ public class WorkbenchUI : MonoBehaviour
 
         if (UseLiveFeed && phase != Phase.Choose) LiveFeed.Request();
 
+        // Onay diyaloğu açıkken Esc / Enter diyaloğa gider; çalışma girdileri durur
+        if (confirmCancel || confirmFinish)
+        {
+            if (clay != null) clay.enabled = false;
+            return;
+        }
+
         // Öğretici kutu (H aç/kapat): açıkken çalışma girdileri ve Esc kutuya gider
         bool modal = phase != Phase.Choose && BenchGuide.Tick(kb);
         if (clay != null) clay.enabled = !modal; // kil de öğretici açıkken şekillenmesin
@@ -527,43 +532,97 @@ public class WorkbenchUI : MonoBehaviour
     private void OnDestroy() => Restore();
 
     // ---------------------------------------------------------------
-    private void EnsureStyles()
-    {
-        if (label != null) return;
-        label = new GUIStyle(GUI.skin.label) { fontSize = 15, wordWrap = true };
-        label.normal.textColor = Color.white;
-        big = new GUIStyle(label) { fontSize = 20, fontStyle = FontStyle.Bold };
-        ready = new GUIStyle(label) { fontSize = 17, fontStyle = FontStyle.Bold };
-        ready.normal.textColor = new Color(0.5f, 1f, 0.55f);
-    }
+    // Sunum: tezgah = eskiz kâğıdı notları (sol) + çalışma alanı + plaket alt çubuk. Mantık değişmez.
+    // ---------------------------------------------------------------
+
+    private bool confirmCancel, confirmFinish;   // onay diyalogları (Esc bu sırada diyaloğa gider)
+    private Vector2 leftScroll;                   // sol not panelinin kaydırması
+    private float leftContentH = 600f;            // önceki karedeki içerik yüksekliği (kaydırma alanı için)
+    private Vector2 chooseScroll2;
+    private int chooseIndex, chooseLast = -1;
 
     private void OnGUI()
     {
-        EnsureStyles();
+        UIUtil.ApplySkin();
         GUI.depth = -20; // atölye paneli oda kodu / para / çanta kutularının ÜSTÜNDE çizilsin (onlar da atölye açıkken gizlenir)
 
-        // Öğretici kutu açıkken altındaki arayüz tıklanamaz; kutu en üstte çizilir
+        // Öğretici kutu ya da onay diyaloğu açıkken altındaki arayüz tıklanamaz
+        bool dialogOpen = confirmCancel || confirmFinish;
         bool modal = phase != Phase.Choose && BenchGuide.Showing;
         bool oldEnabled = GUI.enabled;
-        if (modal) GUI.enabled = false;
+        if (modal || dialogOpen) GUI.enabled = false;
         DrawMain();
         GUI.enabled = oldEnabled;
-        if (modal) BenchGuide.DrawTutorial();
+        if (current != this) return; // DrawMain içinde kapandı
+        if (dialogOpen) DrawConfirm();
+        else if (modal) BenchGuide.DrawTutorial();
     }
 
-    /// <summary>Eser türüne göre ekranın üstünde / altında sabit duran kural şeridi ve arkadaş notu.</summary>
+    /// <summary>Vazgeç / Bitir onayı (Dialog: Enter onay, Esc geri).</summary>
+    private void DrawConfirm()
+    {
+        if (confirmCancel)
+        {
+            DialogChoice c = UIUtil.Dialog(Loc.T("bench.cancel.title"), Loc.T("bench.cancel.body"), Loc.T("bench.cancel"), Loc.T("bench.back"), true);
+            if (c == DialogChoice.Confirm) { confirmCancel = false; Close(false); }
+            else if (c == DialogChoice.Cancel) confirmCancel = false;
+        }
+        else if (confirmFinish)
+        {
+            DialogChoice c = UIUtil.Dialog(Loc.T("bench.finish.title"), Loc.T("bench.finish.body"), Loc.T("bench.btn.finish"), Loc.T("bench.back"), false);
+            if (c == DialogChoice.Confirm) { confirmFinish = false; Close(true); }
+            else if (c == DialogChoice.Cancel) confirmFinish = false;
+        }
+    }
+
+    /// <summary>Sol not paneli (eskiz kâğıdı): üst-sol, alt çubuğun üstüne kadar.</summary>
+    private static Rect LeftPanelRect()
+    {
+        float m = BenchKit.M;
+        float lw = Mathf.Clamp(Screen.width * 0.28f, 270f, 440f);
+        Rect f = BenchKit.Footer();
+        return new Rect(m, m, lw, Mathf.Max(200f, f.y - m * 2f));
+    }
+
+    /// <summary>Sol paneli çizer, başlığı yazar; kaydırılabilir gövde alanı ile (isteğe bağlı) alt benzerlik bloğunu döner.</summary>
+    private void BeginLeft(string name, bool withSim, out Rect body, out Flow simFlow)
+    {
+        Rect p = LeftPanelRect();
+        UIUtil.Panel(p, PanelKind.Sketch);
+        float px = BenchKit.Px(22f, 18f), py = BenchKit.Px(20f, 16f);
+        Rect inner = new Rect(p.x + px, p.y + py, p.width - px * 2f, p.height - py * 2f);
+        var head = new Flow(inner.x, inner.y, inner.width);
+        BenchKit.Heading(head, name);
+        UIUtil.DrawRect(new Rect(inner.x, head.Y + 2f, inner.width, 1f), UITheme.WithAlpha(UITheme.Graphite, 0.35f));
+        head.Gap(8f);
+        float simH = withSim ? BenchKit.SimilarityHeight() + 8f : 0f;
+        body = new Rect(inner.x, head.Y, inner.width, Mathf.Max(60f, inner.yMax - simH - head.Y));
+        simFlow = withSim ? new Flow(inner.x, inner.yMax - simH + 8f, inner.width) : null;
+        if (withSim) UIUtil.DrawRect(new Rect(inner.x, inner.yMax - simH + 2f, inner.width, 1f), UITheme.WithAlpha(UITheme.Graphite, 0.35f));
+    }
+
+    private void DrawSimBlock(Flow f)
+    {
+        if (f == null) return;
+        int s = Mathf.Clamp(Mathf.RoundToInt(Similarity * 100f), 0, 100);
+        BenchKit.SimilarityBlock(f, s, -1f, null);
+    }
+
+    /// <summary>Eser türüne göre kural şeridi ve arkadaş notu (3B tezgahlarda sol panelin sağında, alt çubuğun üstünde).</summary>
     private void DrawBenchHints(ArtKind kind)
     {
-        float noteW = 380f;
+        float m = BenchKit.M;
+        float noteW = Mathf.Min(380f, Screen.width * 0.34f);
+        float noteH = BenchGuide.NoteHeight(noteW);
         // Yüzükte not sağdaki rehber panelinin içinde
-        if (kind != ArtKind.Jewelry) BenchGuide.DrawOthersNote(new Rect(Screen.width - noteW - 10f, 2f, noteW, 36f));
-        if (kind == ArtKind.Painting)
-            BenchGuide.DrawRules(kind, new Rect(Screen.width * 0.5f - 480f, Screen.height * 0.17f - 36f, 960f, 22f));
-        else if (kind != ArtKind.Jewelry)
-        {
-            float x = 440f;
-            BenchGuide.DrawRules(kind, new Rect(x, Screen.height - 104f, Mathf.Max(300f, Screen.width - x - 190f), 46f));
-        }
+        if (kind != ArtKind.Jewelry) BenchGuide.DrawOthersNote(new Rect(Screen.width - noteW - m, 6f, noteW, noteH));
+        if (kind == ArtKind.Jewelry) return;
+        Rect lp = LeftPanelRect();
+        float x = lp.xMax + m;
+        float w = Mathf.Max(200f, Screen.width - x - m);
+        float h = BenchGuide.RulesHeight(kind, w);
+        Rect foot = BenchKit.Footer();
+        BenchGuide.DrawRules(kind, new Rect(x, foot.y - m * 0.6f - h, w, h));
     }
 
     private void DrawMain()
@@ -573,148 +632,228 @@ public class WorkbenchUI : MonoBehaviour
             case Phase.Choose: DrawChoose(); return;
             case Phase.Canvas:
                 painter.Draw(Loc.T("bench.canvastitle", painting.Name));
-                DrawBenchHints(ArtKind.Painting);
-                DrawFooter(true);
+                DrawFooter(true, ArtKind.Painting);
                 return;
-            case Phase.Bust: DrawBust(); DrawSideFeed(); DrawBenchHints(ArtKind.Bust); DrawFooter(true); return;
-            case Phase.Jewel: DrawJewel(); DrawFooter(true); return;
+            case Phase.Bust: DrawBust(); DrawSideFeed(); DrawBenchHints(ArtKind.Bust); DrawFooter(true, ArtKind.Bust); return;
+            case Phase.Jewel: DrawJewel(); DrawFooter(true, ArtKind.Jewelry); return;
         }
+        DrawVase();
+        DrawSideFeed();
+        DrawBenchHints(ArtKind.Vase);
+        DrawFooter(phase == Phase.Paint, ArtKind.Vase);
+    }
 
-        float w = 400f, h = phase == Phase.Paint ? 420f : 270f;
-        UIUtil.Panel(new Rect(10, 10, w, h));
-        GUILayout.BeginArea(new Rect(22, 18, w - 24, h - 22));
-        GUILayout.Label(vase.Name, big);
-        if (phase == Phase.Sculpt)
+    /// <summary>Vazo: sol eskiz notu — şekil adımı (kil) ve boya adımı (palet, fırça boyutu).</summary>
+    private void DrawVase()
+    {
+        bool paint = phase == Phase.Paint;
+        BeginLeft(vase.Name, paint, out Rect body, out Flow simFlow);
+        DrawSimBlock(simFlow);
+        float cw = body.width - 16f;
+        leftScroll = GUI.BeginScrollView(body, leftScroll, new Rect(0f, 0f, cw, leftContentH));
+        var f = new Flow(0f, 0f, cw);
+        if (!paint)
         {
-            GUILayout.Label(Loc.T("bench.sculpt"), big);
-            GUILayout.Label(Loc.T("bench.sculpthelp"), label);
-            Bar(Loc.T("bench.shape"), shapeScore, ShapeThreshold);
-            if (shapeScore >= ShapeThreshold) GUILayout.Label(Loc.T("bench.toPaint"), ready);
+            f.Section(Loc.T("bench.sculpt"), PanelKind.Sketch);
+            f.Text(Loc.T("bench.sculpthelp"), TextRole.Body, UITheme.Charcoal);
+            f.Gap(10f);
+            BenchKit.Meter(f, Loc.T("bench.shape"), shapeScore, ShapeThreshold);
+            if (shapeScore >= ShapeThreshold) f.Text(Loc.T("bench.toPaint"), TextRole.BodyStrong, UITheme.Forest);
         }
         else
         {
-            GUILayout.Label(Loc.T("bench.paint"), big);
-            GUILayout.Label(Loc.T("bench.painthelp", palette.Length), label);
-            GUILayout.BeginHorizontal();
-            for (int i = 0; i < palette.Length; i++)
-            {
-                Color prev = GUI.backgroundColor;
-                GUI.backgroundColor = palette[i];
-                if (GUILayout.Button(i == paletteIndex ? "[" + (i + 1) + "]" : (i + 1).ToString(), GUILayout.Width(46), GUILayout.Height(32))) SelectColor(i);
-                GUI.backgroundColor = prev;
-            }
-            GUILayout.EndHorizontal();
-            // Fırça boyutu (vazo boyama)
+            f.Section(Loc.T("bench.paint"), PanelKind.Sketch);
+            f.Text(Loc.T("bench.painthelp", palette.Length), TextRole.Body, UITheme.Charcoal);
+            f.Gap(10f);
+            int pick = BenchKit.PaletteGrid(f, palette, paletteIndex, true, 4);
+            if (pick >= 0) SelectColor(pick);
+            f.Gap(10f);
             if (clay != null)
             {
-                GUILayout.Label(Loc.T("bench.brushsize", clay.paintBrushSize), label);
-                GUILayout.BeginHorizontal();
-                if (GUILayout.Button("−", GUILayout.Width(30), GUILayout.Height(22))) clay.paintBrushSize = Mathf.Clamp(clay.paintBrushSize - 2, 2, 64);
-                clay.paintBrushSize = Mathf.Clamp(Mathf.RoundToInt(GUILayout.HorizontalSlider(clay.paintBrushSize, 2f, 64f, GUILayout.Height(22))), 2, 64);
-                if (GUILayout.Button("+", GUILayout.Width(30), GUILayout.Height(22))) clay.paintBrushSize = Mathf.Clamp(clay.paintBrushSize + 2, 2, 64);
-                GUILayout.EndHorizontal();
+                f.Text(Loc.T("bench.brushsize", clay.paintBrushSize), TextRole.Caption, UITheme.Graphite);
+                f.Gap(4f);
+                float v = clay.paintBrushSize;
+                v = BenchKit.SizeRow(f, v, 2f, 64f, 2f);
+                clay.paintBrushSize = Mathf.Clamp(Mathf.RoundToInt(v), 2, 64);
+                f.Gap(10f);
             }
-            Bar(Loc.T("bench.shape"), shapeScore, -1f);
-            Bar(Loc.T("bench.paintscore"), paintScore, -1f);
-            GUILayout.FlexibleSpace();
-            SimilarityLabel();
+            BenchKit.Meter(f, Loc.T("bench.shape"), shapeScore, -1f);
+            BenchKit.Meter(f, Loc.T("bench.paintscore"), paintScore, -1f);
         }
-        GUILayout.EndArea();
-        DrawSideFeed();
-        DrawBenchHints(ArtKind.Vase);
-        DrawFooter(phase == Phase.Paint);
+        GUI.EndScrollView();
+        leftContentH = f.Y + 8f;
     }
 
     /// <summary>Sağ üstte kamyon ekranı (canlı yayın), altında kat planı. Vazo ve büstte orijinal yerine bu kullanılır.</summary>
     private void DrawSideFeed()
     {
         if (!UseLiveFeed) return;
-        float w = Mathf.Clamp(Screen.width * 0.3f, 260f, 520f);
-        Rect feed = new Rect(Screen.width - w - 20f, 40f, w, w * 0.75f);
+        float m = BenchKit.M;
+        float top = 6f + BenchGuide.NoteHeight(Mathf.Min(380f, Screen.width * 0.34f)) + 6f;
+        float w = Mathf.Clamp(Screen.width * 0.3f, 240f, 520f);
+        Rect feed = new Rect(Screen.width - w - m, top, w, w * 0.75f);
         LiveFeed.Draw(feed);
-        float planH = Mathf.Min(w * 0.7f, Screen.height - feed.yMax - 110f);
+        float planH = Mathf.Min(w * 0.7f, BenchKit.Footer().y - feed.yMax - 120f);
         if (planH > 120f) FloorPlanUI.Draw(new Rect(feed.x, feed.yMax + 14f, w, planH), w >= 360f);
     }
 
+    /// <summary>Hedef seçimi: katalog sayfası (numaralı satırlar, ↑/↓ + Enter + Esc).</summary>
     private void DrawChoose()
     {
-        float listH = Mathf.Min(options.Count * 46f, Screen.height * 0.6f);
-        UIUtil.BeginCenteredPanel(560f, 150f + listH);
-        GUILayout.Label(Loc.T("bench.choose"), UIUtil.TitleStyle);
-        GUILayout.Space(8f);
-        chooseScroll = GUILayout.BeginScrollView(chooseScroll, GUILayout.Height(listH + 8f));
+        float m = BenchKit.M, sc = UITheme.Scale;
+        UIUtil.Scrim(UITheme.WithAlpha(UITheme.CharDeep, 0.78f));
+        UIUtil.Vignette();
+
+        float w = Mathf.Min(Mathf.Clamp(Screen.width * 0.52f, 520f, 840f), Screen.width - m * 2f);
+        float pad = BenchKit.Px(28f, 20f);
+        float rowH = BenchKit.Px(66f, 50f);
+        float titleH = BenchKit.Px(44f, 34f);
+        float btnH = Mathf.Max(34f, 40f * sc);
+        string closeT = Loc.T("bench.cancel");
+        float closeW = Mathf.Max(110f, UIUtil.Measure(closeT, TextRole.Button).x + 36f);
+        string hint = Loc.T("bench.choosehint");
+        float hintW = Mathf.Max(120f, w - pad * 2f - closeW - 16f);
+        float hintH = UIUtil.MeasureHeight(hint, TextRole.Caption, hintW);
+        float footH = Mathf.Max(btnH, hintH) + pad;
+        float headH = pad + titleH + 14f;
+        float listWant = options.Count * rowH;
+        float h = Mathf.Min(headH + listWant + footH + 8f, Screen.height - m * 2f);
+        Rect p = new Rect((Screen.width - w) * 0.5f, (Screen.height - h) * 0.5f, w, h);
+        UIUtil.Panel(p, PanelKind.Catalog);
+        UIUtil.Corners(p);
+
+        // Başlık + süs çizgisi
+        BenchKit.FitText(new Rect(p.x + pad, p.y + pad, w - pad * 2f, titleH), Loc.T("bench.choose"), TextRole.Title, UITheme.Charcoal);
+        UIUtil.Divider(p.x + pad, p.y + pad + titleH + 6f, w - pad * 2f, UITheme.WithAlpha(UITheme.Bordeaux, 0.7f), true);
+
+        // Klavye: ↑/↓ odak, Enter seç
         Option? picked = null;
+        chooseIndex = Mathf.Clamp(UIUtil.NavigateVertical(chooseIndex, options.Count), 0, Mathf.Max(0, options.Count - 1));
+        Event ev = Event.current;
+        if (ev != null && ev.type == EventType.KeyDown && (ev.keyCode == KeyCode.Return || ev.keyCode == KeyCode.KeypadEnter) && options.Count > 0)
+        {
+            ev.Use();
+            picked = options[chooseIndex];
+        }
+
+        Rect view = new Rect(p.x + pad, p.y + headH, w - pad * 2f, p.height - headH - footH);
+        float contentH = options.Count * rowH;
+        if (chooseIndex != chooseLast)
+        {
+            // Odaktaki satır görünür kalsın
+            float top = chooseIndex * rowH, bot = top + rowH;
+            if (top < chooseScroll2.y) chooseScroll2.y = top;
+            else if (bot > chooseScroll2.y + view.height) chooseScroll2.y = bot - view.height;
+            chooseLast = chooseIndex;
+        }
+        bool scrolls = contentH > view.height;
+        float rowW = view.width - (scrolls ? 16f : 0f);
+        chooseScroll2 = GUI.BeginScrollView(view, chooseScroll2, new Rect(0f, 0f, rowW, contentH));
         for (int i = 0; i < options.Count; i++)
         {
             Option o = options[i];
-            string state = o.display.IsSwapped ? Loc.T("bench.alreadyswapped") : "";
-            string text = o.resumeId != 0
-                ? $"{i + 1}.  {Loc.T("bench.resume", o.name, o.resumeSim)}  —  {Loc.T(MethodKey(o.kind))}{state}"
-                : $"{i + 1}.  {o.name}  —  {Loc.T(MethodKey(o.kind))}{state}";
-            if (GUILayout.Button(text, UIUtil.ButtonStyle, GUILayout.Height(40f)))
-                picked = o;
+            Rect row = new Rect(0f, i * rowH, rowW, rowH);
+            bool hover = row.Contains(Event.current.mousePosition) && GUI.enabled;
+            bool focus = i == chooseIndex;
+            if (focus || hover) UIUtil.DrawRect(row, UITheme.WithAlpha(UITheme.Bordeaux, focus ? 0.10f : 0.05f));
+            if (focus) UIUtil.DrawRect(new Rect(row.x, row.y + 4f, 3f, row.height - 8f), UITheme.Bordeaux);
+            UIUtil.DrawRect(new Rect(row.x, row.yMax - 1f, row.width, 1f), UITheme.WithAlpha(UITheme.Graphite, 0.22f));
+
+            float ix = row.x + 12f;
+            UIUtil.Text(new Rect(ix, row.y, 30f, row.height), (i + 1).ToString("00"), TextRole.Mono, UITheme.Graphite, TextAnchor.MiddleLeft);
+            float isz = Mathf.Round(row.height * 0.5f);
+            UIUtil.Icon(new Rect(ix + 38f, row.y + (row.height - isz) * 0.5f, isz, isz), KindIcon(o.kind), UITheme.Bordeaux);
+            float tx = ix + 38f + isz + 14f;
+            float chev = focus ? 28f : 0f;
+            float tw = row.xMax - tx - 14f - chev;
+            string name = o.resumeId != 0 ? Loc.T("bench.resume", o.name, o.resumeSim) : o.name;
+            float ty = row.y + row.height * 0.5f;
+            UIUtil.Text(new Rect(tx, ty - BenchKit.Px(24f, 18f), tw, BenchKit.Px(24f, 18f)), name, TextRole.BodyStrong, UITheme.Charcoal, TextAnchor.LowerLeft);
+            UIUtil.Text(new Rect(tx, ty + 1f, tw, BenchKit.Px(20f, 16f)), Loc.T(MethodKey(o.kind)), TextRole.Caption, UITheme.Graphite, TextAnchor.UpperLeft);
+            if (o.display.IsSwapped)
+            {
+                string st = Loc.T("bench.alreadyswapped").Trim();
+                float bw = UIUtil.Measure(st, TextRole.Caption).x + 22f;
+                UIUtil.Badge(new Vector2(row.xMax - bw - 14f - chev, row.y + 8f), st, UITheme.Ochre, UITheme.Charcoal);
+            }
+            if (focus) UIUtil.Icon(new Rect(row.xMax - 30f, row.y + (row.height - 20f) * 0.5f, 20f, 20f), IconId.Chevron, UITheme.Bordeaux);
+            if (GUI.Button(row, GUIContent.none, GUIStyle.none)) { picked = o; chooseIndex = i; }
         }
-        GUILayout.EndScrollView();
-        GUILayout.FlexibleSpace();
-        GUILayout.Label(Loc.T("bench.choosehint"), UIUtil.SmallStyle);
-        UIUtil.EndCenteredPanel();
+        GUI.EndScrollView();
+
+        // Alt: ipucu + Kapat
+        float fy = p.yMax - footH + pad * 0.3f;
+        UIUtil.DrawRect(new Rect(p.x + pad, p.yMax - footH, w - pad * 2f, 1f), UITheme.WithAlpha(UITheme.Graphite, 0.3f));
+        BenchKit.Wrapped(new Rect(p.x + pad, fy, hintW, hintH), hint, TextRole.Caption, UITheme.Graphite);
+        if (UIUtil.Button(new Rect(p.xMax - pad - closeW, fy - 2f, closeW, btnH), closeT, ButtonKind.Secondary))
+        {
+            Close(false);
+            return;
+        }
         if (picked.HasValue) StartWork(picked.Value);
     }
 
-    private Vector2 bustScroll;
+    private static IconId KindIcon(ArtKind k)
+    {
+        switch (k)
+        {
+            case ArtKind.Vase: return IconId.Vase;
+            case ArtKind.Bust: return IconId.Bust;
+            case ArtKind.Jewelry: return IconId.Ring;
+            default: return IconId.Painting;
+        }
+    }
 
-    /// <summary>Büst paneli: ekran yüksekliğine sığar; benzerlik en üstte sabit, seçimler kaydırılabilir listede.</summary>
+    /// <summary>Büst: kaydırıcılar, taş / kaide renkleri ve detay seçicileri (kaydırılabilir), altta benzerlik.</summary>
     private void DrawBust()
     {
-        float w = 420f;
-        float h = Mathf.Min(Screen.height - 90f, 640f); // altta Vazgeç / Esc yazısına yer kalsın
-        UIUtil.Panel(new Rect(10, 10, w, h));
-        GUILayout.BeginArea(new Rect(22, 18, w - 24, h - 16));
-        GUILayout.Label(bust.Name, big);
-        GUILayout.Label(Loc.T("bench.moldhelp"), label);
-        GUILayout.Space(4f);
-
-        // Kaydırılabilir seçimler; benzerlik kutusu panelin EN ALTINDA sabit durur
-        float scrollH = Mathf.Max(120f, h - 16f - 140f - SimilarityBoxHeight);
-        bustScroll = GUILayout.BeginScrollView(bustScroll, false, true, GUILayout.Height(scrollH));
+        BeginLeft(bust.Name, true, out Rect body, out Flow simFlow);
+        DrawSimBlock(simFlow);
+        float cw = body.width - 16f;
+        leftScroll = GUI.BeginScrollView(body, leftScroll, new Rect(0f, 0f, cw, leftContentH));
+        var f = new Flow(0f, 0f, cw);
+        f.Text(Loc.T("bench.moldhelp"), TextRole.Body, UITheme.Charcoal);
+        f.Gap(8f);
         for (int i = 0; i < BustLook.SliderCount; i++)
         {
-            GUILayout.Label(MuseumTheme.Pick(ArtworkLook.BustSliderNames[i]), label);
-            float v = GUILayout.HorizontalSlider(bustSliders[i], 0f, 1f, GUILayout.Height(18f));
+            f.Text(MuseumTheme.Pick(ArtworkLook.BustSliderNames[i]), TextRole.Caption, UITheme.Graphite);
+            float v = BenchKit.SliderRow(f, bustSliders[i], 0f, 1f);
             if (!Mathf.Approximately(v, bustSliders[i])) { bustSliders[i] = v; previewDirty = true; }
+            f.Gap(2f);
         }
 
-        GUILayout.Label(Loc.T("bench.stone"), label);
-        int stone = Swatches(ArtworkLook.BustStones, ArtworkLook.BustStoneNames, bustStone);
+        f.Gap(6f);
+        f.Section(Loc.T("bench.stone"), PanelKind.Sketch);
+        int stone = BenchKit.Swatches(f, ArtworkLook.BustStones, ArtworkLook.BustStoneNames, bustStone);
         if (stone != bustStone) { bustStone = stone; previewDirty = true; }
-        GUILayout.Label(Loc.T("bench.basecolor"), label);
-        int b = Swatches(ArtworkLook.BustBases, ArtworkLook.BustBaseNames, bustBase);
+        f.Gap(6f);
+        f.Section(Loc.T("bench.basecolor"), PanelKind.Sketch);
+        int b = BenchKit.Swatches(f, ArtworkLook.BustBases, ArtworkLook.BustBaseNames, bustBase);
         if (b != bustBase) { bustBase = b; previewDirty = true; }
 
         // Küçük detaylar: saç, bıyık, gözlük, kulak, sakal (orijinaldekiyle aynısını seç)
-        GUILayout.Space(6f);
-        GUILayout.Label(Loc.T("bench.details"), label);
+        f.Gap(6f);
+        f.Section(Loc.T("bench.details"), PanelKind.Sketch);
         for (int i = 0; i < BustLook.DetailCount; i++)
         {
-            GUILayout.Label(MuseumTheme.Pick(ArtworkLook.BustDetailTitles[i]), label);
-            int pick = Choices(ArtworkLook.BustDetailNames[i], bustDetails[i]);
+            f.Text(MuseumTheme.Pick(ArtworkLook.BustDetailTitles[i]), TextRole.Caption, UITheme.Graphite);
+            int pick = BenchKit.Choices(f, ArtworkLook.BustDetailNames[i], bustDetails[i]);
             if (pick != bustDetails[i]) { bustDetails[i] = pick; previewDirty = true; GameAudio.Play2D(SoundId.UiClick, 0.5f); }
+            f.Gap(4f);
         }
 
-        GUILayout.Space(6f);
-        if (GUILayout.Button(Loc.T("bench.bustreset"), UIUtil.ButtonStyle, GUILayout.Height(28f)))
+        f.Gap(6f);
+        if (UIUtil.Button(f.Row(BenchKit.Px(34f, 30f)), Loc.T("bench.bustreset"), ButtonKind.Secondary))
         {
             for (int i = 0; i < bustSliders.Length; i++) bustSliders[i] = 0.5f;
             System.Array.Clear(bustDetails, 0, bustDetails.Length);
             bustStone = bustBase = 0;
             previewDirty = true;
         }
-        GUILayout.Label(Loc.T("bench.bustturn"), UIUtil.SmallStyle);
-        GUILayout.Space(8f);
-        GUILayout.EndScrollView();
-        GUILayout.FlexibleSpace();
-        SimilarityLabel();
-        GUILayout.EndArea();
+        f.Gap(6f);
+        f.Text(Loc.T("bench.bustturn"), TextRole.Caption, UITheme.Graphite);
+        GUI.EndScrollView();
+        leftContentH = f.Y + 8f;
     }
 
     // ---------------------------------------------------------------
@@ -824,127 +963,143 @@ public class WorkbenchUI : MonoBehaviour
         return center + new Vector2(Mathf.Cos(r), -Mathf.Sin(r)) * radius;
     }
 
+    private int lastJewelStepShown = -1;
+
     private void DrawJewel()
     {
         if (craft == null) return;
-        float w = 420f;
-        float h = Mathf.Min(Screen.height - 90f, 640f);
-        UIUtil.Panel(new Rect(10, 10, w, h));
-        GUILayout.BeginArea(new Rect(22, 18, w - 24, h - 16));
-        GUILayout.Label(jewel.Name, big);
+        if (lastJewelStepShown != jewelStep) { lastJewelStepShown = jewelStep; leftScroll = Vector2.zero; }
+
+        BeginLeft(jewel.Name, true, out Rect body, out Flow simFlow);
+        DrawSimBlock(simFlow);
+        float cw = body.width - 16f;
+        leftScroll = GUI.BeginScrollView(body, leftScroll, new Rect(0f, 0f, cw, leftContentH));
+        var f = new Flow(0f, 0f, cw);
 
         // Adım sekmeleri (istediğin zaman geri dönebilirsin)
-        GUILayout.BeginHorizontal();
         string[] steps = { Loc.T("ring.step.cast"), Loc.T("ring.step.stones"), Loc.T("ring.step.polish") };
+        float gap = 4f, bw = (cw - gap * 2f) / 3f, bh = BenchKit.Px(34f, 30f);
+        Rect tabs = f.Row(bh);
         for (int i = 0; i < steps.Length; i++)
         {
-            string t = (i + 1) + ". " + steps[i];
-            if (GUILayout.Button(i == jewelStep ? "[" + t + "]" : t, UIUtil.ButtonStyle, GUILayout.Height(32f))) { jewelStep = i; heldGem = -1; }
+            Rect tr = new Rect(tabs.x + (bw + gap) * i, tabs.y, bw, bh);
+            if (UIUtil.Button(tr, (i + 1) + ". " + steps[i], ButtonKind.Tool, true, false, null, i == jewelStep)) { jewelStep = i; heldGem = -1; }
         }
-        GUILayout.EndHorizontal();
-        GUILayout.Space(6f);
+        f.Gap(10f);
 
         switch (jewelStep)
         {
             case 0:
             {
-                GUILayout.Label(Loc.T("ring.cast.help"), label);
-                GUILayout.Label(Loc.T("ring.mold"), label);
-                int style = Choices(ArtworkLook.JewelStyleNames, craft.style);
+                f.Text(Loc.T("ring.cast.help"), TextRole.Body, UITheme.Charcoal);
+                f.Gap(8f);
+                f.Section(Loc.T("ring.mold"), PanelKind.Sketch);
+                int style = BenchKit.Choices(f, ArtworkLook.JewelStyleNames, craft.style);
                 if (style != craft.style) { craft.style = style; craft.fill = 0f; spilled = false; previewDirty = true; }
-                GUILayout.Label(Loc.T("bench.metal"), label);
-                int metal = Swatches(ArtworkLook.JewelMetals, ArtworkLook.JewelMetalNames, craft.metal);
+                f.Gap(6f);
+                f.Section(Loc.T("bench.metal"), PanelKind.Sketch);
+                int metal = BenchKit.Swatches(f, ArtworkLook.JewelMetals, ArtworkLook.JewelMetalNames, craft.metal);
                 if (metal != craft.metal) { craft.metal = metal; previewDirty = true; }
-                GUILayout.Space(6f);
-                GUILayout.Label(Loc.T("ring.fill", Mathf.RoundToInt(Mathf.Min(craft.fill, 1f) * 100f)), label);
-                if (spilled) GUILayout.Label(Loc.T("ring.spilled"), label);
-                if (GUILayout.Button(Loc.T("ring.emptymold"), UIUtil.ButtonStyle, GUILayout.Height(30f))) { craft.fill = 0f; spilled = false; previewDirty = true; }
-                GUILayout.Space(6f);
-                if (GUILayout.Button(Loc.T("ring.next.stones"), UIUtil.ButtonStyle, GUILayout.Height(34f))) jewelStep = 1;
+                f.Gap(8f);
+                // Doluluk: işaret = bu kalıbın doğru doluluğu
+                f.Text(Loc.T("ring.fill", Mathf.RoundToInt(Mathf.Min(craft.fill, 1f) * 100f)), TextRole.Caption, UITheme.Graphite);
+                f.Gap(3f);
+                UIUtil.ProgressBar(f.Row(BenchKit.Px(10f, 10f)), Mathf.Clamp01(craft.fill), spilled ? UITheme.Danger : UITheme.Ochre, JewelCraft.TargetFill(craft.style));
+                f.Gap(6f);
+                if (spilled) { f.Text(Loc.T("ring.spilled"), TextRole.BodyStrong, UITheme.Danger); f.Gap(4f); }
+                if (UIUtil.Button(f.Row(bh), Loc.T("ring.emptymold"), ButtonKind.Secondary)) { craft.fill = 0f; spilled = false; previewDirty = true; }
+                f.Gap(6f);
+                if (UIUtil.Button(f.Row(bh), Loc.T("ring.next.stones"), ButtonKind.Secondary)) jewelStep = 1;
                 break;
             }
             case 1:
             {
-                GUILayout.Label(Loc.T("ring.stones.help"), label);
-                GUILayout.Label(Loc.T("ring.stonecount", craft.count, JewelCraft.Max), label);
-                GUILayout.BeginHorizontal();
-                for (int i = 0; i < ArtworkLook.JewelGems.Length; i++)
-                {
-                    if (i > 0 && i % 4 == 0) { GUILayout.EndHorizontal(); GUILayout.BeginHorizontal(); } // 4'lü satırlar
-                    Color prev = GUI.backgroundColor;
-                    GUI.backgroundColor = ArtworkLook.JewelGems[i];
-                    string text = MuseumTheme.Pick(ArtworkLook.JewelGemNames[i]);
-                    if (GUILayout.Button(i == heldGem ? "[" + text + "]" : text, GUILayout.Height(34f))) heldGem = i == heldGem ? -1 : i;
-                    GUI.backgroundColor = prev;
-                }
-                GUILayout.EndHorizontal();
-                if (GUILayout.Button(Loc.T("ring.removeall"), UIUtil.ButtonStyle, GUILayout.Height(30f))) { craft.count = 0; previewDirty = true; }
-                GUILayout.Space(6f);
-                if (GUILayout.Button(Loc.T("ring.next.polish"), UIUtil.ButtonStyle, GUILayout.Height(34f))) { jewelStep = 2; heldGem = -1; }
+                f.Text(Loc.T("ring.stones.help"), TextRole.Body, UITheme.Charcoal);
+                f.Gap(6f);
+                f.Text(Loc.T("ring.stonecount", craft.count, JewelCraft.Max), TextRole.BodyStrong, UITheme.Bordeaux);
+                f.Gap(6f);
+                int g = BenchKit.SwatchPick(f, ArtworkLook.JewelGems, ArtworkLook.JewelGemNames, heldGem);
+                if (g >= 0) heldGem = g == heldGem ? -1 : g;
+                f.Gap(8f);
+                if (UIUtil.Button(f.Row(bh), Loc.T("ring.removeall"), ButtonKind.Secondary)) { craft.count = 0; previewDirty = true; }
+                f.Gap(6f);
+                if (UIUtil.Button(f.Row(bh), Loc.T("ring.next.polish"), ButtonKind.Secondary)) { jewelStep = 2; heldGem = -1; }
                 break;
             }
             default:
             {
-                GUILayout.Label(Loc.T("ring.polish.help"), label);
-                Bar(Loc.T("ring.shine"), craft.polish, 0.9f);
+                f.Text(Loc.T("ring.polish.help"), TextRole.Body, UITheme.Charcoal);
+                f.Gap(10f);
+                BenchKit.Meter(f, Loc.T("ring.shine"), craft.polish, 0.9f);
                 break;
             }
         }
-        GUILayout.FlexibleSpace();
-        SimilarityLabel();
-        GUILayout.EndArea();
+        GUI.EndScrollView();
+        leftContentH = f.Y + 8f;
 
         DrawJewelWorkspace();
     }
 
-    /// <summary>Sağdaki çalışma alanı: döküm kalıbı ya da büyük halka + sağ üstte orijinalin şeması.</summary>
+    /// <summary>Sağdaki çalışma alanı: döküm kalıbı ya da büyük halka + sağ üstte orijinalin şeması (panoya tutturulmuş) ve adım rehberi.</summary>
     private void DrawJewelWorkspace()
     {
-        float x0 = 450f;
-        workRect = new Rect(x0, 10f, Mathf.Max(300f, Screen.width - x0 - 10f), Screen.height - 80f);
-        UIUtil.DrawRect(workRect, new Color(0.03f, 0.04f, 0.06f, 0.72f));
-        ringRadius = Mathf.Clamp(Mathf.Min(workRect.width * 0.24f, workRect.height * 0.28f), 70f, 190f);
-        ringCenter = new Vector2(workRect.x + workRect.width * 0.36f, workRect.y + workRect.height * 0.52f);
-        Color metalC = ArtworkLook.JewelMetals[Mathf.Clamp(craft.metal, 0, ArtworkLook.JewelMetals.Length - 1)];
+        float m = BenchKit.M;
+        Rect lp = LeftPanelRect();
+        float x0 = lp.xMax + m;
+        Rect foot = BenchKit.Footer();
+        workRect = new Rect(x0, m, Mathf.Max(300f, Screen.width - x0 - m), Mathf.Max(200f, foot.y - m * 2f));
+        UIUtil.DrawRect(workRect, UITheme.WithAlpha(UITheme.CharDeep, 0.78f));
+        UIUtil.BrassFrame(workRect);
 
-        // Orijinalin şeması (sağ üst) — ya da kamyon ekranı (canlı yayın)
-        float guideTop;
-        float guideW = Mathf.Clamp(workRect.width * 0.3f, 230f, 340f);
+        // Sağ sütun: orijinalin şeması (ya da canlı yayın) + adım rehberi
+        float guideW = Mathf.Clamp(workRect.width * 0.32f, 200f, 340f);
         float guideX = workRect.xMax - guideW - 10f;
+        float cur = workRect.y + 10f;
         if (UseLiveFeed)
         {
-            float fw = Mathf.Clamp(workRect.width * 0.34f, 240f, 420f);
-            LiveFeed.Draw(new Rect(workRect.xMax - fw - 12f, workRect.y + 34f, fw, fw * 0.75f));
-            guideTop = workRect.y + 34f + fw * 0.75f + 10f;
+            float fw = Mathf.Min(guideW, Mathf.Clamp(workRect.width * 0.34f, 200f, 420f));
+            LiveFeed.Draw(new Rect(guideX, cur, fw, fw * 0.75f));
+            cur += fw * 0.75f + 10f;
         }
         else
         {
-            Vector2 refC = new Vector2(guideX + guideW * 0.5f, workRect.y + 130f);
-            GUI.Label(new Rect(refC.x - 90f, refC.y - 118f, 180f, 24f), Loc.T("bench.original"), big);
-            JewelCraft orig = JewelCraft.FromLook(jewel);
-            DrawRingDiagram(refC, 70f, orig, 1f);
-            guideTop = workRect.y + 230f;
+            // Orijinal: eskiz kâğıdına tutturulmuş küçük kart
+            float cardH = Mathf.Clamp(workRect.height * 0.30f, 130f, 200f);
+            Rect card = new Rect(guideX, cur, guideW, cardH);
+            UIUtil.Panel(card, PanelKind.Label);
+            float hh = UIUtil.SectionHeader(new Rect(card.x + 14f, card.y + 10f, card.width - 28f, 20f), Loc.T("bench.original"), PanelKind.Label);
+            Vector2 refC = new Vector2(card.center.x, card.y + 10f + hh + (card.height - hh - 18f) * 0.5f);
+            float rr = Mathf.Clamp((card.height - hh - 40f) * 0.5f, 24f, 70f);
+            DrawRingDiagram(refC, rr, JewelCraft.FromLook(jewel), 1f);
+            cur = card.yMax + 8f;
         }
+        float guideH = Mathf.Max(120f, workRect.yMax - 10f - cur);
+        BenchGuide.DrawRingGuide(new Rect(guideX, cur, guideW, guideH), jewelStep, craft);
 
-        // Sağ tarafta adım adım yüzük yapım rehberi
-        float guideH = Mathf.Clamp(workRect.yMax - guideTop - 6f, 120f, 420f);
-        BenchGuide.DrawRingGuide(new Rect(guideX, guideTop, guideW, guideH), jewelStep, craft);
+        // Çalışma alanı merkezi = sağ sütunun solu
+        float areaRight = guideX - 10f;
+        float areaW = Mathf.Max(160f, areaRight - workRect.x);
+        ringRadius = Mathf.Clamp(Mathf.Min(areaW * 0.30f, workRect.height * 0.28f), 56f, 190f);
+        ringCenter = new Vector2(workRect.x + areaW * 0.5f, workRect.y + workRect.height * 0.5f);
+        Color metalC = ArtworkLook.JewelMetals[Mathf.Clamp(craft.metal, 0, ArtworkLook.JewelMetals.Length - 1)];
+        Color promptC = UITheme.BrassLight;
 
         if (jewelStep == 0)
         {
             // Kalıp: alttan dolar; beyaz çizgi bu kalıbın doğru doluluk seviyesi
-            gaugeRect = new Rect(ringCenter.x - 70f, ringCenter.y - 170f, 140f, 340f);
-            UIUtil.DrawRect(new Rect(gaugeRect.x - 6f, gaugeRect.y - 6f, gaugeRect.width + 12f, gaugeRect.height + 12f), new Color(0.35f, 0.3f, 0.28f));
-            UIUtil.DrawRect(gaugeRect, new Color(0.08f, 0.08f, 0.09f));
-            float f = Mathf.Clamp01(craft.fill);
-            Color molten = Color.Lerp(new Color(1f, 0.55f, 0.15f), metalC, 0.45f);
-            UIUtil.DrawRect(new Rect(gaugeRect.x, gaugeRect.yMax - gaugeRect.height * f, gaugeRect.width, gaugeRect.height * f), molten);
+            float gh = Mathf.Min(340f, workRect.height - 120f);
+            gaugeRect = new Rect(ringCenter.x - 60f, ringCenter.y - gh * 0.5f - 10f, 120f, gh);
+            UIUtil.DrawRect(new Rect(gaugeRect.x - 6f, gaugeRect.y - 6f, gaugeRect.width + 12f, gaugeRect.height + 12f), UITheme.Graphite);
+            UIUtil.DrawRect(gaugeRect, UITheme.CharDeep);
+            float fl = Mathf.Clamp01(craft.fill);
+            Color molten = Color.Lerp(new Color(1f, 0.55f, 0.15f), metalC, 0.45f); // eriyik metal (oyun verisi rengi)
+            UIUtil.DrawRect(new Rect(gaugeRect.x, gaugeRect.yMax - gaugeRect.height * fl, gaugeRect.width, gaugeRect.height * fl), molten);
             float ty = gaugeRect.yMax - gaugeRect.height * JewelCraft.TargetFill(craft.style);
-            UIUtil.DrawRect(new Rect(gaugeRect.x - 14f, ty - 1.5f, gaugeRect.width + 28f, 3f), Color.white);
+            UIUtil.DrawRect(new Rect(gaugeRect.x - 14f, ty - 1.5f, gaugeRect.width + 28f, 3f), UITheme.Ivory);
             if (spilled)
                 for (int i = 0; i < 4; i++)
-                    UIUtil.DrawRect(new Rect(gaugeRect.x + 10f + i * 34f, gaugeRect.yMax + 8f, 10f, 14f + (i % 2) * 10f), molten);
-            UIUtil.DrawPrompt(Loc.T("ring.pour"), gaugeRect.yMax + 40f - Screen.height * 0f, new Color(1f, 0.85f, 0.5f), 16);
+                    UIUtil.DrawRect(new Rect(gaugeRect.x + 10f + i * 26f, gaugeRect.yMax + 8f, 10f, 14f + (i % 2) * 10f), molten);
+            WorkPrompt(Loc.T("ring.pour"), gaugeRect.yMax + 34f, areaW, promptC);
             return;
         }
 
@@ -954,7 +1109,7 @@ public class WorkbenchUI : MonoBehaviour
         {
             Vector2 gp = GuiMouse();
             if (heldGem >= 0) DrawDot(gp, 22f, ArtworkLook.JewelGems[heldGem]);
-            UIUtil.DrawPrompt(Loc.T("ring.place"), ringCenter.y + ringRadius + 50f, new Color(1f, 0.85f, 0.5f), 16);
+            WorkPrompt(Loc.T("ring.place"), ringCenter.y + ringRadius + 50f, areaW, promptC);
         }
         else if (jewelStep == 2)
         {
@@ -970,8 +1125,17 @@ public class WorkbenchUI : MonoBehaviour
                     DrawDot(p, s, new Color(1f, 1f, 1f, 0.8f * craft.polish));
                 }
             }
-            UIUtil.DrawPrompt(Loc.T("ring.rub"), ringCenter.y + ringRadius + 50f, new Color(1f, 0.85f, 0.5f), 16);
+            WorkPrompt(Loc.T("ring.rub"), ringCenter.y + ringRadius + 50f, areaW, promptC);
         }
+    }
+
+    /// <summary>Çalışma alanının altında, ortalanmış kısa yönerge (alan genişliğine sığar, kırpılmaz).</summary>
+    private void WorkPrompt(string text, float y, float areaW, Color c)
+    {
+        float maxY = workRect.yMax - 8f;
+        float h = UIUtil.MeasureHeight(text, TextRole.BodyStrong, areaW - 24f);
+        y = Mathf.Min(y, maxY - h);
+        BenchKit.Wrapped(new Rect(workRect.x + 12f, y, areaW - 24f, h), text, TextRole.BodyStrong, c, TextAnchor.UpperCenter);
     }
 
     /// <summary>Halkayı (kalınlık = döküm), mühür tablasını ve taşları 2B çizer. shine: 0 mat/donuk … 1 parlak.</summary>
@@ -1039,70 +1203,283 @@ public class WorkbenchUI : MonoBehaviour
         return tex;
     }
 
-    /// <summary>Renkli seçim düğmeleri; seçilen indeksi döner.</summary>
-    private static int Swatches(Color[] colors, string[][] names, int selected)
+    /// <summary>Alt çubuk (plaket): sol KeyCap ipuçları, sağda Vazgeç (onaylı) + Bitir. Esc davranışı değişmez.</summary>
+    private void DrawFooter(bool escFinishes, ArtKind kind)
     {
-        GUILayout.BeginHorizontal();
-        for (int i = 0; i < colors.Length; i++)
+        Rect f = BenchKit.Footer();
+        UIUtil.Panel(f, PanelKind.Plaque);
+        float sc = UITheme.Scale;
+        float pad = BenchKit.Px(14f, 10f);
+        float bh = Mathf.Min(f.height - 10f, Mathf.Max(30f, 40f * sc));
+        float by = f.y + (f.height - bh) * 0.5f;
+        float x = f.xMax - pad;
+
+        if (escFinishes)
         {
-            if (i > 0 && i % 3 == 0) { GUILayout.EndHorizontal(); GUILayout.BeginHorizontal(); } // 3'lü satırlar (çok seçenek sığsın)
-            Color prev = GUI.backgroundColor;
-            GUI.backgroundColor = colors[i];
-            string text = MuseumTheme.Pick(names[i]);
-            if (GUILayout.Button(i == selected ? "[" + text + "]" : text, GUILayout.Height(30f))) selected = i;
-            GUI.backgroundColor = prev;
+            string ft = Loc.T("bench.btn.finish");
+            float fw = Mathf.Max(110f, UIUtil.Measure(ft, TextRole.Button).x + 52f);
+            x -= fw;
+            if (UIUtil.Button(new Rect(x, by, fw, bh), ft, ButtonKind.Primary, true, false, IconId.Check))
+            {
+                confirmFinish = true;
+                return;
+            }
+            x -= 8f;
         }
-        GUILayout.EndHorizontal();
-        return selected;
-    }
-
-    private static int Choices(string[][] names, int selected)
-    {
-        GUILayout.BeginHorizontal();
-        for (int i = 0; i < names.Length; i++)
+        string ct = Loc.T("bench.cancel");
+        float cw = Mathf.Max(100f, UIUtil.Measure(ct, TextRole.Button).x + 36f);
+        x -= cw;
+        if (UIUtil.Button(new Rect(x, by, cw, bh), ct, escFinishes ? ButtonKind.Danger : ButtonKind.Secondary))
         {
-            string text = MuseumTheme.Pick(names[i]);
-            if (GUILayout.Button(i == selected ? "[" + text + "]" : text, UIUtil.ButtonStyle, GUILayout.Height(30f))) selected = i;
-        }
-        GUILayout.EndHorizontal();
-        return selected;
-    }
-
-    private const float SimilarityBoxHeight = 64f;
-
-    /// <summary>Benzerlik kutusu: sol panelin altında, renkli şeritle (kırmızı → sarı → yeşil) belirgin şekilde.</summary>
-    private void SimilarityLabel()
-    {
-        byte s = (byte)Mathf.Clamp(Mathf.RoundToInt(Similarity * 100f), 0, 100);
-        Rect r = GUILayoutUtility.GetRect(300f, SimilarityBoxHeight, GUILayout.ExpandWidth(true), GUILayout.Height(SimilarityBoxHeight));
-        Color tone = s >= 85 ? new Color(0.3f, 0.85f, 0.4f) : s >= 60 ? new Color(0.95f, 0.75f, 0.25f) : new Color(0.95f, 0.4f, 0.3f);
-        UIUtil.DrawRect(r, new Color(0f, 0f, 0f, 0.55f));
-        UIUtil.DrawRect(new Rect(r.x, r.y, 5f, r.height), tone);
-        GUI.Label(new Rect(r.x + 14f, r.y + 6f, r.width - 20f, 30f), Loc.T("bench.similarity", s, ItemDefinition.GradeName(s)), big);
-        Rect bar = new Rect(r.x + 14f, r.y + 42f, r.width - 28f, 10f);
-        UIUtil.DrawRect(bar, new Color(1f, 1f, 1f, 0.12f));
-        UIUtil.DrawRect(new Rect(bar.x, bar.y, bar.width * (s / 100f), bar.height), tone);
-    }
-
-    /// <summary>Alt bilgi: Vazgeç düğmesi + ESC'nin ne yapacağı.</summary>
-    private void DrawFooter(bool escFinishes)
-    {
-        if (GUI.Button(new Rect(Screen.width - 170f, Screen.height - 54f, 150f, 36f), Loc.T("bench.cancel"), UIUtil.ButtonStyle))
-        {
-            Close(false);
+            if (phase == Phase.Sculpt) Close(false); else confirmCancel = true;
             return;
         }
-        UIUtil.DrawPrompt(Loc.T(escFinishes ? "bench.finish" : "bench.sculptesc"), Screen.height - 50f, new Color(1f, 0.9f, 0.5f), 15);
-        UIUtil.DrawPrompt(Loc.T("tut.hinth"), Screen.height - 26f, new Color(1f, 1f, 1f, 0.7f), 12);
+
+        // Sol: tuş ipuçları (sığmayanlar atlanır)
+        float hx = f.x + pad, maxX = x - 14f;
+        float ky = f.y + (f.height - BenchKit.Px(24f, 20f)) * 0.5f;
+        float kh = BenchKit.Px(24f, 20f);
+        string escText = Loc.T(escFinishes ? "bench.finish" : "bench.sculptesc");
+        string escLabel = escText;
+        int cut = escText.IndexOf(": ");
+        if (cut > 0 && cut <= 5) escLabel = escText.Substring(cut + 2);
+        string escShort = Loc.T(escFinishes ? "bench.btn.finish" : "bench.cancel");
+        bool wide = maxX - hx > 760f;
+        BenchKit.Hint(ref hx, maxX, ky, kh, "Esc", wide ? escLabel : escShort);
+        string hText = Loc.T("tut.hinth");
+        int hc = hText.IndexOf(": ");
+        BenchKit.Hint(ref hx, maxX, ky, kh, hc > 0 ? hText.Substring(0, hc) : "H", hc > 0 ? hText.Substring(hc + 2) : hText);
+        if (kind == ArtKind.Painting && painter != null)
+        {
+            BenchKit.Hint(ref hx, maxX, ky, kh, "E", Loc.T("bench.tool.eraser"));
+            BenchKit.Hint(ref hx, maxX, ky, kh, "R", Loc.T("bench.shape"));
+            BenchKit.Hint(ref hx, maxX, ky, kh, "Z", Loc.T("bench.undo", painter.UndoCount));
+            BenchKit.Hint(ref hx, maxX, ky, kh, "B", Loc.T("bench.tool.fill"));
+            BenchKit.Hint(ref hx, maxX, ky, kh, "Shift", Loc.T("bench.keys.bucket"));
+            BenchKit.Hint(ref hx, maxX, ky, kh, "[ ]", Loc.T("bench.keys.size"));
+        }
+        else if (kind == ArtKind.Bust || kind == ArtKind.Jewelry)
+            BenchKit.Hint(ref hx, maxX, ky, kh, "A D", Loc.T("bench.keys.turn"));
+    }
+}
+
+// ===================================================================
+// Tezgah ortak sunum yardımcıları (WorkbenchUI / CanvasPainter / BenchGuide)
+// ===================================================================
+
+/// <summary>Dikey akış imleci: yazı / satır ekledikçe Y ilerler (OnGUI içinde, hesaplanmış yükseklikle).</summary>
+internal sealed class Flow
+{
+    public float X, Y, W;
+    public Flow(float x, float y, float w) { X = x; Y = y; W = w; }
+
+    /// <summary>Sarılı yazı; harcanan yüksekliği döner.</summary>
+    public float Text(string text, TextRole role, Color color, bool wrap = true)
+    {
+        GUIStyle s = UITheme.Style(role, color, TextAnchor.UpperLeft);
+        bool old = s.wordWrap;
+        s.wordWrap = wrap;
+        float h = wrap ? s.CalcHeight(new GUIContent(text), W) : s.CalcSize(new GUIContent(text)).y;
+        GUI.Label(new Rect(X, Y, W, h), text, s);
+        s.wordWrap = old;
+        Y += h;
+        return h;
     }
 
-    private void Bar(string name, float value, float threshold)
+    public void Gap(float h) { Y += h; }
+    public Rect Row(float h) { Rect r = new Rect(X, Y, W, h); Y += h; return r; }
+    public void Section(string text, PanelKind on) { Y += UIUtil.SectionHeader(new Rect(X, Y, W, 0f), text, on) + 2f; }
+}
+
+internal static class BenchKit
+{
+    /// <summary>Yerleşim ölçeği: yükseklik VE genişliğe göre (dar Game view'da küçülür).</summary>
+    public static float Ls => Mathf.Clamp(Mathf.Min(Screen.height / 1080f, Screen.width / 1500f), 0.6f, 1.5f);
+    public static float M => Mathf.Max(8f, Mathf.Round(14f * Ls));
+    public static float Px(float v, float min) => Mathf.Max(min, Mathf.Round(v * Ls));
+    public static float FooterH => Mathf.Max(46f, Mathf.Round(56f * Ls));
+
+    public static Rect Footer()
     {
-        GUILayout.Label($"{name}: %{Mathf.RoundToInt(value * 100)}", label);
-        Rect r = GUILayoutUtility.GetRect(300, 14);
-        UIUtil.DrawRect(r, new Color(0, 0, 0, 0.5f));
-        Color fill = threshold > 0 && value >= threshold ? new Color(0.35f, 0.95f, 0.45f) : new Color(0.95f, 0.75f, 0.25f);
-        UIUtil.DrawRect(new Rect(r.x, r.y, r.width * Mathf.Clamp01(value), r.height), fill);
-        if (threshold > 0) UIUtil.DrawRect(new Rect(r.x + r.width * threshold - 1, r.y - 2, 2, r.height + 4), Color.white);
+        float m = M, h = FooterH;
+        return new Rect(m, Screen.height - m - h, Screen.width - m * 2f, h);
+    }
+
+    /// <summary>Sarılı yazı (verilen Rect içinde).</summary>
+    public static void Wrapped(Rect r, string text, TextRole role, Color color, TextAnchor anchor = TextAnchor.UpperLeft)
+    {
+        GUIStyle s = UITheme.Style(role, color, anchor);
+        bool old = s.wordWrap;
+        s.wordWrap = true;
+        GUI.Label(r, text, s);
+        s.wordWrap = old;
+    }
+
+    /// <summary>Tek satır sığıyorsa verilen rolde, sığmıyorsa küçük rolde sarılı yazar.</summary>
+    public static void FitText(Rect r, string text, TextRole role, Color color)
+    {
+        float tw = UIUtil.Measure(text, role).x;
+        if (tw <= r.width) UIUtil.Text(r, text, role, color, TextAnchor.MiddleLeft);
+        else Wrapped(r, text, TextRole.BodyStrong, color, TextAnchor.MiddleLeft);
+    }
+
+    /// <summary>Panel başlığı (Title; sığmazsa BodyStrong sarılı).</summary>
+    public static void Heading(Flow f, string text)
+    {
+        float tw = UIUtil.Measure(text, TextRole.Title).x;
+        if (tw <= f.W) f.Text(text, TextRole.Title, UITheme.Charcoal, false);
+        else f.Text(text, TextRole.BodyStrong, UITheme.Charcoal, true);
+    }
+
+    /// <summary>Alt çubuk ipucu: KeyCap + etiket; sığmazsa atlanır.</summary>
+    public static void Hint(ref float x, float maxX, float y, float h, string key, string label)
+    {
+        float kw = UIUtil.KeyCapWidth(key);
+        float lw = UIUtil.Measure(label, TextRole.Caption).x + 6f;
+        if (x + kw + 6f + lw > maxX) return;
+        UIUtil.KeyCap(new Rect(x, y, kw, h), key);
+        GUIStyle s = UITheme.Style(TextRole.Caption, UITheme.IvoryDim, TextAnchor.MiddleLeft);
+        bool old = s.wordWrap; s.wordWrap = false;
+        GUI.Label(new Rect(x + kw + 6f, y, lw + 4f, h), label, s);
+        s.wordWrap = old;
+        x += kw + 6f + lw + 16f;
+    }
+
+    // ---------------- Benzerlik ----------------
+
+    public static float SimilarityHeight() => 26f * UITheme.Scale + Px(30f, 26f) + Px(10f, 10f) + 6f;
+
+    /// <summary>Benzerlik bloğu (eskiz kâğıdı üstünde): Section + Numeric % + not + ProgressBar. pct &lt; 0: sinyal yok ("--").</summary>
+    public static void SimilarityBlock(Flow f, int pct, float marker, string extra)
+    {
+        f.Section(Loc.T("bench.simtitle"), PanelKind.Sketch);
+        Rect row = f.Row(Px(30f, 26f));
+        string big = pct < 0 ? "--" : Loc.T("bench.pct", pct);
+        float bw = UIUtil.Measure(big, TextRole.Numeric).x + 6f;
+        UIUtil.Text(new Rect(row.x, row.y, bw, row.height), big, TextRole.Numeric, UITheme.Charcoal);
+        if (pct >= 0)
+        {
+            string grade = ItemDefinition.GradeName((byte)pct);
+            UIUtil.Text(new Rect(row.x + bw + 6f, row.y, row.width - bw - 6f, row.height), grade, TextRole.Caption, UITheme.Bordeaux, TextAnchor.MiddleRight);
+        }
+        Rect bar = f.Row(Px(10f, 10f));
+        float r = pct < 0 ? 0f : pct / 100f;
+        Color tone = pct >= 85 ? UITheme.Sage : pct >= 60 ? UITheme.Ochre : UITheme.Danger;
+        UIUtil.ProgressBar(bar, r, tone, marker);
+        if (!string.IsNullOrEmpty(extra)) { f.Gap(4f); f.Text(extra, TextRole.Caption, UITheme.Graphite); }
+        f.Gap(6f);
+    }
+
+    /// <summary>Etiket + ince ilerleme çubuğu (eşik işaretli).</summary>
+    public static void Meter(Flow f, string name, float value, float threshold)
+    {
+        f.Text($"{name}: %{Mathf.RoundToInt(value * 100f)}", TextRole.Caption, UITheme.Graphite);
+        f.Gap(3f);
+        bool ok = threshold > 0f && value >= threshold;
+        UIUtil.ProgressBar(f.Row(Px(10f, 10f)), value, ok ? UITheme.Sage : UITheme.Ochre, threshold > 0f ? threshold : -1f);
+        f.Gap(8f);
+    }
+
+    // ---------------- Kontroller ----------------
+
+    /// <summary>Temalı yatay kaydırıcı satırı.</summary>
+    public static float SliderRow(Flow f, float v, float min, float max)
+    {
+        Rect r = f.Row(Px(20f, 18f));
+        return GUI.HorizontalSlider(new Rect(r.x, r.y + 2f, r.width, r.height - 4f), v, min, max);
+    }
+
+    /// <summary>[−] kaydırıcı [+] satırı (adım: step).</summary>
+    public static float SizeRow(Flow f, float v, float min, float max, float step)
+    {
+        float b = Px(28f, 26f);
+        Rect r = f.Row(b);
+        if (UIUtil.Button(new Rect(r.x, r.y, b, b), "−", ButtonKind.Tool)) v = Mathf.Clamp(v - step, min, max);
+        if (UIUtil.Button(new Rect(r.xMax - b, r.y, b, b), "+", ButtonKind.Tool)) v = Mathf.Clamp(v + step, min, max);
+        v = GUI.HorizontalSlider(new Rect(r.x + b + 8f, r.y + (b - 14f) * 0.5f, r.width - b * 2f - 16f, 14f), v, min, max);
+        return v;
+    }
+
+    /// <summary>Boya lekesi kutuları (numaralı). Tıklanan indeksi döner (-1: yok).</summary>
+    public static int PaletteGrid(Flow f, Color[] pal, int selected, bool showSelected, int cols)
+    {
+        float gap = 6f;
+        float bs = Mathf.Min(Px(40f, 30f), (f.W - gap * (cols - 1)) / cols);
+        int rows = (pal.Length + cols - 1) / cols;
+        int clicked = -1;
+        for (int i = 0; i < pal.Length; i++)
+        {
+            Rect b = new Rect(f.X + (i % cols) * (bs + gap) + 3f, f.Y + (i / cols) * (bs + gap) + 3f, bs - 0f, bs);
+            UIUtil.DrawRect(b, pal[i]);
+            UIUtil.Outline(b, 1f, UITheme.WithAlpha(UITheme.Charcoal, 0.55f));
+            float lum = pal[i].r * 0.299f + pal[i].g * 0.587f + pal[i].b * 0.114f;
+            UIUtil.Text(b, (i + 1).ToString(), TextRole.Mono, lum > 0.55f ? UITheme.Charcoal : UITheme.Ivory, TextAnchor.MiddleCenter);
+            if (showSelected && i == selected)
+            {
+                UIUtil.Outline(new Rect(b.x - 3f, b.y - 3f, b.width + 6f, b.height + 6f), 2f, UITheme.Charcoal);
+                UIUtil.Outline(new Rect(b.x - 1f, b.y - 1f, b.width + 2f, b.height + 2f), 1f, UITheme.BrassLight);
+            }
+            if (GUI.Button(b, GUIContent.none, GUIStyle.none)) clicked = i;
+        }
+        f.Y += rows * (bs + gap) + 4f;
+        return clicked;
+    }
+
+    /// <summary>Yuva (Slot) biçiminde seçenek ızgarası; renk çipi olabilir. Tıklanan indeksi döner (-1: yok).</summary>
+    public static int OptionGrid(Flow f, string[] labels, Color[] chips, int selected, int cols)
+    {
+        float gap = 6f, ch = Px(32f, 30f);
+        float cw = (f.W - gap * (cols - 1)) / cols;
+        int rows = (labels.Length + cols - 1) / cols;
+        int clicked = -1;
+        Event e = Event.current;
+        for (int i = 0; i < labels.Length; i++)
+        {
+            Rect c = new Rect(f.X + (i % cols) * (cw + gap), f.Y + (i / cols) * (ch + gap), cw, ch);
+            bool sel = i == selected;
+            bool hover = GUI.enabled && e != null && c.Contains(e.mousePosition);
+            UIUtil.Slot(c, sel ? SlotState.Selected : hover ? SlotState.Hover : SlotState.Filled);
+            float tx = c.x + 10f;
+            if (chips != null)
+            {
+                Rect chip = new Rect(c.x + 10f, c.y + (c.height - 14f) * 0.5f, 14f, 14f);
+                UIUtil.DrawRect(chip, chips[i]);
+                UIUtil.Outline(chip, 1f, UITheme.WithAlpha(UITheme.Ivory, 0.6f));
+                tx = chip.xMax + 6f;
+            }
+            GUIStyle s = UITheme.Style(TextRole.Caption, sel ? UITheme.BrassLight : UITheme.Ivory, chips != null ? TextAnchor.MiddleLeft : TextAnchor.MiddleCenter);
+            bool old = s.wordWrap; s.wordWrap = true;
+            GUI.Label(new Rect(tx, c.y, c.xMax - tx - 8f, c.height), labels[i], s);
+            s.wordWrap = old;
+            if (GUI.Button(c, GUIContent.none, GUIStyle.none)) clicked = i;
+        }
+        f.Y += rows * (ch + gap);
+        return clicked;
+    }
+
+    private static string[] Names(string[][] names)
+    {
+        var a = new string[names.Length];
+        for (int i = 0; i < a.Length; i++) a[i] = MuseumTheme.Pick(names[i]);
+        return a;
+    }
+
+    /// <summary>Renk çipli seçim; seçilen indeksi döner.</summary>
+    public static int Swatches(Flow f, Color[] colors, string[][] names, int selected)
+    {
+        int c = OptionGrid(f, Names(names), colors, selected, 2);
+        return c >= 0 ? c : selected;
+    }
+
+    /// <summary>Renk çipli seçim; tıklanan indeksi döner (-1: yok) — çağıran açma/kapama yapar.</summary>
+    public static int SwatchPick(Flow f, Color[] colors, string[][] names, int selected)
+        => OptionGrid(f, Names(names), colors, selected, 2);
+
+    /// <summary>Düz seçenekler (az sayıda: tek satır, çoksa 2 sütun).</summary>
+    public static int Choices(Flow f, string[][] names, int selected)
+    {
+        int cols = names.Length <= 3 ? names.Length : 2;
+        int c = OptionGrid(f, Names(names), null, selected, Mathf.Max(1, cols));
+        return c >= 0 ? c : selected;
     }
 }

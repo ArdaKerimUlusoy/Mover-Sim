@@ -923,7 +923,6 @@ public class GuardAI : NetworkBehaviour
         cone.Set(viewRange, viewAngle, transform.forward, c);
     }
 
-    private GUIStyle iconStyle;
 
     /// <summary>Kafanın üstünde tepki işareti:
     ///   "?" sarı → turuncu → kırmızı (şüphe doldukça, altında dolum çubuğu)
@@ -946,11 +945,6 @@ public class GuardAI : NetworkBehaviour
         Vector3 sp = cam.WorldToScreenPoint(transform.position + Vector3.up * 1.55f);
         if (sp.z <= 0f || sp.z > 35f) return;
 
-        if (iconStyle == null)
-        {
-            iconStyle = new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
-        }
-
         bool chase = state.Value == State.Chase;
         float t = Time.unscaledTime - stateChangedAt;
         float alert01 = alert.Value / 100f;
@@ -958,26 +952,12 @@ public class GuardAI : NetworkBehaviour
         // Çıkış animasyonu: büyüyüp yerine oturur
         float pop = t < 0.25f ? Mathf.Lerp(1.8f, 1f, t / 0.25f) : 1f;
         float shake = chase ? Mathf.Sin(Time.unscaledTime * 30f) * 2f : 0f;
-        int size = Mathf.RoundToInt((chase ? 46f : 34f + alert01 * 8f) * pop);
-        iconStyle.fontSize = size;
-
-        string icon = chase ? "!" : "?";
-        Color color = chase ? new Color(1f, 0.2f, 0.15f)
-                            : Color.Lerp(new Color(1f, 0.9f, 0.3f), new Color(1f, 0.35f, 0.15f), alert01);
-
-        Rect r = new Rect(sp.x - 30f + shake, Screen.height - sp.y - 40f, 60f, 64f);
-        iconStyle.normal.textColor = new Color(0f, 0f, 0f, 0.8f);
-        GUI.Label(new Rect(r.x + 2f, r.y + 2f, r.width, r.height), icon, iconStyle);
-        iconStyle.normal.textColor = color;
-        GUI.Label(r, icon, iconStyle);
-
-        // "?" altında şüphe dolum çubuğu
-        if (!chase && state.Value == State.Suspicious)
-        {
-            Rect bar = new Rect(sp.x - 18f, Screen.height - sp.y + 22f, 36f, 5f);
-            UIUtil.DrawRect(bar, new Color(0f, 0f, 0f, 0.6f));
-            UIUtil.DrawRect(new Rect(bar.x, bar.y, bar.width * alert01, bar.height), color);
-        }
+        // Kovalama: Alarm ikonu (Danger, titrer); şüphe: Eye ikonu Ochre → Danger, altında dolum çubuğu
+        float grow = chase ? 1.15f : 1f + alert01 * 0.15f;
+        Color color = chase ? UITheme.DangerLight : Color.Lerp(UITheme.Ochre, UITheme.Danger, alert01);
+        Vector2 c = new Vector2(sp.x + shake, Screen.height - sp.y - 20f);
+        PromptHud.ReactionBadge(c, chase ? IconId.Alarm : IconId.Eye, color, pop * grow,
+                                !chase && state.Value == State.Suspicious ? alert01 : -1f);
     }
 
     private void OnDrawGizmosSelected()

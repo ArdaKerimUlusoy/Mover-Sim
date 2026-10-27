@@ -340,22 +340,28 @@ public class ObjectCarrier : MonoBehaviour
 
         if (showCrosshair)
         {
-            GUI.color = (lookTarget != null || heldBody != null) ? Color.white : new Color(1f, 1f, 1f, 0.45f);
-            GUI.DrawTexture(new Rect(cx - 2f, cy - 2f, 4f, 4f), whitePixel);
-            GUI.color = Color.white;
+            // Nişangah: 2 px fildişi nokta; hedefte 6 px pirinç halka (yumuşak geçiş)
+            bool aimed = lookTarget != null || heldBody != null;
+            float aimT = UIUtil.Ease.OutCubic(UIUtil.Tween(0x43525348, aimed, UITheme.MotionFast));
+            UIUtil.DrawRect(new Rect(cx - 1f, cy - 1f, 2f, 2f), UITheme.WithAlpha(UITheme.Ivory, aimed ? 1f : 0.55f));
+            if (aimT > 0.01f)
+                UIUtil.DrawRing(new Vector2(cx, cy), Mathf.Lerp(3f, 6f, aimT), 1f, UITheme.WithAlpha(UITheme.BrassLight, aimT));
         }
 
+        // Fırlatma yüklemesi: pirinç halka dolar
         if (isChargingThrow)
         {
-            DrawCircularProgressBar(cx, cy, ringRadius, throwChargeTimer);
+            UIUtil.DrawRing(new Vector2(cx, cy), ringRadius, throwChargeTimer, UITheme.BrassLight);
         }
 
         string text = null;
-        Color textColor = Color.white;
+        PromptTone tone = PromptTone.Normal;
 
         if (heldBody != null)
         {
-            text = Loc.T("carry.holding", Mathf.RoundToInt(heldBody.mass));
+            PromptHud.Idle(1);
+            PromptHud.HintLine(Loc.T("carry.holding", Mathf.RoundToInt(heldBody.mass)), UITheme.Ivory);
+            return;
         }
         else if (lookTarget != null)
         {
@@ -367,17 +373,17 @@ public class ObjectCarrier : MonoBehaviour
             if (np != null && np.IsHeldByOther)
             {
                 text = Loc.T("carry.heldbyother", objName);
-                textColor = new Color(0.8f, 0.8f, 0.8f);
+                tone = PromptTone.Dim;
             }
             else if (lookTarget.mass > maxPickupMass)
             {
                 text = Loc.T("carry.tooheavy", objName, Mathf.RoundToInt(lookTarget.mass));
-                textColor = new Color(1f, 0.35f, 0.35f);
+                tone = PromptTone.Danger;
             }
             else if (p != null && !p.CanBePickedUp)
             {
                 text = Loc.T("carry.locked", objName);
-                textColor = new Color(0.8f, 0.8f, 0.8f);
+                tone = PromptTone.Dim;
             }
             else
             {
@@ -385,49 +391,8 @@ public class ObjectCarrier : MonoBehaviour
             }
         }
 
-        if (text == null) return;
-
-        GUIStyle style = new GUIStyle(GUI.skin.label)
-        {
-            alignment = TextAnchor.MiddleCenter,
-            fontSize = 18,
-            fontStyle = FontStyle.Bold
-        };
-        Rect rect = new Rect(0f, UIUtil.CenterSlot(), Screen.width, 30f); // etkileşim yazısıyla üst üste binmesin
-
-        style.normal.textColor = new Color(0f, 0f, 0f, 0.85f);
-        GUI.Label(new Rect(rect.x + 1f, rect.y + 1f, rect.width, rect.height), text, style);
-
-        style.normal.textColor = textColor;
-        GUI.Label(rect, text, style);
-    }
-
-    private void DrawCircularProgressBar(float centerX, float centerY, float radius, float fillProgress)
-    {
-        int totalSegments = 40;
-        int activeSegments = Mathf.RoundToInt(totalSegments * fillProgress);
-
-        Color chargeColor = Color.Lerp(new Color(1f, 1f, 1f, 0.9f), new Color(1f, 0.4f, 0.1f, 1f), fillProgress);
-
-        for (int i = 0; i < totalSegments; i++)
-        {
-            float angle = (i / (float)totalSegments) * 360f - 90f;
-            float rad = angle * Mathf.Deg2Rad;
-
-            float x = centerX + Mathf.Cos(rad) * radius;
-            float y = centerY + Mathf.Sin(rad) * radius;
-
-            if (i < activeSegments)
-            {
-                GUI.color = chargeColor;
-                GUI.DrawTexture(new Rect(x - 2f, y - 2f, 4f, 4f), whitePixel);
-            }
-            else
-            {
-                GUI.color = new Color(0.3f, 0.3f, 0.3f, 0.35f);
-                GUI.DrawTexture(new Rect(x - 1.5f, y - 1.5f, 3f, 3f), whitePixel);
-            }
-        }
-        GUI.color = Color.white;
+        // Etkileşim yazısıyla üst üste binmesin: kendi kanalı (1), CenterSlot'ta alt alta dizilir
+        if (text == null) { PromptHud.Idle(1); return; }
+        PromptHud.Show(text, tone, -1f, 1);
     }
 }

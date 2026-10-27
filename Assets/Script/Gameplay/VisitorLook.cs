@@ -35,7 +35,6 @@ public class VisitorLook : MonoBehaviour
     private float phase, speedSmooth;
     private float stateSince;
     private byte shownState;
-    private GUIStyle iconStyle;
     private Transform avatarRoot;  // bayılınca bütün beden yere yatar
     private float knock;           // 0 ayakta, 1 yerde
     private GameObject phone;      // fotoğraf çekerken elindeki telefon
@@ -239,22 +238,17 @@ public class VisitorLook : MonoBehaviour
         if (cam == null) return;
         Vector3 sp = cam.WorldToScreenPoint(transform.position + Vector3.up * 2.25f);
         if (sp.z <= 0f || sp.z > 30f) return;
-        if (iconStyle == null) iconStyle = new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
         float t = Time.unscaledTime - stateSince;
         float pop = t < 0.25f ? Mathf.Lerp(1.8f, 1f, t / 0.25f) : 1f;
-        iconStyle.fontSize = Mathf.RoundToInt(38f * pop);
-        Rect r = new Rect(sp.x - 30f, Screen.height - sp.y - 40f, 60f, 60f);
-        string icon = State == StateKnocked ? "zZ" : "!";
+        Vector2 c = new Vector2(sp.x, Screen.height - sp.y - 20f);
         if (State == StateKnocked)
         {
-            iconStyle.fontSize = Mathf.RoundToInt(22f * pop);
-            r.y += 40f; // yerde yatıyor: simge daha aşağıda
+            // Yerde yatıyor: simge daha aşağıda, küçük "zZ" rozeti
+            PromptHud.ReactionBadge(c + new Vector2(0f, 40f), IconId.Eye, UITheme.IvoryDim, pop * 0.75f, -1f, "zZ");
+            return;
         }
-        iconStyle.normal.textColor = new Color(0f, 0f, 0f, 0.8f);
-        GUI.Label(new Rect(r.x + 2f, r.y + 2f, r.width, r.height), icon, iconStyle);
-        iconStyle.normal.textColor = State == StateKnocked ? new Color(0.8f, 0.85f, 1f)
-                                   : State == StateReport ? new Color(1f, 0.55f, 0.15f) : new Color(1f, 0.9f, 0.3f);
-        GUI.Label(r, icon, iconStyle);
+        // Şikayet edecek: Danger uyarı; şüpheli / bakıyor: Ochre uyarı
+        PromptHud.ReactionBadge(c, IconId.Warning, State == StateReport ? UITheme.DangerLight : UITheme.Ochre, pop);
     }
 
     /// <summary>Fotoğraf çeken ziyaretçi: sağ kolu önde, elinde telefon, arada bir flaş patlar.</summary>

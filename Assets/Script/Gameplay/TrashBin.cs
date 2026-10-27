@@ -107,54 +107,80 @@ public class TrashBin : MonoBehaviour, IInventoryPanel
         return inv != null && this != null && Vector3.Distance(inv.transform.position, transform.position) <= UseRange + 1f;
     }
 
+    private int focus;                                   // klavye odağı: satırlar + "Bütün sahteleri at"
+    private readonly List<int> rows = new List<int>();
+
     public void DrawPanel(PlayerInventory inv)
     {
         PeekOpen(0.3f);
         ItemDatabase db = ItemDatabase.Instance;
-        UIUtil.BeginCenteredPanel(520f, 460f);
-        GUILayout.Label(Loc.T("trash.title"), UIUtil.TitleStyle);
-        GUILayout.Label(Loc.T("trash.help"), UIUtil.SmallStyle);
-        GUILayout.Space(8f);
+        float sc = EconomyPanelUI.Sc;
+        EconomyPanelUI.PageRects pg = EconomyPanelUI.BeginPage(640f, 620f, Loc.T("trash.title"), IconId.Eraser, Loc.T("trash.help"));
+        Rect c = pg.content;
 
-        int trashIndex = -1, count = 0;
-        scroll = GUILayout.BeginScrollView(scroll, GUILayout.Height(300f));
+        rows.Clear();
         for (int i = 0; i < inv.SlotCount; i++)
         {
             InventorySlot s = inv.GetSlot(i);
             ItemDefinition def = db != null ? db.Get(s.ItemIndex) : null;
             if (def == null || def.type != ItemType.Forgery) continue;
-            count++;
-
-            GUILayout.BeginHorizontal(GUILayout.Height(40f));
-            Rect icon = GUILayoutUtility.GetRect(34f, 34f, GUILayout.Width(34f), GUILayout.Height(34f));
-            icon.y += 3f;
-            UIUtil.DrawRect(icon, new Color(1f, 1f, 1f, 0.06f));
-            Texture2D iconTex = ItemVisuals.IconFor(def, s);
-            if (iconTex != null) GUI.DrawTexture(icon, iconTex, ScaleMode.ScaleToFit);
-            else UIUtil.DrawRect(new Rect(icon.x + 4f, icon.y + 4f, icon.width - 8f, icon.height - 8f), def.uiColor);
-
-            GUILayout.Space(8f);
-            GUILayout.BeginVertical();
-            GUILayout.Label(s.Count > 1 ? def.DisplayName + " x" + s.Count : def.DisplayName, UIUtil.RowStyle);
-            string quality = s.HasSimilarity
-                ? Loc.T("card.swapquality", s.Similarity, ItemDefinition.GradeName(s.Similarity))
-                : "";
-            GUILayout.Label(quality, UIUtil.SmallStyle);
-            GUILayout.EndVertical();
-            GUILayout.FlexibleSpace();
-
-            if (GUILayout.Button(Loc.T("trash.one"), UIUtil.ButtonStyle, GUILayout.Width(120f), GUILayout.Height(28f))) trashIndex = i;
-            GUILayout.EndHorizontal();
+            rows.Add(i);
         }
-        if (count == 0) GUILayout.Label(Loc.T("trash.none"), UIUtil.RowStyle);
-        GUILayout.EndScrollView();
+        int count = rows.Count;
 
-        GUILayout.Space(6f);
-        GUI.enabled = count > 0;
-        bool trashAll = GUILayout.Button(Loc.T("trash.all", count), UIUtil.ButtonStyle, GUILayout.Height(34f));
-        GUI.enabled = true;
-        GUILayout.Label(Loc.T("panel.close"), UIUtil.HintStyle);
-        UIUtil.EndCenteredPanel();
+        float hintH = 24f * sc, btnH = 42f * sc;
+        Rect hintR = new Rect(c.x, c.yMax - hintH, c.width, hintH);
+        Rect allR = new Rect(c.x, hintR.y - 8f - btnH, c.width, btnH);
+        Rect view = new Rect(c.x, c.y, c.width, Mathf.Max(60f, allR.y - 8f - c.y));
+
+        int items = count + (count > 0 ? 1 : 0);
+        if (items > 0)
+        {
+            focus = Mathf.Clamp(focus, 0, items - 1);
+            focus = UIUtil.NavigateVertical(focus, items);
+        }
+
+        int trashIndex = -1;
+        float rowH = 66f * sc;
+        if (count == 0)
+        {
+            EconomyPanelUI.EmptyState(view, Loc.T("trash.none"), IconId.Bag);
+        }
+        else
+        {
+            bool overflow = count * rowH > view.height;
+            float cw = view.width - (overflow ? 16f : 0f);
+            if (focus < count && Event.current.type == EventType.KeyDown) scroll.y = EconomyPanelUI.EnsureVisible(scroll.y, focus, rowH, view.height);
+            scroll = GUI.BeginScrollView(view, scroll, new Rect(0f, 0f, cw, count * rowH));
+            for (int k = 0; k < count; k++)
+            {
+                int i = rows[k];
+                InventorySlot s = inv.GetSlot(i);
+                ItemDefinition def = db.Get(s.ItemIndex);
+
+                Rect row = new Rect(0f, k * rowH, cw, rowH);
+                EconomyPanelUI.RowBack(row, focus == k);
+                Rect slot = EconomyPanelUI.RowSlot(row);
+                EconomyPanelUI.DrawItemIcon(slot, def, s);
+
+                string quality = s.HasSimilarity
+                    ? Loc.T("card.swapquality", s.Similarity, ItemDefinition.GradeName(s.Similarity))
+                    : "";
+                string name = s.Count > 1 ? def.DisplayName + "  x" + s.Count : def.DisplayName;
+                float btnW = 130f * sc;
+                EconomyPanelUI.RowText(row, slot, name, quality, btnW + 12f, null);
+                if (EconomyPanelUI.PriceButton(row, null, Loc.T("trash.one"), ButtonKind.Danger, true, focus == k, 0f, btnW))
+                {
+                    focus = k;
+                    trashIndex = i;
+                }
+            }
+            GUI.EndScrollView();
+        }
+
+        // Geri alınamaz toplu eylem: Danger
+        bool trashAll = UIUtil.Button(allR, Loc.T("trash.all", count), ButtonKind.Danger, count > 0, focus == count && count > 0);
+        EconomyPanelUI.KeyHints(hintR, Loc.T("panel.close"), UITheme.Graphite, false, false);
 
         if (trashIndex >= 0) { inv.RequestTrash(trashIndex, inv.GetSlot(trashIndex)); PeekOpen(); }
         else if (trashAll) { inv.RequestTrashAllForgeries(); PeekOpen(); }

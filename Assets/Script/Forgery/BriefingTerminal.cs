@@ -127,6 +127,7 @@ public class BriefingUI : MonoBehaviour
     private int openedFrame;
     private readonly Dictionary<string, Texture2D> icons = new Dictionary<string, Texture2D>();
     private Vector2 scroll;
+    private float openedAt;
 
     public static void Open(GameObject player)
     {
@@ -135,6 +136,7 @@ public class BriefingUI : MonoBehaviour
         var ui = go.AddComponent<BriefingUI>();
         ui.controller = player != null ? player.GetComponent<PlayerController>() : null;
         ui.openedFrame = Time.frameCount;
+        ui.openedAt = Time.unscaledTime;
         current = ui;
         if (ui.controller != null) ui.controller.enabled = false;
         Cursor.lockState = CursorLockMode.None;
@@ -171,92 +173,162 @@ public class BriefingUI : MonoBehaviour
         return t;
     }
 
-    private GUIStyle staffNote;
-
-    /// <summary>Rol kartı: başlık + açıklama.</summary>
-    private static void RoleBox(string titleKey, string descKey)
+    private static IconId IconForKind(ArtKind kind)
     {
-        GUILayout.BeginVertical(UIUtil.BoxStyle, GUILayout.ExpandWidth(true));
-        GUILayout.Label(Loc.T(titleKey), UIUtil.RowStyle);
-        GUILayout.Label(Loc.T(descKey), UIUtil.SmallStyle);
-        GUILayout.EndVertical();
+        switch (kind)
+        {
+            case ArtKind.Vase: return IconId.Vase;
+            case ArtKind.Bust: return IconId.Bust;
+            case ArtKind.Jewelry: return IconId.Ring;
+            default: return IconId.Painting;
+        }
     }
 
+    // Brifing: katalog sayfası. Üstte görev başlığı + kota, altında hedef eser kartları (Label), altta kapat ipucu.
     private void OnGUI()
     {
         MuseumSession ms = MuseumSession.Instance;
-        float panelH = Mathf.Min(Screen.height - 40f, 660f);
-        UIUtil.BeginCenteredPanel(Mathf.Min(Screen.width - 40f, 820f), panelH);
+        float sc = UITheme.Scale;
+        float enter = UIUtil.Ease.OutCubic((Time.unscaledTime - openedAt) / UITheme.MotionBase);
+
+        float pw = Mathf.Min(Screen.width - 32f, 820f * sc);
+        float ph = Mathf.Min(Screen.height - 32f, 700f * sc);
+        Rect page = new Rect((Screen.width - pw) * 0.5f, (Screen.height - ph) * 0.5f + (1f - enter) * 12f, pw, ph);
+        float pad = UITheme.S5 * sc;
+
+        Color oldC = GUI.color;
+        UIUtil.Scrim(UITheme.WithAlpha(UITheme.Scrim, UITheme.Scrim.a * enter));
+        GUI.color = new Color(1f, 1f, 1f, enter);
+        UIUtil.Shadow(page);
+        UIUtil.Panel(page, PanelKind.Catalog);
+        UIUtil.Corners(new Rect(page.x + 6f, page.y + 6f, page.width - 12f, page.height - 12f), 0.6f);
+
+        float x = page.x + pad, w = page.width - pad * 2f;
+        float y = page.y + pad;
+
+        // Alt çubuk: kapat ipucu (tuş kapakları) + Kapat düğmesi
+        string closeTxt = Loc.T("brief.close");
+        int colon = closeTxt.IndexOf(':');
+        string closeLabel = colon >= 0 ? closeTxt.Substring(colon + 1).Trim() : closeTxt;
+        float footH = 40f * sc;
+        float footY = page.yMax - pad - footH;
+        float bw = Mathf.Max(110f * sc, UIUtil.Measure(closeLabel, TextRole.Button).x + 40f);
+        if (UIUtil.Button(new Rect(x + w - bw, footY, bw, footH), closeLabel, ButtonKind.Secondary)) { GUI.color = oldC; Close(); return; }
+        float kx = x;
+        float ky = footY + (footH - 24f * sc) * 0.5f;
+        foreach (string k in new[] { "E", "Esc" })
+        {
+            float kw = UIUtil.KeyCapWidth(k, 14);
+            UIUtil.KeyCap(new Rect(kx, ky, kw, 24f * sc), k, 14);
+            kx += kw + 6f;
+        }
+        UIUtil.Text(new Rect(kx + 4f, footY, Mathf.Max(10f, w - bw - (kx - x) - 16f), footH), closeLabel, TextRole.Caption, UITheme.Graphite);
 
         if (ms == null || !ms.Ready)
         {
-            GUILayout.Label(Loc.T("brief.waiting"), UIUtil.TitleStyle);
-            GUILayout.FlexibleSpace();
-            GUILayout.Label(Loc.T("brief.close"), UIUtil.HintStyle);
-            UIUtil.EndCenteredPanel();
+            UIUtil.Text(new Rect(x, y, w, 40f * sc), Loc.T("brief.waiting"), TextRole.Title, UITheme.Charcoal);
+            GUI.color = oldC;
             return;
         }
 
+        // --- Başlık: bölüm etiketi + görev adı + kota ---
         MuseumTheme th = ms.Theme;
-        GUILayout.Label(Loc.T("mission.title", ms.Level, th.name, th.City), UIUtil.TitleStyle);
-        GUILayout.Label(Loc.T("brief.quota", ms.Quota, Mathf.Max(0, ms.Earned)), UIUtil.AccentStyle);
-        GUILayout.Space(6f);
+        UIUtil.Text(new Rect(x, y, w, 16f * sc), UITheme.Caps(Loc.T("brief.goals.title", CountTargets())), TextRole.Section, UITheme.Bordeaux);
+        y += 18f * sc;
+        UIUtil.Text(new Rect(x, y, w, 40f * sc), Loc.T("mission.title", ms.Level, th.name, th.City), TextRole.Title, UITheme.Charcoal);
+        y += 42f * sc;
+        UIUtil.Divider(x, y, w, UITheme.WithAlpha(UITheme.Bordeaux, 0.7f), true);
+        y += 12f * sc;
 
-        scroll = GUILayout.BeginScrollView(scroll, GUILayout.Height(panelH - 150f));
+        // Kota: yazı + ilerleme çubuğu
+        string quotaTxt = Loc.T("brief.quota", ms.Quota, Mathf.Max(0, ms.Earned));
+        float quotaH = Mathf.Ceil(UIUtil.MeasureHeight(quotaTxt, TextRole.Body, w));
+        UIUtil.Text(new Rect(x, y, w, quotaH), quotaTxt, TextRole.Body, UITheme.Graphite, TextAnchor.UpperLeft);
+        y += quotaH + 6f * sc;
+        float ratio = ms.Quota > 0 ? Mathf.Clamp01(Mathf.Max(0, ms.Earned) / (float)ms.Quota) : 0f;
+        UIUtil.ProgressBar(new Rect(x, y, w, 10f * sc), ratio, UITheme.Forest);
+        y += 10f * sc + 14f * sc;
 
-        // --- Roller ---
-        GUILayout.Label(Loc.T("brief.roles.title"), UIUtil.AccentStyle);
-        GUILayout.BeginHorizontal();
-        RoleBox("brief.role.museum.t", "brief.role.museum.d");
-        RoleBox("brief.role.truck.t", "brief.role.truck.d");
-        GUILayout.EndHorizontal();
-        bool solo = PlayerNetworkSetup.All.Count <= 1;
-        GUILayout.Label(Loc.T(solo ? "brief.role.solo" : "brief.role.team"), UIUtil.SmallStyle);
-        GUILayout.Space(8f);
-
-        // --- Hedefler ---
-        int targetCount = 0;
-        foreach (ArtworkDisplay t in ArtworkDisplay.All)
-            if (t != null && t.Artwork != null && MuseumSession.IsDisplayActive(t)) targetCount++;
-        GUILayout.Label(Loc.T("brief.goals.title", targetCount), UIUtil.AccentStyle);
+        // --- Hedef eser kartları (kaydırmalı) ---
+        Rect view = new Rect(x - 4f, y, w + 8f, Mathf.Max(40f, footY - y - 10f * sc));
+        float gap = 8f * sc;
+        float cardW = view.width - 18f;   // dikey kaydırma çubuğuna yer
+        float contentH = 0f;
         foreach (ArtworkDisplay d in ArtworkDisplay.All)
         {
             if (d == null || d.Artwork == null || !MuseumSession.IsDisplayActive(d)) continue;
-            ArtKind kind = ArtworkLook.KindOf(d.Artwork);
-
-            GUILayout.BeginHorizontal(UIUtil.BoxStyle);
-            if (BriefingTerminal.ShowOriginals)
-            {
-                Rect img = GUILayoutUtility.GetRect(72f, 72f, GUILayout.Width(kind == ArtKind.Painting ? 96f : 72f), GUILayout.Height(72f));
-                Texture2D iconTex = kind != ArtKind.None ? IconFor(ms, d, kind) : d.Artwork.icon;
-                if (iconTex != null) GUI.DrawTexture(img, iconTex, ScaleMode.ScaleToFit);
-            }
-            // Resimler kapalı: görünüş yalnızca müzedeki arkadaşın canlı yayınından öğrenilir; listede sadece ad / değer.
-
-            GUILayout.BeginVertical();
-            GUILayout.Label(ms.ArtworkName(d), UIUtil.RowStyle);
-            string how = Loc.T(WorkbenchUI.MethodKey(kind));
-            GUILayout.Label(Loc.T("brief.value", d.Value, d.Artwork.weightKg.ToString("0.#"), how), UIUtil.SmallStyle);
-            if (d.IsSwapped) GUILayout.Label(Loc.T("brief.swapped", d.LeftSimilarity), UIUtil.SmallStyle);
-            else if (d.IsStaffOnlyPiece) // özel hedef
-            {
-                if (staffNote == null) staffNote = new GUIStyle(UIUtil.AccentStyle) { wordWrap = true, fontSize = 13 };
-                GUILayout.Label(Loc.T("brief.staff"), staffNote, GUILayout.MaxWidth(560f));
-            }
-            GUILayout.EndVertical();
-            GUILayout.EndHorizontal();
+            contentH += CardHeight(d, sc) + gap;
         }
 
-        // --- Plan: adım adım ---
-        GUILayout.Space(8f);
-        GUILayout.Label(Loc.T("brief.steps.title"), UIUtil.AccentStyle);
-        for (int i = 1; i <= 5; i++) GUILayout.Label(Loc.T("brief.step." + i), UIUtil.SmallStyle);
-        GUILayout.Space(4f);
-        GUILayout.Label(Loc.T("brief.plan"), UIUtil.SmallStyle);
-        GUILayout.EndScrollView();
+        // Yön tuşlarıyla kaydırma
+        Event e = Event.current;
+        if (e != null && e.type == EventType.KeyDown)
+        {
+            if (e.keyCode == KeyCode.UpArrow) { scroll.y -= 48f * sc; e.Use(); }
+            else if (e.keyCode == KeyCode.DownArrow) { scroll.y += 48f * sc; e.Use(); }
+        }
 
-        GUILayout.FlexibleSpace();
-        GUILayout.Label(Loc.T("brief.close"), UIUtil.HintStyle);
-        UIUtil.EndCenteredPanel();
+        scroll = GUI.BeginScrollView(view, scroll, new Rect(0f, 0f, cardW, Mathf.Max(contentH, view.height - 1f)));
+        float cy = 0f;
+        int no = 0;
+        foreach (ArtworkDisplay d in ArtworkDisplay.All)
+        {
+            if (d == null || d.Artwork == null || !MuseumSession.IsDisplayActive(d)) continue;
+            no++;
+            float ch = CardHeight(d, sc);
+            DrawTargetCard(new Rect(4f, cy, cardW - 4f, ch), ms, d, no, sc);
+            cy += ch + gap;
+        }
+        GUI.EndScrollView();
+        GUI.color = oldC;
+    }
+
+    private static int CountTargets()
+    {
+        int n = 0;
+        foreach (ArtworkDisplay t in ArtworkDisplay.All)
+            if (t != null && t.Artwork != null && MuseumSession.IsDisplayActive(t)) n++;
+        return n;
+    }
+
+    private static float CardHeight(ArtworkDisplay d, float sc)
+    {
+        float h = 64f * sc;
+        if (d.IsSwapped || d.IsStaffOnlyPiece) h += 20f * sc;
+        return h;
+    }
+
+    // Tek hedef: Label kartı — sıra no (Mono), tür ikonu, ad, ağırlık · yöntem, sağda değer (Numeric)
+    private void DrawTargetCard(Rect r, MuseumSession ms, ArtworkDisplay d, int no, float sc)
+    {
+        ArtKind kind = ArtworkLook.KindOf(d.Artwork);
+        UIUtil.Panel(r, PanelKind.Label);
+
+        float ix = r.x + 14f * sc;
+        UIUtil.Text(new Rect(ix, r.y + 8f * sc, 34f * sc, 16f * sc), no.ToString("00"), TextRole.Mono, UITheme.Terracotta);
+        UIUtil.Icon(new Rect(ix, r.y + 26f * sc, 28f * sc, 28f * sc), IconForKind(kind), UITheme.Charcoal);
+
+        float tx = ix + 44f * sc;
+        string valTxt = "$" + d.Value;
+        float valW = UIUtil.Measure(valTxt, TextRole.Numeric).x + 8f;
+        UIUtil.Text(new Rect(r.xMax - valW - 14f * sc, r.y + 6f * sc, valW, 28f * sc), valTxt, TextRole.Numeric, UITheme.Bordeaux, TextAnchor.MiddleRight);
+
+        float nameW = Mathf.Max(10f, r.xMax - valW - 24f * sc - tx);
+        UIUtil.Text(new Rect(tx, r.y + 6f * sc, nameW, 28f * sc), ms.ArtworkName(d), TextRole.BodyStrong, UITheme.Charcoal);
+        string how = Loc.T(WorkbenchUI.MethodKey(kind));
+        UIUtil.Text(new Rect(tx, r.y + 34f * sc, r.xMax - tx - 14f * sc, 20f * sc),
+            d.Artwork.weightKg.ToString("0.#") + " kg  ·  " + how, TextRole.Caption, UITheme.Graphite);
+
+        float ey = r.y + 56f * sc;
+        if (d.IsSwapped)
+        {
+            UIUtil.Icon(new Rect(tx, ey + 1f, 16f * sc, 16f * sc), IconId.Check, UITheme.Forest);
+            UIUtil.Text(new Rect(tx + 22f * sc, ey, r.xMax - tx - 36f * sc, 18f * sc), Loc.T("brief.swapped", d.LeftSimilarity), TextRole.Caption, UITheme.Forest);
+        }
+        else if (d.IsStaffOnlyPiece) // özel hedef
+        {
+            UIUtil.Icon(new Rect(tx, ey + 1f, 16f * sc, 16f * sc), IconId.Lock, UITheme.Bordeaux);
+            UIUtil.Text(new Rect(tx + 22f * sc, ey, r.xMax - tx - 36f * sc, 18f * sc), Loc.T("brief.staff"), TextRole.Caption, UITheme.Bordeaux);
+        }
     }
 }

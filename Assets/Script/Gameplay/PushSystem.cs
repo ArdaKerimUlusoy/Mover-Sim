@@ -72,7 +72,6 @@ public class PushSystem : MonoBehaviour
     private Target current;
     private readonly List<Shove> shoves = new List<Shove>();
     private readonly Dictionary<ulong, float> serverCooldown = new Dictionary<ulong, float>();
-    private GUIStyle hintStyle;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void Boot()
@@ -484,7 +483,6 @@ public class PushSystem : MonoBehaviour
     //  Arayüz: önünde itilebilecek biri varsa küçük ipucu
     // =====================================================================
 
-    private GUIStyle knockStyle;
 
     private void OnGUI()
     {
@@ -493,15 +491,21 @@ public class PushSystem : MonoBehaviour
         if (knockLeft > -0.6f)
         {
             float a = knockLeft > 0f ? 0.55f : 0.55f * (1f + knockLeft / 0.6f); // uyanırken açılır
-            UIUtil.DrawRect(new Rect(0f, 0f, Screen.width, Screen.height), new Color(0.15f, 0f, 0f, Mathf.Clamp01(a)));
+            // Karartma: Scrim tonunda koyu perde (uyanırken açılır) + vinyet
+            UIUtil.DrawRect(new Rect(0f, 0f, Screen.width, Screen.height), UITheme.WithAlpha(UITheme.CharDeep, Mathf.Clamp01(a * 1.3f)));
+            UIUtil.Vignette(Mathf.Clamp01(a * 1.5f));
             if (knockLeft > 0f)
             {
-                if (knockStyle == null)
-                    knockStyle = new GUIStyle(GUI.skin.label) { fontSize = 30, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
-                knockStyle.normal.textColor = new Color(1f, 0.3f, 0.25f);
-                Rect tr = new Rect(0f, Screen.height * 0.38f, Screen.width, 44f);
-                GUI.Label(new Rect(tr.x + 2f, tr.y + 2f, tr.width, tr.height), Loc.T("push.struck"), ShadowOf(knockStyle));
-                GUI.Label(tr, Loc.T("push.struck"), knockStyle);
+                float ksc = UITheme.Scale;
+                string msg = Loc.T("push.struck");
+                GUIStyle ks = UITheme.Style(TextRole.Title, UITheme.DangerLight, TextAnchor.MiddleCenter);
+                float mw = Mathf.Min(Screen.width - 40f, ks.CalcSize(new GUIContent(msg)).x + 96f * ksc);
+                Rect tr = new Rect((Screen.width - mw) * 0.5f, Screen.height * 0.38f, mw, Mathf.Round(64f * ksc));
+                UIUtil.Panel(tr, PanelKind.Plaque, 0.95f);
+                UIUtil.DrawRect(new Rect(tr.x + 4f, tr.y + 4f, 3f, tr.height - 8f), UITheme.Danger);
+                float ic = Mathf.Round(32f * ksc);
+                UIUtil.Icon(new Rect(tr.x + 20f * ksc, tr.center.y - ic * 0.5f, ic, ic), IconId.Warning, UITheme.DangerLight);
+                GUI.Label(new Rect(tr.x + 20f * ksc + ic, tr.y, tr.width - 20f * ksc - ic - 12f, tr.height), msg, ks);
             }
             return;
         }
@@ -511,16 +515,21 @@ public class PushSystem : MonoBehaviour
         if (cam == null) return;
         Vector3 sp = cam.WorldToScreenPoint(current.pos + Vector3.up * 1.0f);
         if (sp.z <= 0f) return;
-        if (hintStyle == null)
-        {
-            hintStyle = new GUIStyle(GUI.skin.label) { fontSize = 13, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
-            hintStyle.normal.textColor = new Color(1f, 1f, 1f, 0.85f);
-        }
-        Rect r = new Rect(sp.x - 50f, Screen.height - sp.y - 10f, 100f, 20f);
-        UIUtil.DrawRect(r, new Color(0f, 0f, 0f, 0.45f));
+        // Hedef üstünde küçük istem: tuş kapağı + eylem (tanık: Bayılt = Danger tonu)
         bool ko = current.kind == TargetKind.Visitor && VisitorManager.Instance != null && VisitorManager.Instance.IsWitness((byte)current.id);
-        if (ko) { r.x -= 20f; r.width += 40f; } // "[F] Bayılt" daha uzun
-        GUI.Label(r, Loc.T(ko ? "push.knockhint" : "push.hint"), hintStyle);
+        PromptHud.Parse(Loc.T(ko ? "push.knockhint" : "push.hint"), out string hk, out string hl, out _);
+        float sc = UITheme.Scale;
+        GUIStyle hs = UITheme.Style(TextRole.BodyStrong, ko ? UITheme.DangerLight : UITheme.Ivory, TextAnchor.MiddleLeft);
+        int fs = Mathf.RoundToInt(14f * sc);
+        float kw = string.IsNullOrEmpty(hk) ? 0f : UIUtil.KeyCapWidth(hk, fs);
+        float lw = hs.CalcSize(new GUIContent(hl)).x;
+        float h = Mathf.Round(28f * sc);
+        float w = kw + (kw > 0f ? 8f : 0f) + lw + 20f;
+        Rect r = new Rect(Mathf.Round(sp.x - w * 0.5f), Mathf.Round(Screen.height - sp.y - h * 0.5f), w, h);
+        UIUtil.Panel(r, PanelKind.Plaque, 0.88f);
+        float hx = r.x + 10f;
+        if (kw > 0f) { UIUtil.KeyCap(new Rect(hx, r.y + 4f, kw, h - 8f), hk, fs); hx += kw + 8f; }
+        GUI.Label(new Rect(hx, r.y, lw + 4f, h), hl, hs);
     }
 
     private GUIStyle knockShadow;

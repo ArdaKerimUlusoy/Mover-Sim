@@ -1232,3 +1232,17 @@ Arkadaşın commit'i aynı fikirleri (kayıt kamerası + kamyon ekranı, boya / 
 - **Kaydı herkes kendisi seçer:** monitöre bakıp **E** → büyük ekranda **"Kayıt seç:"** satırı: canlı yayınlar (● CANLI: isim) ve eserlerin son kayıtları (eser adı). Atölyede tuvalin altındaki harita panelinde de aynı satır var. Seçim sadece o bilgisayarda: ben A'yı seçince bende (monitör + atölye) A, arkadaşım B'yi seçince onda B görünür. Aynı düğmeye tekrar tıklamak seçimi bırakır (otomatik).
 - **Optimizasyon:** her bilgisayar yalnızca izlediği tek canlı yayını çizer (tek kamera, 640x360, 4–15 kare/sn, yalnız biri bakarken). İzlenmeyen kayıt yapanlar için yalnızca "son kayıt" anında tek kare çizilir (aynı kamera, ayrı doku). Son kayıt seçiliyken canlı yayın hiç çizilmez. Ağdan görüntü gitmez (ağda yalnızca kayıttakilerin listesi).
 - **Hapis kamerası:** hapis hücresinin önünü gören güvenlik kamerası (`RoomCamera_Jail`) — bodrumdaki hapiste de, köşe yerleşiminde de. Kurtarma girişimi kameraya yakalanabilir.
+
+## Ek — Test düzeltmeleri (27.10)
+- SoundSynth.MakeLoop: döngü karışımı dizinin sonunu aşmıyor (IndexOutOfRange giderildi).
+- Tezgah mini haritası: BodyCam yazı stilleri tek satır + kırpma; başlıktaki tıklama ipucu yalnız sığarsa. Araç düğmeleri dar sütunda 2x2.
+- Brifing: roller ve plan bölümleri kaldırıldı (sadece hedef listesi).
+- Güvenlik aynaları tamamen kaldırıldı (SecurityMirror.cs silindi).
+- VisionConeVisual: zemin ışını gözün hemen üstünden atılıyor; bodrum hapis kamerasının konisi artık bodrum zeminine çiziliyor.
+
+## Ek — UI/UX yeniden tasarım (27.10)
+- Tasarım rehberi: UI_DESIGN.md (palet, tipografi rolleri, bileşenler, ekran düzenleri). Sistem: UI/UITheme.cs + UI/UIUtil.cs (OnGUI kalır).
+- Varlıklar: Assets/Resources/UI/{Panels,Buttons,Frames,Icons,Backgrounds,Textures} — yeniden üretim: Assets/Art/UI/Tools/generate_ui.ps1.
+- İçe aktarma: Editor/UIAssetPostprocessor.cs; dokular bozuk görünürse Tools > UI > Reimport UI Textures.
+- Font: Assets/Resources/UI/Fonts/ altına Display.ttf / Body.ttf / Mono.ttf konursa otomatik yüklenir (yoksa Georgia/Consolas/yerleşik).
+- Yeni ortak çizim: UI/PromptHud.cs (istemler), ObjectiveHUD.HudKit, BlackMarket.EconomyPanelUI. Mantık/ağ değişmedi.

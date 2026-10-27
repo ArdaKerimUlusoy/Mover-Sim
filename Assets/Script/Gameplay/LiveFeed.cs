@@ -38,7 +38,6 @@ public class LiveFeed : MonoBehaviour
     private Material monitorMat;
     private float nextBenchSearch;
 
-    private static GUIStyle titleStyle, smallStyle, bigStyle;
 
     /// <summary>Şu an yayın yapan (izlenen) oyuncu, yoksa null.</summary>
     public static PlayerStealth Source => instance != null ? instance.source : null;
@@ -255,15 +254,76 @@ public class LiveFeed : MonoBehaviour
 
     // ---------------- Arayüz ----------------
 
-    private static void EnsureStyles()
+    private static GUIStyle fitStyle;
+
+    // Çağıranlar sabit px dikdörtgen verir (ölçeklenmez); yazı en çok maxPx olsun ki satıra sığsın
+    private static GUIStyle Fit(TextRole role, Color color, TextAnchor anchor, int maxPx)
     {
-        if (titleStyle != null) return;
-        titleStyle = new GUIStyle(GUI.skin.label) { fontSize = 15, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleLeft };
-        titleStyle.normal.textColor = Color.white;
-        smallStyle = new GUIStyle(GUI.skin.label) { fontSize = 12, alignment = TextAnchor.MiddleLeft, wordWrap = true };
-        smallStyle.normal.textColor = new Color(0.85f, 0.85f, 0.85f);
-        bigStyle = new GUIStyle(GUI.skin.label) { fontSize = 20, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter, wordWrap = true };
-        bigStyle.normal.textColor = Color.white;
+        GUIStyle b = UITheme.Style(role, color, anchor);
+        if (fitStyle == null) fitStyle = new GUIStyle(b);
+        fitStyle.font = b.font; fitStyle.fontStyle = b.fontStyle; fitStyle.wordWrap = b.wordWrap;
+        fitStyle.clipping = TextClipping.Clip; fitStyle.padding = b.padding;
+        fitStyle.fontSize = Mathf.Min(b.fontSize, maxPx);
+        fitStyle.alignment = anchor;
+        fitStyle.normal.textColor = color;
+        return fitStyle;
+    }
+
+    // "[N] Sonraki kamera (2)" → [..] tuş kapağı, kalan Caption
+    private static void DrawKeyed(Rect r, string text, Color color)
+    {
+        UIUtil.SplitKey(text, out string key, out string label);
+        float x = r.x;
+        if (!string.IsNullOrEmpty(key))
+        {
+            float kw = UIUtil.KeyCapWidth(key, 12);
+            UIUtil.KeyCap(new Rect(x, r.y + 1f, kw, r.height - 2f), key, 12);
+            x += kw + 6f;
+        }
+        GUI.Label(new Rect(x, r.y, Mathf.Max(10f, r.xMax - x), r.height), label, Fit(TextRole.Caption, color, TextAnchor.MiddleLeft, 12));
+    }
+
+    // Başlık şeridi: Camera ikonu + başlık (kayıt varken nabızlı Danger nokta)
+    private static void DrawHeader(Rect frame, Rect r, string title, bool live)
+    {
+        Rect hdr = new Rect(frame.x, frame.y, frame.width, r.y - frame.y);
+        float ix = hdr.x + 8f;
+        UIUtil.Icon(new Rect(ix, hdr.y + 4f, 18f, 18f), IconId.Camera, live ? UITheme.BrassLight : UITheme.IvoryDim);
+        float tx = ix + 24f;
+        if (live)
+        {
+            float a = 0.35f + 0.65f * UIUtil.Pulse(5f);
+            UIUtil.DrawRect(new Rect(tx, hdr.y + 9f, 8f, 8f), UITheme.WithAlpha(UITheme.Danger, a));
+            tx += 14f;
+        }
+        GUI.Label(new Rect(tx, hdr.y, hdr.xMax - tx - 8f, hdr.height - 2f), UITheme.Caps(title), Fit(TextRole.Section, live ? UITheme.BrassLight : UITheme.Brass, TextAnchor.MiddleLeft, 14));
+    }
+
+    private static Rect FrameOf(Rect r) => new Rect(r.x - 6f, r.y - 26f, r.width + 12f, r.height + 32f);
+
+    // Sinyal yok: statik parazit + tarama (Hatch) + ortada Camera ikonu ve iki satır yazı
+    private static void DrawNoSignal(Rect r, Texture noiseTex)
+    {
+        if (noiseTex != null) GUI.DrawTexture(r, noiseTex, ScaleMode.StretchToFill, false);
+        else UIUtil.DrawRect(r, UITheme.CharDeep);
+        UIUtil.DrawRect(r, UITheme.WithAlpha(UITheme.CharDeep, 0.55f));
+        UIUtil.Hatch(r, UITheme.WithAlpha(UITheme.Graphite, 0.5f));
+
+        string[] parts = Loc.T("feed.nosignal").Split('\n');
+        float bandH = Mathf.Min(r.height, Mathf.Max(70f, r.height * 0.4f));
+        Rect band = new Rect(r.x, r.y + (r.height - bandH) * 0.5f, r.width, bandH);
+        UIUtil.DrawRect(band, UITheme.WithAlpha(UITheme.CharDeep, 0.82f));
+        UIUtil.DrawRect(new Rect(band.x, band.y, band.width, 1f), UITheme.WithAlpha(UITheme.Brass, 0.6f));
+        UIUtil.DrawRect(new Rect(band.x, band.yMax - 1f, band.width, 1f), UITheme.WithAlpha(UITheme.Brass, 0.6f));
+
+        float icon = Mathf.Min(24f, bandH * 0.3f);
+        UIUtil.Icon(new Rect(band.center.x - icon * 0.5f, band.y + 6f, icon, icon), IconId.Camera, UITheme.BrassLight);
+        float ty = band.y + icon + 8f;
+        float th = band.yMax - ty - 4f;
+        float head = parts.Length > 1 ? Mathf.Min(th * 0.4f, 24f) : th;
+        GUI.Label(new Rect(band.x + 10f, ty, band.width - 20f, head), UITheme.Caps(parts[0]), Fit(TextRole.BodyStrong, UITheme.BrassLight, TextAnchor.MiddleCenter, 18));
+        if (parts.Length > 1)
+            GUI.Label(new Rect(band.x + 12f, ty + head, band.width - 24f, th - head), parts[1], Fit(TextRole.Caption, UITheme.IvoryDim, TextAnchor.UpperCenter, 13));
     }
 
     /// <summary>Birleştirme: LiveFeed kapalıyken (FeatureMerge) aynı yere BodyCam'in monitör görüntüsü çizilir (M kat planı vb.).</summary>
@@ -271,22 +331,23 @@ public class LiveFeed : MonoBehaviour
     {
         if (CanvasPainter.ReferenceProvider == null) return;
         Texture t = CanvasPainter.ReferenceProvider(out string label);
-        UIUtil.DrawRect(new Rect(r.x - 6f, r.y - 26f, r.width + 12f, r.height + 32f), new Color(0.05f, 0.05f, 0.06f, 0.95f));
-        GUI.Label(new Rect(r.x, r.y - 24f, r.width, 22f), label, titleStyle);
-        UIUtil.DrawRect(r, Color.black);
+        Rect frame = FrameOf(r);
+        UIUtil.Panel(frame, PanelKind.Plaque, 0.95f);
+        DrawHeader(frame, r, label, false);
+        UIUtil.DrawRect(r, UITheme.CharDeep);
         if (t != null) GUI.DrawTexture(r, t, ScaleMode.ScaleToFit, false);
-        else GUI.Label(r, Loc.T("feed.nosignal"), bigStyle);
+        else DrawNoSignal(r, null);
+        UIUtil.BrassFrame(r);
     }
 
     /// <summary>Yayını bir dikdörtgene çizer (çerçeve, başlık, kayıt / pil bilgisi). Atölye ve plan kullanır.</summary>
     public static void Draw(Rect r)
     {
         Request();
-        EnsureStyles();
         if (instance == null) { DrawBodyCam(r); return; }
 
-        Rect frame = new Rect(r.x - 6f, r.y - 26f, r.width + 12f, r.height + 32f);
-        UIUtil.DrawRect(frame, new Color(0.05f, 0.05f, 0.06f, 0.95f));
+        Rect frame = FrameOf(r);
+        UIUtil.Panel(frame, PanelKind.Plaque, 0.95f);
 
         PlayerStealth src = instance.source;
         if (src != null)
@@ -297,26 +358,31 @@ public class LiveFeed : MonoBehaviour
 
             PlayerNetworkSetup ns = src.GetComponent<PlayerNetworkSetup>();
             string who = ns != null ? ns.PlayerName : "?";
-            bool blink = Mathf.Repeat(Time.unscaledTime, 1f) < 0.6f;
-            GUI.Label(new Rect(r.x, r.y - 24f, r.width, 22f), (blink ? "●  " : "    ") + Loc.T("feed.live", who), titleStyle);
+            DrawHeader(frame, r, Loc.T("feed.live", who), true);
+
+            // Alt bilgi şeridi: pil (+ sonraki kamera ipucu)
             float bat = src.BatterySeconds;
             string batText = Loc.T("feed.battery", Mathf.FloorToInt(bat / 60f), Mathf.FloorToInt(bat % 60f).ToString("00"));
-            GUI.Label(new Rect(r.x + 8f, r.yMax - 24f, r.width - 16f, 22f), batText, smallStyle);
-            if (src.IsRecordingConspicuous)
-            {
-                UIUtil.DrawRect(new Rect(r.x, r.y, r.width, 22f), new Color(0.75f, 0.1f, 0.1f, 0.7f));
-                GUI.Label(new Rect(r.x + 8f, r.y, r.width - 16f, 22f), Loc.T("feed.noticed"), smallStyle);
-            }
+            Rect strip = new Rect(r.x, r.yMax - 26f, r.width, 26f);
+            UIUtil.DrawRect(strip, UITheme.WithAlpha(UITheme.CharDeep, 0.72f));
+            GUI.Label(new Rect(strip.x + 8f, strip.y, strip.width * 0.5f, strip.height), batText, Fit(TextRole.Mono, UITheme.Ivory, TextAnchor.MiddleLeft, 13));
             PlayerStealth.FindRecorder(0, true, out int count);
             if (count > 1 && WorkbenchUI.IsOpen)
-                GUI.Label(new Rect(r.x + 8f, r.yMax - 44f, r.width - 16f, 20f), Loc.T("feed.next", count), smallStyle);
+                DrawKeyed(new Rect(strip.x + strip.width * 0.5f, strip.y + 3f, strip.width * 0.5f - 8f, strip.height - 6f), Loc.T("feed.next", count), UITheme.IvoryDim);
+
+            if (src.IsRecordingConspicuous)
+            {
+                Rect warn = new Rect(r.x, r.y, r.width, 24f);
+                UIUtil.DrawRect(warn, UITheme.WithAlpha(UITheme.Danger, 0.82f));
+                UIUtil.Icon(new Rect(warn.x + 6f, warn.y + 3f, 18f, 18f), IconId.Warning, UITheme.Ivory);
+                GUI.Label(new Rect(warn.x + 30f, warn.y, warn.width - 38f, warn.height), Loc.T("feed.noticed"), Fit(TextRole.BodyStrong, UITheme.Ivory, TextAnchor.MiddleLeft, 14));
+            }
         }
         else
         {
-            GUI.DrawTexture(r, instance.noise, ScaleMode.StretchToFill, false);
-            UIUtil.DrawRect(new Rect(r.x, r.y + r.height * 0.35f, r.width, r.height * 0.3f), new Color(0f, 0f, 0f, 0.7f));
-            GUI.Label(new Rect(r.x + 10f, r.y + r.height * 0.35f, r.width - 20f, r.height * 0.3f), Loc.T("feed.nosignal"), bigStyle);
-            GUI.Label(new Rect(r.x, r.y - 24f, r.width, 22f), Loc.T("feed.title"), titleStyle);
+            DrawHeader(frame, r, Loc.T("feed.title"), false);
+            DrawNoSignal(r, instance.noise);
         }
+        UIUtil.BrassFrame(r);
     }
 }

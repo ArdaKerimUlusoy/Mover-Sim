@@ -28,7 +28,7 @@ public class HeistLobbyUI : MonoBehaviour
     private float nextBroadcast;
     private int serverLevel = -1;
 
-    private GUIStyle title, row, small, hint;
+
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void Boot()
@@ -176,19 +176,6 @@ public class HeistLobbyUI : MonoBehaviour
 
     // ---------------- Çizim ----------------
 
-    private void EnsureStyles()
-    {
-        if (title != null) return;
-        title = new GUIStyle(GUI.skin.label) { fontSize = 14, fontStyle = FontStyle.Bold };
-        title.normal.textColor = UIUtil.Gold;
-        row = new GUIStyle(GUI.skin.label) { fontSize = 14, fontStyle = FontStyle.Bold };
-        row.normal.textColor = UIUtil.Cream;
-        small = new GUIStyle(GUI.skin.label) { fontSize = 12, wordWrap = true };
-        small.normal.textColor = UIUtil.Muted;
-        hint = new GUIStyle(small) { fontStyle = FontStyle.Bold };
-        hint.normal.textColor = new Color(0.6f, 0.95f, 0.65f);
-    }
-
     private static string PlaceKey(GamePhase p)
     {
         switch (p)
@@ -204,51 +191,107 @@ public class HeistLobbyUI : MonoBehaviour
         if (!PanelVisible) return;
         NetworkManager nm = NetworkManager.Singleton;
         if (nm == null || !nm.IsListening) return;
-        EnsureStyles();
 
+        float sc = UITheme.Scale;
         bool solo = GameFlow.Solo;
         var players = PlayerNetworkSetup.All;
-        float w = 300f;
-        float h = 34f + (solo ? 0f : players.Count * 24f + 8f) + 118f;
+
+        float w = Mathf.Min(Screen.width - 24f, 340f * sc);
+        float padX = UITheme.S4 * sc, padY = UITheme.S3 * sc;
+        float innerW = w - padX * 2f - 3f;
+        float rowH = Mathf.Round(28f * sc);
+
+        // Yerleşim yüksekliği: başlık + oyuncu satırları + bilgi (sarılmış) + yapılacak satırı
+        string info = Loc.T(solo ? "lobby.info.solo" : "lobby.info.team");
+        int readyPre = 0;
+        if (!solo) foreach (PlayerNetworkSetup q in players) if (q != null && ready.Contains(q.OwnerClientId)) readyPre++;
+        string last;
+        Color lastCol = UITheme.BrassLight;
+        if (solo) last = Loc.T("lobby.todo.solo");
+        else if (players.Count > 0 && readyPre >= players.Count) { last = Loc.T("lobby.allready"); lastCol = UITheme.Sage; }
+        else last = Loc.T("lobby.todo.ready", ReadyKey.ToString());
+        float lastH = last.IndexOf('[') >= 0 ? 26f * sc : Mathf.Max(26f * sc, Mathf.Ceil(UIUtil.MeasureHeight(last, TextRole.Body, innerW)));
+        float infoH = Mathf.Ceil(UIUtil.MeasureHeight(info, TextRole.Caption, innerW));
+        int shown = solo ? 0 : players.Count;
+        float h = padY + 26f * sc + shown * rowH + (shown > 0 ? UITheme.S2 * sc : 0f) + infoH + UITheme.S2 * sc + lastH + padY;
+
         // Sol üst köşe: oda kodu kutusunun altına dizilir (görev paneliyle çakışmaz)
         Rect r = UIUtil.HudRect(UIUtil.HudCorner.TopLeft, UIUtil.HudOrder.Lobby, w, h);
-        UIUtil.Panel(r, UIUtil.Gold);
-        r.x += 6f; // sol şeridin sağından başla
+        UIUtil.Panel(r, PanelKind.Plaque, 0.94f);
 
-        float y = r.y + 6f;
-        GUI.Label(new Rect(r.x + 10f, y, w - 20f, 22f), Loc.T("lobby.title"), title);
-        y += 26f;
+        float x = r.x + padX + 3f;
+        float y = r.y + padY;
+        y += UIUtil.SectionHeader(new Rect(x, y, innerW, 20f * sc), Loc.T("lobby.title"));
 
-        int readyCount = 0;
         if (!solo)
         {
             foreach (PlayerNetworkSetup p in players)
             {
                 if (p == null) continue;
                 bool isReady = ready.Contains(p.OwnerClientId);
-                if (isReady) readyCount++;
-                UIUtil.DrawRect(new Rect(r.x + 10f, y + 5f, 14f, 14f), p.PlayerColor);
+
+                Rect row = new Rect(x, y, innerW, rowH);
+                if (p.IsOwner) UIUtil.DrawRect(row, UITheme.WithAlpha(UITheme.Brass, 0.12f));
+
+                // Oyuncu rengi: dolu kare + ince fildişi hat
+                float sw = 14f * sc;
+                Rect swatch = new Rect(row.x + 4f, row.y + (rowH - sw) * 0.5f, sw, sw);
+                UIUtil.DrawRect(swatch, p.PlayerColor);
+                UIUtil.Outline(swatch, 1f, UITheme.WithAlpha(UITheme.Ivory, 0.7f));
+
+                // Sağdan sola: durum rozeti, konum; kalan genişlik ad
+                string badgeText = Loc.T(isReady ? "lobby.ready" : "lobby.notready");
+                float badgeW = UIUtil.Measure(badgeText, TextRole.Caption).x + 24f;
+                float badgeX = row.xMax - badgeW - 2f;
+                UIUtil.Badge(new Vector2(badgeX, row.y + (rowH - 20f * sc) * 0.5f), badgeText,
+                    isReady ? UITheme.Sage : UITheme.Graphite, isReady ? UITheme.Charcoal : UITheme.IvoryDim);
 
                 string place = Loc.T(PlaceKey(GameFlow.PhaseAt(p.transform.position)));
-                string you = p.IsOwner ? " " + Loc.T("pause.tag.you") : "";
-                GUI.Label(new Rect(r.x + 30f, y, 150f, 24f), p.PlayerName + you, row);
-                GUI.Label(new Rect(r.x + 150f, y + 2f, 90f, 22f), place, small);
-                hint.normal.textColor = isReady ? new Color(0.6f, 0.95f, 0.65f) : new Color(0.7f, 0.7f, 0.7f);
-                GUI.Label(new Rect(r.x + 236f, y, 50f, 24f), Loc.T(isReady ? "lobby.ready" : "lobby.notready"), hint);
-                y += 24f;
+                float placeW = Mathf.Min(UIUtil.Measure(place, TextRole.Caption).x + 4f, innerW * 0.28f);
+                Rect placeR = new Rect(badgeX - placeW - 8f, row.y, placeW, rowH);
+                UIUtil.Text(placeR, place, TextRole.Caption, UITheme.IvoryDim, TextAnchor.MiddleRight);
+
+                string name = p.PlayerName + (p.IsOwner ? " " + Loc.T("pause.tag.you") : "");
+                float nameX = swatch.xMax + 8f;
+                UIUtil.Text(new Rect(nameX, row.y, placeR.x - nameX - 4f, rowH), name, TextRole.BodyStrong, UITheme.Ivory);
+
+                y += rowH;
             }
-            y += 8f;
+            y += UITheme.S2 * sc;
         }
 
-        // Rol bilgisi + yapılacaklar
-        GUI.Label(new Rect(r.x + 10f, y, w - 20f, 60f), Loc.T(solo ? "lobby.info.solo" : "lobby.info.team"), small);
-        y += 62f;
+        // Rol bilgisi
+        UIUtil.Text(new Rect(x, y, innerW, infoH), info, TextRole.Caption, UITheme.IvoryDim, TextAnchor.UpperLeft);
+        y += infoH + UITheme.S2 * sc;
 
-        hint.normal.textColor = new Color(0.6f, 0.95f, 0.65f);
-        string last;
-        if (solo) last = Loc.T("lobby.todo.solo");
-        else if (players.Count > 0 && readyCount >= players.Count) last = Loc.T("lobby.allready");
-        else last = Loc.T("lobby.todo.ready", ReadyKey.ToString());
-        GUI.Label(new Rect(r.x + 10f, y, w - 20f, 36f), last, hint);
+        // Yapılacak: tuş kapaklı ipucu; herkes hazırsa Sage
+        UIUtil.Divider(x, y - 4f * sc, innerW, UITheme.WithAlpha(UITheme.Brass, 0.35f));
+        if (last.IndexOf('[') >= 0) DrawHintLine(new Rect(x, y, innerW, 24f * sc), last, lastCol);
+        else UIUtil.Text(new Rect(x, y, innerW, lastH), last, TextRole.Body, lastCol, TextAnchor.UpperLeft);
+    }
+
+    // "Hazır durumu için [F3] bas" → [..] parçaları tuş kapağı, kalanı BodyStrong/Caption yazı
+    private static void DrawHintLine(Rect r, string text, Color textColor)
+    {
+        float x = r.x;
+        int i = 0;
+        while (i < text.Length && x < r.xMax)
+        {
+            int open = text.IndexOf('[', i);
+            int close = open >= 0 ? text.IndexOf(']', open) : -1;
+            string plain = open >= 0 && close > open ? text.Substring(i, open - i) : text.Substring(i);
+            if (plain.Length > 0)
+            {
+                float pw = Mathf.Min(UIUtil.Measure(plain, TextRole.BodyStrong).x + 2f, r.xMax - x);
+                UIUtil.Text(new Rect(x, r.y, pw, r.height), plain, TextRole.BodyStrong, textColor);
+                x += pw;
+            }
+            if (open < 0 || close < open) break;
+            string key = text.Substring(open + 1, close - open - 1);
+            float kw = UIUtil.KeyCapWidth(key, 14);
+            UIUtil.KeyCap(new Rect(x + 2f, r.y + 2f, kw, r.height - 4f), key, 14);
+            x += kw + 6f;
+            i = close + 1;
+        }
     }
 }

@@ -625,42 +625,56 @@ public class PaintBrush : MonoBehaviour
         if (PlayerInventory.Local == null || SessionMenuUI.IsPaused || WorkbenchUI.IsOpen || BodyCam.PanelOpen) return;
         if (!holding) return;
         if (PlayerStealth.Local != null && PlayerStealth.Local.CurrentHidingSpot != null) return; // saklanırken fırça yazısı yok
-        if (tipStyle == null) tipStyle = new GUIStyle(GUI.skin.label) { fontSize = 13, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter, richText = true };
+        if (tipStyle == null) tipStyle = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleLeft, richText = true };
         int paint = PlayerInventory.Local.SprayCount;
+        float sc = UITheme.Scale;
 
         // Alt orta: fırça bilgisi (köşe yığını: ses kutusu + hızlı envanterin üstünde, çakışmaz)
         string hudText = Loc.T("brush.hud", paint), throwText = Loc.T("brush.throw");
-        Vector2 hs = tipStyle.CalcSize(new GUIContent(hudText));
-        float bw = Mathf.Max(hs.x + 60f, tipStyle.CalcSize(new GUIContent(throwText)).x + 30f);
-        Rect box = UIUtil.HudRect(UIUtil.HudCorner.BottomCenter, UIUtil.HudOrder.Brush, bw, 48f);
-        UIUtil.Panel(box, 0.85f);
-        tipStyle.normal.textColor = new Color(1f, 1f, 1f, 0.8f);
-        GUI.Label(new Rect(box.x, box.y + 4f, box.width, 20f), throwText, tipStyle);
-        tipStyle.normal.textColor = new Color(1f, 0.85f, 0.9f, 0.95f);
-        GUI.Label(new Rect(box.x + 12f, box.y + 24f, box.width - 12f, 20f), hudText, tipStyle);
-        // Boya rengi (karakter rengi)
-        Rect sw = new Rect(box.x + box.width * 0.5f + 6f - hs.x * 0.5f - 24f, box.y + 27f, 16f, 14f);
-        GUI.DrawTexture(new Rect(sw.x - 1f, sw.y - 1f, sw.width + 2f, sw.height + 2f), Texture2D.whiteTexture, ScaleMode.StretchToFill, false, 0f, new Color(0f, 0f, 0f, 0.8f), 0f, 0f);
-        GUI.DrawTexture(sw, Texture2D.whiteTexture, ScaleMode.StretchToFill, false, 0f, SprayPaint.ColorOf(SprayPaint.LocalColor), 0f, 0f);
+        float swatch = Mathf.Round(16f * sc);
+        float maxW = Mathf.Min(Screen.width - 60f, 760f * sc);
+        Vector2 s1 = PromptHud.HintSize(throwText, maxW), s2 = PromptHud.HintSize(hudText, maxW - swatch - 10f);
+        float bw = Mathf.Max(s1.x, s2.x + swatch + 10f) + 28f;
+        float bh = s1.y + s2.y + 14f;
+        Rect box = UIUtil.HudRect(UIUtil.HudCorner.BottomCenter, UIUtil.HudOrder.Brush, bw, bh);
+        UIUtil.Panel(box, PanelKind.Plaque, 0.9f);
+        PromptHud.HintDraw(new Rect(box.x + 14f, box.y + 5f, bw - 28f, s1.y), throwText, UITheme.IvoryDim);
+        // Boya rengi (karakter rengi) + fırça durumu
+        float rowY = box.y + 5f + s1.y + 4f;
+        float rowW = s2.x + swatch + 10f;
+        float rx = box.center.x - rowW * 0.5f;
+        Rect sw = new Rect(rx, rowY + (s2.y - swatch) * 0.5f, swatch, swatch);
+        UIUtil.DrawRect(new Rect(sw.x - 1f, sw.y - 1f, sw.width + 2f, sw.height + 2f), UITheme.CharDeep);
+        UIUtil.DrawRect(sw, SprayPaint.ColorOf(SprayPaint.LocalColor));
+        PromptHud.HintDraw(new Rect(rx + swatch + 10f, rowY, s2.x, s2.y), hudText, UITheme.Ivory);
 
-        // Nişangah (boya topu için) + bekleme halkası + ipucu
+        // Nişangah (boya topu için): 2 px nokta, boya renginde 6 px halka + bekleme halkası
         Vector2 mid = new Vector2(Screen.width / 2f, Screen.height / 2f);
         Color pc = SprayPaint.ColorOf(SprayPaint.LocalColor);
-        GUI.DrawTexture(new Rect(mid.x - 3f, mid.y - 3f, 6f, 6f), Texture2D.whiteTexture, ScaleMode.StretchToFill, false, 0f, new Color(0f, 0f, 0f, 0.7f), 0f, 3f);
-        GUI.DrawTexture(new Rect(mid.x - 2f, mid.y - 2f, 4f, 4f), Texture2D.whiteTexture, ScaleMode.StretchToFill, false, 0f, pc, 0f, 2f);
+        UIUtil.DrawRect(new Rect(mid.x - 1f, mid.y - 1f, 2f, 2f), UITheme.Ivory);
+        UIUtil.DrawRing(mid, 6f, 1f, UITheme.WithAlpha(pc, 0.9f));
         float cd = nextThrow - Time.unscaledTime;
-        if (cd > 0f) UIUtil.DrawRing(mid, 14f, 1f - Mathf.Clamp01(cd / PaintProjectile.Cooldown), new Color(pc.r, pc.g, pc.b, 0.9f));
-        if (aimWall || hasPlane)
+        if (cd > 0f) UIUtil.DrawRing(mid, 14f, 1f - Mathf.Clamp01(cd / PaintProjectile.Cooldown), UITheme.WithAlpha(pc, 0.9f));
+        bool wallTip = aimWall || hasPlane;
+        if (wallTip)
         {
-            UIUtil.DrawPrompt(Loc.T("brush.wall"), UIUtil.CenterSlot(), Color.white);
+            PromptHud.Show(Loc.T("brush.wall"), PromptTone.Normal, -1f, 2);
             if (hasPlane)
             {
-                System.Func<float, string> Mark = f => f >= EdgeNeed ? "<color=#7CFC9A>" + Loc.T("brush.ok") + "</color>" : "<color=#FF9A8A>%" + Mathf.RoundToInt(f * 100f) + "</color>";
+                string okHex = ColorUtility.ToHtmlStringRGB(UITheme.Sage), badHex = ColorUtility.ToHtmlStringRGB(UITheme.DangerLight);
+                System.Func<float, string> Mark = f => f >= EdgeNeed ? "<color=#" + okHex + ">" + Loc.T("brush.ok") + "</color>" : "<color=#" + badHex + ">%" + Mathf.RoundToInt(f * 100f) + "</color>";
                 string txt = Loc.T("brush.progress", Mark(edgeL), Mark(edgeR), Mark(edgeTop),
-                                   sizeOk ? "<color=#7CFC9A>" + Loc.T("brush.ok") + "</color>" : "<color=#FF9A8A>" + Loc.T("brush.notyet") + "</color>");
-                tipStyle.normal.textColor = Color.white;
-                GUI.Label(new Rect(0f, Screen.height * 0.5f + 46f, Screen.width, 22f), txt, tipStyle);
+                                   sizeOk ? "<color=#" + okHex + ">" + Loc.T("brush.ok") + "</color>" : "<color=#" + badHex + ">" + Loc.T("brush.notyet") + "</color>");
+                tipStyle.fontSize = Mathf.RoundToInt(14f * sc);
+                tipStyle.alignment = TextAnchor.MiddleCenter;
+                tipStyle.normal.textColor = UITheme.Ivory;
+                Vector2 ts = tipStyle.CalcSize(new GUIContent(txt));
+                float tw = Mathf.Min(Screen.width - 40f, ts.x + 28f);
+                Rect tr = new Rect((Screen.width - tw) * 0.5f, Screen.height * 0.5f + 46f * sc + 34f * sc, tw, Mathf.Round(26f * sc));
+                UIUtil.Panel(tr, PanelKind.Plaque, 0.9f);
+                GUI.Label(tr, txt, tipStyle);
             }
         }
+        else PromptHud.Idle(2);
     }
 }

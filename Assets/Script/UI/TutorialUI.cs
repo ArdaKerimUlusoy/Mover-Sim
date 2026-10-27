@@ -52,7 +52,7 @@ public class TutorialUI : MonoBehaviour
     private int entrySwapped, entryLevel;
     private float advanceAt = -1f;     // koşul sağlandı: kısa "tamam" göstergesinden sonra geç
     private float escHeld;
-    private GUIStyle titleStyle, bodyStyle, footStyle;
+    private float shownAt = -1f; private int shownIndex = -1;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void Boot()
@@ -180,18 +180,13 @@ public class TutorialUI : MonoBehaviour
         if (!running || index < 0 || index >= Steps.Length || !GameFlow.LocalSpawned) return;
         if (SessionMenuUI.IsPaused) return;
 
-        if (titleStyle == null)
-        {
-            titleStyle = new GUIStyle(GUI.skin.label) { fontSize = 16, fontStyle = FontStyle.Bold };
-            titleStyle.normal.textColor = new Color(1f, 0.85f, 0.4f);
-            bodyStyle = new GUIStyle(GUI.skin.label) { fontSize = 14, wordWrap = true };
-            bodyStyle.normal.textColor = UIUtil.Cream;
-            footStyle = new GUIStyle(GUI.skin.label) { fontSize = 12 };
-            footStyle.normal.textColor = UIUtil.Muted;
-        }
-
+        float sc = UITheme.Scale;
         Step s = Steps[index];
         bool done = advanceAt >= 0f;
+
+        // Adım değişince panel kısa bir süre fade + kayma ile girer
+        if (shownIndex != index) { shownIndex = index; shownAt = Time.unscaledTime; }
+        float enter = UIUtil.Ease.OutCubic((Time.unscaledTime - shownAt) / UITheme.MotionBase);
 
         // İlerleme: geçerli adımlar içindeki sıra
         int total = 0, pos = 0;
@@ -202,32 +197,93 @@ public class TutorialUI : MonoBehaviour
             if (i <= index) pos = total;
         }
 
-        float w = Mathf.Min(Screen.width - 24f, 600f);
+        float w = Mathf.Min(Screen.width - 24f, 620f * sc);
+        float padX = 22f * sc, top = 12f * sc;
+        float innerW = w - padX * 2f - 6f * sc;   // sol kenarda eskiz defteri sayfa boşluğu
+        string title = Loc.T("tut." + s.id + ".t");
         string body = Loc.T("tut." + s.id + ".b", NextKey.ToString());
-        float bodyH = bodyStyle.CalcHeight(new GUIContent(body), w - 24f);
-        float h = 30f + bodyH + 34f;
+        float titleH = Mathf.Ceil(UIUtil.MeasureHeight(title, TextRole.Title, innerW - 90f * sc));
+        titleH = Mathf.Max(titleH, 34f * sc);
+        float bodyH = Mathf.Ceil(UIUtil.MeasureHeight(body, TextRole.Body, innerW));
+        float footH = 24f * sc;
+        float h = top + 14f * sc + titleH + 6f * sc + bodyH + 10f * sc + footH + 12f * sc;
         // Alt orta köşe: ses kutusu, hızlı envanter ve fırça yazılarının ÜSTÜNE dizilir (çakışmaz)
         Rect r = UIUtil.HudRect(UIUtil.HudCorner.BottomCenter, UIUtil.HudOrder.Tutorial, w, h);
+        r.y += (1f - enter) * 10f;
 
         GUI.depth = -20;
-        Color accent = done ? UIUtil.Mint : UIUtil.Gold;
-        UIUtil.Panel(r, accent);
-        UIUtil.Tape(r);
+        Color oldC = GUI.color;
+        GUI.color = new Color(1f, 1f, 1f, enter);
 
-        string head = Loc.T("tut.header", pos, total, Loc.T("tut." + s.id + ".t"));
-        if (done) head = "✓ " + head;
-        titleStyle.normal.textColor = accent;
-        GUI.Label(new Rect(r.x + 14f, r.y + 6f, w - 24f, 24f), head, titleStyle);
-        GUI.Label(new Rect(r.x + 14f, r.y + 30f, w - 24f, bodyH), body, bodyStyle);
+        UIUtil.Panel(r, PanelKind.Sketch);
+        float x = r.x + padX + 6f * sc;
+        float y = r.y + top;
 
-        string foot = Loc.T("tut.footer", NextKey.ToString());
-        GUI.Label(new Rect(r.x + 14f, r.yMax - 26f, w - 28f, 20f), foot, footStyle);
+        // Adım no (Mono, Terracotta) + ilerleme noktaları (sağ üst)
+        string num = pos.ToString("00") + "/" + total.ToString("00");
+        Color numCol = done ? UITheme.Forest : UITheme.Terracotta;
+        UIUtil.Text(new Rect(x, y, 90f * sc, 18f * sc), num, TextRole.Mono, numCol);
+        if (done) UIUtil.Icon(new Rect(x + 62f * sc, y - 1f * sc, 20f * sc, 20f * sc), IconId.Check, UITheme.Forest);
+        DrawDots(new Rect(r.xMax - padX - 150f * sc, y + 3f * sc, 150f * sc, 12f * sc), pos, total, done);
+        y += 14f * sc;
+
+        UIUtil.Text(new Rect(x, y, innerW, titleH), title, TextRole.Title, UITheme.Charcoal);
+        y += titleH + 6f * sc;
+        UIUtil.Text(new Rect(x, y, innerW, bodyH), body, TextRole.Body, UITheme.Charcoal);
+        y += bodyH + 10f * sc;
+
+        // Ayraç + ipucu satırı (tuşlar tuş kapağı)
+        UIUtil.Divider(x, y - 4f * sc, innerW, UITheme.WithAlpha(UITheme.Graphite, 0.45f));
+        DrawHintLine(new Rect(x, y, innerW, footH), Loc.T("tut.footer", NextKey.ToString()), UITheme.Graphite);
 
         // Esc basılı tutma göstergesi
         if (escHeld > 0.15f)
         {
-            Rect bar = new Rect(r.x + 14f, r.yMax - 6f, (w - 28f) * Mathf.Clamp01(escHeld / SkipHoldSeconds), 3f);
-            UIUtil.DrawRect(bar, new Color(1f, 0.5f, 0.4f));
+            Rect bar = new Rect(r.x + padX, r.yMax - 8f * sc, w - padX * 2f, 4f * sc);
+            UIUtil.ProgressBar(bar, escHeld / SkipHoldSeconds, UITheme.Danger);
+        }
+        GUI.color = oldC;
+    }
+
+    // İlerleme noktaları: tamamlanan dolu Bordeaux, mevcut Terracotta halka, kalan Graphite çizgi.
+    // Çok adım varsa sığması için aralık daralır.
+    private static void DrawDots(Rect r, int pos, int total, bool done)
+    {
+        if (total <= 0) return;
+        float step = Mathf.Min(r.width / total, 12f);
+        float size = Mathf.Min(step - 3f, 7f);
+        float x0 = r.xMax - step * total;
+        for (int i = 1; i <= total; i++)
+        {
+            Rect d = new Rect(x0 + (i - 1) * step + (step - size) * 0.5f, r.y + (r.height - size) * 0.5f, size, size);
+            if (i < pos || (i == pos && done)) UIUtil.DrawRect(d, UITheme.Forest);
+            else if (i == pos) { UIUtil.DrawRect(d, UITheme.Terracotta); UIUtil.Outline(new Rect(d.x - 2f, d.y - 2f, d.width + 4f, d.height + 4f), 1f, UITheme.WithAlpha(UITheme.Terracotta, 0.7f)); }
+            else UIUtil.DrawRect(d, UITheme.WithAlpha(UITheme.Graphite, 0.35f));
+        }
+    }
+
+    // "[F2] Sonraki adım · Atlamak için [Esc] basılı tut" → [..] parçaları tuş kapağı, kalanı Caption yazı
+    private static void DrawHintLine(Rect r, string text, Color textColor)
+    {
+        float x = r.x;
+        int i = 0;
+        while (i < text.Length && x < r.xMax)
+        {
+            int open = text.IndexOf('[', i);
+            int close = open >= 0 ? text.IndexOf(']', open) : -1;
+            string plain = open >= 0 && close > open ? text.Substring(i, open - i) : text.Substring(i);
+            if (plain.Length > 0)
+            {
+                float pw = Mathf.Min(UIUtil.Measure(plain, TextRole.Caption).x + 2f, r.xMax - x);
+                UIUtil.Text(new Rect(x, r.y, pw, r.height), plain, TextRole.Caption, textColor);
+                x += pw;
+            }
+            if (open < 0 || close < open) break;
+            string key = text.Substring(open + 1, close - open - 1);
+            float kw = UIUtil.KeyCapWidth(key, 13);
+            UIUtil.KeyCap(new Rect(x + 2f, r.y + 2f, kw, r.height - 4f), key, 13);
+            x += kw + 6f;
+            i = close + 1;
         }
     }
 }

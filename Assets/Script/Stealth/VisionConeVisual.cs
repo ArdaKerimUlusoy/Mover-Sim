@@ -71,11 +71,16 @@ public class VisionConeVisual : MonoBehaviour
         // Zemin yüksekliğini bir kez bul (kamera tavanda olsa bile koni yerde çizilsin)
         if (!hasFloor)
         {
-            if (Physics.Raycast(origin + Vector3.up * 0.5f, Vector3.down, out RaycastHit floorHit, 20f, ~0, QueryTriggerInteraction.Ignore))
+            // Işın gözün hemen üstünden başlar: +0.5 m'den başlayınca bodrumdaki (tavanı alçak) kamerada üst katın
+            // döşemesine çarpıp koniyi yukarıdaki zemine çiziyordu. Kendi gövdesine (üst nesnenin altı) çarpan atlanır.
+            Transform self = transform.parent != null ? transform.parent : transform;
+            float best = float.NegativeInfinity;
+            foreach (RaycastHit h in Physics.RaycastAll(origin + Vector3.up * 0.05f, Vector3.down, 20f, ~0, QueryTriggerInteraction.Ignore))
             {
-                floorY = floorHit.point.y;
-                hasFloor = true;
+                if (h.collider.transform.IsChildOf(self)) continue;
+                if (h.point.y > best) best = h.point.y;
             }
+            if (best > float.NegativeInfinity) { floorY = best; hasFloor = true; }
             else floorY = origin.y;
         }
 

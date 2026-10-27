@@ -166,7 +166,7 @@ public class BodyCam : MonoBehaviour
     private readonly Dictionary<ulong, ArtworkDisplay> stareAt = new Dictionary<ulong, ArtworkDisplay>();
     private float nextStareTick;
 
-    private GUIStyle hudStyle, smallStyle, titleStyle, planStyle;
+    private GUIStyle planStyle;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void Boot()
@@ -1080,16 +1080,18 @@ public class BodyCam : MonoBehaviour
         Matrix4x4 prevMatrix = GUI.matrix;
         GUI.matrix = Matrix4x4.identity;
         RenderTexture.active = mapRT;
-        GL.Clear(true, true, new Color(0.04f, 0.05f, 0.07f, 1f));
+        GL.Clear(true, true, UITheme.CharDeep);
         GL.PushMatrix();
         GL.LoadPixelMatrix(0f, MapW, MapH, 0f);
         try
         {
-            hudStyle.normal.textColor = new Color(1f, 0.85f, 0.4f);
-            GUI.Label(new Rect(14f, 6f, MapW - 28f, 22f), Loc.T("cam.minimap"), hudStyle);
-            DrawPlan(new Rect(8f, 30f, MapW - 16f, MapH - 58f), false, false);
-            smallStyle.normal.textColor = new Color(1f, 1f, 1f, 0.6f);
-            GUI.Label(new Rect(14f, MapH - 24f, MapW - 28f, 18f), Loc.T("cam.minimap.help"), smallStyle);
+            EnsureStyles();
+            // Ekran sabit px: kömür zemin + pirinç hat, tek satır başlık, altta tuş kapaklı ipucu
+            UIUtil.DrawRect(new Rect(0f, 0f, MapW, MapH), UITheme.Charcoal);
+            UIUtil.Outline(new Rect(0f, 0f, MapW, MapH), 3f, UITheme.Brass);
+            DrawHeaderLine(new Rect(16f, 8f, MapW - 32f, 26f), IconId.Map, Loc.T("cam.minimap"), null, UITheme.BrassLight, 16);
+            DrawPlan(new Rect(10f, 40f, MapW - 20f, MapH - 74f), false, false);
+            DrawKeyed(new Rect(16f, MapH - 30f, MapW - 32f, 24f), Loc.T("cam.minimap.help"), TextRole.Caption, UITheme.IvoryDim, 14);
         }
         finally
         {
@@ -1143,12 +1145,119 @@ public class BodyCam : MonoBehaviour
 
     private void EnsureStyles()
     {
-        if (hudStyle != null) return;
-        hudStyle = new GUIStyle(GUI.skin.label) { fontSize = 14, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleLeft };
-        smallStyle = new GUIStyle(GUI.skin.label) { fontSize = 11, alignment = TextAnchor.MiddleLeft, clipping = TextClipping.Clip };
-        titleStyle = new GUIStyle(GUI.skin.label) { fontSize = 16, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleLeft };
-        titleStyle.normal.textColor = Color.white;
-        planStyle = new GUIStyle(GUI.skin.label) { fontSize = 10, alignment = TextAnchor.MiddleCenter, clipping = TextClipping.Overflow, wordWrap = false };
+        // Yazı artık UITheme rol stilleriyle (TxtPx) çizilir; planStyle yalnızca FloorPlanUI.DrawJailMarker'a "etiket çiz" işareti olarak gider.
+        if (planStyle != null) return;
+        planStyle = new GUIStyle(GUI.skin.label);
+    }
+
+    // ---------------- Yazı / ikon yardımcıları (px kutularda taşmayan, tek satır kırpılan metin) ----------------
+
+    private static GUIStyle fitStyle;
+
+    /// <summary>Verilen rol, tam px boyutu. Tek satır + kırpma (wrap=false): dar panellerde yazılar alt satıra taşıp üst üste binmez.</summary>
+    private static void TxtPx(Rect r, string s, TextRole role, Color c, TextAnchor a, int px, bool wrap = false)
+    {
+        GUIStyle b = UITheme.Style(role, c, a);
+        if (fitStyle == null) fitStyle = new GUIStyle(b);
+        fitStyle.font = b.font; fitStyle.fontStyle = b.fontStyle; fitStyle.clipping = TextClipping.Clip;
+        fitStyle.padding = new RectOffset(0, 0, 0, 0);
+        fitStyle.fontSize = px; fitStyle.alignment = a; fitStyle.wordWrap = wrap;
+        fitStyle.normal.textColor = c;
+        GUI.Label(r, s, fitStyle);
+    }
+
+    private static float TxtW(string s, TextRole role, int px)
+    {
+        GUIStyle b = UITheme.Style(role);
+        int old = b.fontSize;
+        b.fontSize = px;
+        float w = b.CalcSize(new GUIContent(s)).x;
+        b.fontSize = old;
+        return w;
+    }
+
+    private static float TxtH(string s, TextRole role, int px, float width)
+    {
+        GUIStyle b = UITheme.Style(role);
+        int old = b.fontSize; bool ow = b.wordWrap;
+        b.fontSize = px; b.wordWrap = true;
+        float h = b.CalcHeight(new GUIContent(s), width);
+        b.fontSize = old; b.wordWrap = ow;
+        return h;
+    }
+
+    private static int P(float basePx) => Mathf.Max(9, Mathf.RoundToInt(basePx * UITheme.Scale));
+
+    /// <summary>"REC  [H] durdur" → [..] parçaları tuş kapağı, kalanı yazı. Tek satır; sığmayan kısım kırpılır.</summary>
+    private static void DrawKeyed(Rect r, string text, TextRole role, Color col, int px)
+    {
+        float x = r.x;
+        int i = 0;
+        while (i < text.Length && x < r.xMax)
+        {
+            int open = text.IndexOf('[', i);
+            int close = open >= 0 ? text.IndexOf(']', open) : -1;
+            string plain = open >= 0 && close > open ? text.Substring(i, open - i) : text.Substring(i);
+            if (plain.Length > 0)
+            {
+                float pw = Mathf.Min(TxtW(plain, role, px) + 2f, r.xMax - x);
+                TxtPx(new Rect(x, r.y, pw, r.height), plain, role, col, TextAnchor.MiddleLeft, px);
+                x += pw;
+            }
+            if (open < 0 || close < open) break;
+            string key = text.Substring(open + 1, close - open - 1);
+            float kw = UIUtil.KeyCapWidth(key, px);
+            if (x + kw > r.xMax) break;
+            float kh = Mathf.Min(r.height, px * 1.7f);
+            UIUtil.KeyCap(new Rect(x + 2f, r.y + (r.height - kh) * 0.5f, kw, kh), key, px);
+            x += kw + 6f;
+            i = close + 1;
+        }
+    }
+
+    private static float KeyedWidth(string text, TextRole role, int px)
+    {
+        float w = 0f;
+        int i = 0;
+        while (i < text.Length)
+        {
+            int open = text.IndexOf('[', i);
+            int close = open >= 0 ? text.IndexOf(']', open) : -1;
+            string plain = open >= 0 && close > open ? text.Substring(i, open - i) : text.Substring(i);
+            w += TxtW(plain, role, px) + 2f;
+            if (open < 0 || close < open) break;
+            w += UIUtil.KeyCapWidth(text.Substring(open + 1, close - open - 1), px) + 6f;
+            i = close + 1;
+        }
+        return w;
+    }
+
+    // Eser baklavası (45 derece döndürülmüş kare)
+    private static void Diamond(Vector2 p, float size, Color fill, Color edge)
+    {
+        Matrix4x4 old = GUI.matrix;
+        GUIUtility.RotateAroundPivot(45f, p);
+        float s = size * 0.72f;
+        UIUtil.DrawRect(new Rect(p.x - s * 0.5f - 1.5f, p.y - s * 0.5f - 1.5f, s + 3f, s + 3f), edge);
+        UIUtil.DrawRect(new Rect(p.x - s * 0.5f, p.y - s * 0.5f, s, s), fill);
+        GUI.matrix = old;
+    }
+
+    // Panel başlığı: tek satır — ikon + BÜYÜK HARF bölüm başlığı; opsiyonel sağda ek (sığarsa) yazı
+    private static void DrawHeaderLine(Rect r, IconId icon, string title, string extra, Color col, int px)
+    {
+        float isz = Mathf.Min(r.height, px * 1.5f);
+        UIUtil.Icon(new Rect(r.x, r.y + (r.height - isz) * 0.5f, isz, isz), icon, col);
+        float tx = r.x + isz + 6f;
+        string caps = UITheme.Caps(title);
+        float tw = TxtW(caps, TextRole.Section, px);
+        TxtPx(new Rect(tx, r.y, Mathf.Max(10f, r.xMax - tx), r.height), caps, TextRole.Section, col, TextAnchor.MiddleLeft, px);
+        if (!string.IsNullOrEmpty(extra))
+        {
+            float ew = TxtW(extra, TextRole.Caption, px);
+            if (tx + tw + 16f + ew <= r.xMax)
+                TxtPx(new Rect(r.xMax - ew - 2f, r.y, ew + 2f, r.height), extra, TextRole.Caption, UITheme.IvoryDim, TextAnchor.MiddleRight, px);
+        }
     }
 
     private void OnGUI()
@@ -1169,24 +1278,25 @@ public class BodyCam : MonoBehaviour
         DrawHud();
         // Müze haritası artık kamyondaki ikinci ekranda (monitörün sağı); ekranın köşesinde değil
         if (inTruck || nearMonitor) RenderMapScreen();
-        if (LookingAtMonitor()) UIUtil.DrawPrompt(Loc.T("cam.monitor.prompt"), UIUtil.CenterSlot(), Color.white);
+        if (LookingAtMonitor()) UIUtil.DrawPrompt(Loc.T("cam.monitor.prompt"), UIUtil.CenterSlot(), UITheme.Ivory);
     }
 
-    /// <summary>Sol alt: kamera pili ve kayıt durumu.</summary>
+    /// <summary>Sol alt: kamera pili ve kayıt durumu (plaket; kayıtta solda Danger şerit + nabızlı Camera ikonu).</summary>
     private void DrawHud()
     {
         float max = MaxBattery();
         bool rec = LocalRecording;
         // Sol alt köşe: ipucu satırının üstü, sohbetin altı (köşe yığını: çakışmaz)
         Rect r = UIUtil.HudRect(UIUtil.HudCorner.BottomLeft, UIUtil.HudOrder.CamBattery, 200f, 44f);
-        UIUtil.Panel(r, rec ? UIUtil.Coral : Color.clear, rec ? 1f : 0.8f);
+        UIUtil.Panel(r, PanelKind.Plaque, 0.92f);
         bool blink = Mathf.Repeat(Time.unscaledTime, 1f) < 0.6f;
-        if (rec && blink) UIUtil.DrawRect(new Rect(r.x + 14f, r.y + 10f, 10f, 10f), new Color(1f, 0.15f, 0.1f));
-        hudStyle.normal.textColor = rec ? new Color(1f, 0.45f, 0.4f) : UIUtil.Cream;
+        if (rec) UIUtil.DrawRect(new Rect(r.x + 2f, r.y + 4f, 3f, r.height - 8f), UITheme.Danger);
+        Color ic = rec ? (blink ? UITheme.DangerLight : UITheme.Danger) : UITheme.IvoryDim;
+        UIUtil.Icon(new Rect(r.x + 12f, r.y + 5f, 18f, 18f), IconId.Camera, ic);
         string state = rec ? Loc.T("cam.hud.rec") : Live ? Loc.T("cam.hud.other") : Loc.T("cam.hud.off");
-        GUI.Label(new Rect(r.x + 30f, r.y + 4f, r.width - 36f, 20f), state, hudStyle);
+        DrawKeyed(new Rect(r.x + 36f, r.y + 4f, r.width - 44f, 21f), state, TextRole.BodyStrong, rec ? UITheme.DangerLight : UITheme.Ivory, 13);
         float f = max > 0f ? Mathf.Clamp01(battery / max) : 0f;
-        UIUtil.Bar(new Rect(r.x + 14f, r.y + 28f, r.width - 26f, 6f), f, f < 0.2f ? UIUtil.Coral : UIUtil.Mint);
+        UIUtil.ProgressBar(new Rect(r.x + 12f, r.y + 29f, r.width - 24f, 8f), f, f < 0.2f ? UITheme.Danger : UITheme.Sage);
 
         if (rec)
         {
@@ -1196,9 +1306,9 @@ public class BodyCam : MonoBehaviour
             {
                 float left = IllegalGraceSeconds - localIllegalTime;
                 if (left > 0f)
-                    UIUtil.DrawPrompt(Loc.T("cam.illegal.grace", Mathf.CeilToInt(left)), UIUtil.TopSlot(26f), new Color(1f, 0.7f, 0.3f), 17);
+                    UIUtil.DrawPrompt(Loc.T("cam.illegal.grace", Mathf.CeilToInt(left)), UIUtil.TopSlot(26f), UITheme.Ochre, 17);
                 else if (blink)
-                    UIUtil.DrawPrompt(Loc.T("cam.illegal"), UIUtil.TopSlot(26f), new Color(1f, 0.35f, 0.3f), 17);
+                    UIUtil.DrawPrompt(Loc.T("cam.illegal"), UIUtil.TopSlot(26f), UITheme.DangerLight, 17);
             }
         }
     }
@@ -1208,12 +1318,14 @@ public class BodyCam : MonoBehaviour
     {
         Texture tex = PaintingReference(out string label);
         float w = Mathf.Min(420f, Screen.width * 0.32f), h = w * 9f / 16f;
-        Rect r = new Rect(Screen.width - w - 16f, 16f, w, h + 24f);
-        UIUtil.Panel(r);
-        GUI.Label(new Rect(r.x + 8f, r.y + 2f, w - 16f, 20f), label, hudStyle);
-        Rect img = new Rect(r.x + 4f, r.y + 22f, w - 8f, h - 2f);
+        Rect r = new Rect(Screen.width - w - 16f, 16f, w, h + 28f);
+        UIUtil.Panel(r, PanelKind.Plaque, 0.95f);
+        DrawHeaderLine(new Rect(r.x + 10f, r.y + 4f, w - 20f, 20f), IconId.Camera, label, null, UITheme.BrassLight, 13);
+        Rect img = new Rect(r.x + 6f, r.y + 28f, w - 12f, h - 6f);
+        UIUtil.DrawRect(img, UITheme.CharDeep);
         if (tex != null) GUI.DrawTexture(img, tex, ScaleMode.ScaleToFit, false);
         else DrawNoSignal(img);
+        UIUtil.BrassFrame(img);
 
         // Altında kayıt seçimi + müze haritası
         float sh = DrawSourceSelector(new Rect(r.x, r.yMax + 6f, w, 60f));
@@ -1225,13 +1337,11 @@ public class BodyCam : MonoBehaviour
     private void DrawTruckMinimap()
     {
         float w = Mathf.Min(330f, Screen.width * 0.27f), h = w * 0.78f;
-        Rect r = new Rect(Screen.width - w - 12f, 104f, w, h + 40f);
-        UIUtil.Panel(r);
-        hudStyle.normal.textColor = new Color(1f, 0.85f, 0.4f);
-        GUI.Label(new Rect(r.x + 8f, r.y + 2f, w - 16f, 20f), Loc.T("cam.minimap"), hudStyle);
-        DrawPlan(new Rect(r.x + 4f, r.y + 22f, w - 8f, h), false, true);
-        smallStyle.normal.textColor = new Color(1f, 1f, 1f, 0.6f);
-        GUI.Label(new Rect(r.x + 8f, r.yMax - 18f, w - 16f, 16f), Loc.T("cam.minimap.help"), smallStyle);
+        Rect r = new Rect(Screen.width - w - 12f, 104f, w, h + 44f);
+        UIUtil.Panel(r, PanelKind.Plaque, 0.95f);
+        DrawHeaderLine(new Rect(r.x + 10f, r.y + 4f, w - 20f, 20f), IconId.Map, Loc.T("cam.minimap"), null, UITheme.BrassLight, 13);
+        DrawPlan(new Rect(r.x + 6f, r.y + 28f, w - 12f, h), false, true);
+        DrawKeyed(new Rect(r.x + 10f, r.yMax - 20f, w - 20f, 16f), Loc.T("cam.minimap.help"), TextRole.Caption, UITheme.IvoryDim, 11);
     }
 
     // ---------------- Kayıt seçimi (yerel) ----------------
@@ -1279,12 +1389,10 @@ public class BodyCam : MonoBehaviour
         ulong watched = WatchedRecorder;
         const float bh = 24f, gap = 6f;
         float x = area.x, y = area.y;
-        smallStyle.alignment = TextAnchor.MiddleCenter;
 
-        hudStyle.normal.textColor = UIUtil.Gold;
         string title = Loc.T("cam.src.title");
-        float tw = hudStyle.CalcSize(new GUIContent(title)).x + 8f;
-        if (et == EventType.Repaint) GUI.Label(new Rect(x, y, tw, bh), title, hudStyle);
+        float tw = TxtW(UITheme.Caps(title), TextRole.Section, 12) + 10f;
+        if (et == EventType.Repaint) TxtPx(new Rect(x, y, tw, bh), UITheme.Caps(title), TextRole.Section, UITheme.Brass, TextAnchor.MiddleLeft, 12);
         x += tw;
 
         int shown = 0;
@@ -1295,22 +1403,25 @@ public class BodyCam : MonoBehaviour
             foreach (PlayerNetworkSetup p in PlayerNetworkSetup.All) if (p != null && p.OwnerClientId == id) { who = p; break; }
             string text = Loc.T("cam.src.live", who != null ? who.PlayerName : "?");
             bool sel = watchStill == null && watched == id;
-            if (SourceButton(ref x, ref y, area, bh, gap, text, sel, new Color(1f, 0.35f, 0.3f))) WatchLive(id);
+            if (SourceButton(ref x, ref y, area, bh, gap, text, sel, UITheme.DangerLight)) WatchLive(id);
             shown++;
         }
         foreach (string n in stillOrder)
         {
             bool sel = watchStill == n;
-            if (SourceButton(ref x, ref y, area, bh, gap, StillName(n), sel, UIUtil.Cream)) WatchStill(sel ? null : n);
+            if (SourceButton(ref x, ref y, area, bh, gap, StillName(n), sel, UITheme.Ivory)) WatchStill(sel ? null : n);
             shown++;
         }
         if (shown == 0 && et == EventType.Repaint)
         {
-            smallStyle.alignment = TextAnchor.MiddleLeft;
-            smallStyle.normal.textColor = new Color(1f, 1f, 1f, 0.6f);
-            GUI.Label(new Rect(x, y, area.xMax - x, bh), Loc.T("cam.src.none"), smallStyle);
+            // Boş durum: sığmazsa alt satıra geçip sarılır
+            string none = Loc.T("cam.src.none");
+            float avail = area.xMax - x;
+            if (avail < 140f) { x = area.x; y += bh + 2f; avail = area.width; }
+            float nh = Mathf.Max(bh, TxtH(none, TextRole.Caption, 11, avail));
+            TxtPx(new Rect(x, y, avail, nh), none, TextRole.Caption, UITheme.IvoryDim, TextAnchor.UpperLeft, 11, true);
+            y += nh - bh;
         }
-        smallStyle.alignment = TextAnchor.MiddleLeft;
         LastSelectorHeight = y + bh - area.y;
         return LastSelectorHeight;
     }
@@ -1320,26 +1431,27 @@ public class BodyCam : MonoBehaviour
     /// <summary>Seçim düğmesi (kendi çizimi: OnGUI düzen olaylarına bağlı değil). Tıklandıysa true.</summary>
     private bool SourceButton(ref float x, ref float y, Rect area, float bh, float gap, string text, bool selected, Color textColor)
     {
-        float w = Mathf.Min(area.width, smallStyle.CalcSize(new GUIContent(text)).x + 20f);
+        const int px = 12;
+        float w = Mathf.Min(area.width, TxtW(text, TextRole.BodyStrong, px) + 22f);
         if (x + w > area.xMax && x > area.x) { x = area.x; y += bh + 4f; } // satır sonu: alta geç
         Rect b = new Rect(x, y, w, bh);
         x += w + gap;
         Event ev = Event.current;
         if (ev.type == EventType.Repaint)
         {
+            bool hover = b.Contains(ev.mousePosition);
             if (selected)
             {
-                UIUtil.DrawRect(b, new Color(0.86f, 0.62f, 0.25f, 1f));
-                smallStyle.normal.textColor = new Color(0.14f, 0.08f, 0.06f);
+                // seçili: pirinç dolgu + kömür yazı
+                UIUtil.DrawRect(b, UITheme.BrassLight);
+                UIUtil.Outline(b, 1f, UITheme.Brass);
             }
             else
             {
-                bool hover = b.Contains(ev.mousePosition);
-                UIUtil.DrawRect(b, UIUtil.Frame);
-                UIUtil.DrawRect(new Rect(b.x + 1f, b.y + 1f, b.width - 2f, b.height - 2f), hover ? new Color(0.3f, 0.12f, 0.15f, 0.97f) : new Color(0.1f, 0.07f, 0.08f, 0.95f));
-                smallStyle.normal.textColor = textColor;
+                UIUtil.DrawRect(b, hover ? UITheme.Graphite : UITheme.CharSoft);
+                UIUtil.Outline(b, 1f, hover ? UITheme.BrassLight : UITheme.WithAlpha(UITheme.Brass, 0.7f));
             }
-            GUI.Label(b, text, smallStyle);
+            TxtPx(new Rect(b.x + 8f, b.y, b.width - 12f, b.height), text, TextRole.BodyStrong, selected ? UITheme.Charcoal : (hover ? UITheme.Ivory : textColor), TextAnchor.MiddleLeft, px);
             return false;
         }
         if (ev.type == EventType.MouseDown && ev.button == 0 && b.Contains(ev.mousePosition))
@@ -1359,13 +1471,15 @@ public class BodyCam : MonoBehaviour
         EnsureStyles();
         if (et == EventType.Repaint)
         {
-            UIUtil.Panel(r);
-            hudStyle.normal.textColor = new Color(1f, 0.85f, 0.4f);
-            GUI.Label(new Rect(r.x + 10f, r.y + 4f, r.width - 20f, 18f), Loc.T("cam.minimap") + "   —   " + Loc.T("cam.minimap.click"), hudStyle);
+            UIUtil.Panel(r, PanelKind.Plaque, 0.95f);
+            // Başlık tek satır (kırpılır); tıklama ipucu yalnızca sığarsa sağa eklenir
+            DrawHeaderLine(new Rect(r.x + 10f, r.y + 5f, r.width - 20f, 20f), IconId.Map, Loc.T("cam.minimap"), Loc.T("cam.minimap.click"), UITheme.BrassLight, 12);
         }
         // Hangi kaydı izlediğimi buradan seçerim (iki kişi aynı masada farklı eserleri çizebilir)
-        float sh = DrawSourceSelector(new Rect(r.x + 10f, r.y + 24f, r.width - 20f, 60f));
-        DrawPlan(new Rect(r.x + 4f, r.y + 28f + sh, r.width - 8f, r.height - 32f - sh), true, true);
+        float sh = DrawSourceSelector(new Rect(r.x + 10f, r.y + 30f, r.width - 20f, 60f));
+        float py = r.y + 34f + sh;
+        float ph = r.height - 40f - sh;
+        if (ph > 60f) DrawPlan(new Rect(r.x + 6f, py, r.width - 12f, ph), true, true);
     }
 
     /// <summary>Haritaya tıklandı: o noktaya (ya da yakındaki esere) ekibin gördüğü işaret.</summary>
@@ -1409,55 +1523,100 @@ public class BodyCam : MonoBehaviour
         return n;
     }
 
+
+    /// <summary>Sinyal yok: parazit + tarama (Hatch) + ortada Camera ikonu, büyük başlık ve sarılmış yardım satırı.</summary>
     private void DrawNoSignal(Rect r)
     {
         if (noSignal != null) GUI.DrawTexture(r, noSignal, ScaleMode.StretchToFill, false);
-        smallStyle.normal.textColor = new Color(1f, 1f, 1f, 0.85f);
-        smallStyle.alignment = TextAnchor.MiddleCenter;
-        GUI.Label(r, Loc.T("cam.nosignal.help"), smallStyle);
-        smallStyle.alignment = TextAnchor.MiddleLeft;
+        else UIUtil.DrawRect(r, UITheme.CharDeep);
+        UIUtil.DrawRect(r, UITheme.WithAlpha(UITheme.CharDeep, 0.6f));
+        UIUtil.Hatch(r, UITheme.WithAlpha(UITheme.Graphite, 0.5f));
+
+        string[] parts = Loc.T("cam.nosignal.help").Replace("[", "").Replace("]", "").Split('\n');
+        int headPx = Mathf.Clamp(Mathf.RoundToInt(r.height * 0.075f), 12, 20);
+        int subPx = Mathf.Clamp(Mathf.RoundToInt(r.height * 0.052f), 10, 14);
+        float iconS = Mathf.Clamp(r.height * 0.13f, 18f, 30f);
+        float subW = r.width - 32f;
+        float subH = parts.Length > 1 ? TxtH(parts[1], TextRole.Caption, subPx, subW) : 0f;
+        float bandH = Mathf.Min(r.height - 4f, iconS + headPx + subH + 28f);
+        Rect band = new Rect(r.x, r.y + (r.height - bandH) * 0.5f, r.width, bandH);
+        UIUtil.DrawRect(band, UITheme.WithAlpha(UITheme.CharDeep, 0.85f));
+        UIUtil.DrawRect(new Rect(band.x, band.y, band.width, 1f), UITheme.WithAlpha(UITheme.Brass, 0.6f));
+        UIUtil.DrawRect(new Rect(band.x, band.yMax - 1f, band.width, 1f), UITheme.WithAlpha(UITheme.Brass, 0.6f));
+
+        float y = band.y + 8f;
+        UIUtil.Icon(new Rect(band.center.x - iconS * 0.5f, y, iconS, iconS), IconId.Camera, UITheme.BrassLight);
+        y += iconS + 4f;
+        TxtPx(new Rect(band.x + 12f, y, band.width - 24f, headPx + 6f), UITheme.Caps(parts[0]), TextRole.BodyStrong, UITheme.BrassLight, TextAnchor.MiddleCenter, headPx);
+        y += headPx + 8f;
+        if (parts.Length > 1)
+            TxtPx(new Rect(band.x + 16f, y, subW, Mathf.Max(0f, band.yMax - y - 4f)), parts[1], TextRole.Caption, UITheme.IvoryDim, TextAnchor.UpperCenter, subPx, true);
     }
 
     /// <summary>Monitör paneli: solda canlı görüntü, sağda kat planı.</summary>
     private void DrawPanel()
     {
-        UIUtil.DrawRect(new Rect(0f, 0f, Screen.width, Screen.height), new Color(0f, 0f, 0f, 0.6f));
-        float pw = Mathf.Min(Screen.width - 40f, 1200f), ph = Mathf.Min(Screen.height - 60f, 560f);
+        float sc = UITheme.Scale;
+        UIUtil.Scrim(UITheme.Scrim);
+        float pw = Mathf.Min(Screen.width - 32f, 1200f * sc), ph = Mathf.Min(Screen.height - 48f, 560f * sc);
         Rect p = new Rect((Screen.width - pw) * 0.5f, (Screen.height - ph) * 0.5f, pw, ph);
-        UIUtil.Panel(p);
-        GUI.Label(new Rect(p.x + 14f, p.y + 6f, pw - 28f, 24f), Loc.T("cam.panel.title"), titleStyle);
+        UIUtil.Panel(p, PanelKind.Plaque);
+        float pad = Mathf.Round(16f * sc);
 
-        // Sol: görüntü
-        float fw = pw * 0.52f, fh = fw * 9f / 16f;
-        Rect feed = new Rect(p.x + 14f, p.y + 40f, fw, fh);
-        UIUtil.DrawRect(new Rect(feed.x - 2f, feed.y - 2f, feed.width + 4f, feed.height + 4f), new Color(0.2f, 0.2f, 0.22f));
+        // Başlık: Truck ikonu + serif başlık
+        float titleH = Mathf.Round(34f * sc);
+        UIUtil.Icon(new Rect(p.x + pad, p.y + pad * 0.5f + 3f * sc, 26f * sc, 26f * sc), IconId.Truck, UITheme.BrassLight);
+        UIUtil.Text(new Rect(p.x + pad + 34f * sc, p.y + pad * 0.5f, pw - pad * 2f - 34f * sc, titleH), Loc.T("cam.panel.title"), TextRole.Title, UITheme.Ivory);
+        float top = p.y + pad * 0.5f + titleH + 6f * sc;
+        UIUtil.Divider(p.x + pad, top, pw - pad * 2f, UITheme.WithAlpha(UITheme.Brass, 0.6f), true);
+        top += 10f * sc;
+
+        // Alt: kapat ipucu (tuş kapaklı)
+        float footH = Mathf.Round(24f * sc);
+        DrawKeyed(new Rect(p.x + pad, p.yMax - footH - pad * 0.4f, pw - pad * 2f, footH), Loc.T("cam.panel.close"), TextRole.Caption, UITheme.IvoryDim, P(12));
+
+        // Sol: görüntü. Yükseklik; seçici (~1-2 satır) + yardım yazısı sığacak şekilde sınırlanır
+        int helpPx = P(12);
+        string help = Loc.T("cam.panel.help");
+        float fw = pw * 0.52f;
+        float helpH = Mathf.Ceil(TxtH(help, TextRole.Caption, helpPx, fw));
+        float selReserve = 34f * sc * 2f;
+        float availH = p.yMax - footH - pad - top - selReserve - helpH - 14f;
+        float fh = Mathf.Min(fw * 9f / 16f, Mathf.Max(120f, availH));
+        fw = fh * 16f / 9f;
+        helpH = Mathf.Ceil(TxtH(help, TextRole.Caption, helpPx, fw));
+        Rect feed = new Rect(p.x + pad, top, fw, fh);
+        UIUtil.DrawRect(feed, UITheme.CharDeep);
         RenderTexture selStill = SelectedStill;
+        int labPx = P(13);
         if (selStill != null)
         {
             GUI.DrawTexture(feed, selStill, ScaleMode.ScaleToFit, false);
-            hudStyle.normal.textColor = Color.white;
-            GUI.Label(new Rect(feed.x + 10f, feed.y + 6f, feed.width - 20f, 20f), Loc.T("cam.still.named", StillName(watchStill)), hudStyle);
+            Rect strip = new Rect(feed.x, feed.y, feed.width, 26f * sc);
+            UIUtil.DrawRect(strip, UITheme.WithAlpha(UITheme.CharDeep, 0.72f));
+            TxtPx(new Rect(strip.x + 10f, strip.y, strip.width - 20f, strip.height), Loc.T("cam.still.named", StillName(watchStill)), TextRole.BodyStrong, UITheme.Ivory, TextAnchor.MiddleLeft, labPx);
         }
         else if (LiveShown)
         {
             GUI.DrawTexture(feed, liveRT, ScaleMode.ScaleToFit, false);
             RecorderEye(out _, out _, out PlayerNetworkSetup who);
-            if (Mathf.Repeat(Time.unscaledTime, 1f) < 0.6f) UIUtil.DrawRect(new Rect(feed.x + 10f, feed.y + 10f, 12f, 12f), new Color(1f, 0.1f, 0.1f));
-            hudStyle.normal.textColor = Color.white;
-            GUI.Label(new Rect(feed.x + 28f, feed.y + 6f, feed.width - 40f, 20f), Loc.T("cam.live", who != null ? who.PlayerName : "?"), hudStyle);
+            Rect strip = new Rect(feed.x, feed.y, feed.width, 26f * sc);
+            UIUtil.DrawRect(strip, UITheme.WithAlpha(UITheme.CharDeep, 0.72f));
+            float a = 0.35f + 0.65f * UIUtil.Pulse(5f);
+            UIUtil.DrawRect(new Rect(strip.x + 10f, strip.y + (strip.height - 9f) * 0.5f, 9f, 9f), UITheme.WithAlpha(UITheme.Danger, a));
+            TxtPx(new Rect(strip.x + 28f, strip.y, strip.width - 38f, strip.height), Loc.T("cam.live", who != null ? who.PlayerName : "?"), TextRole.BodyStrong, UITheme.Ivory, TextAnchor.MiddleLeft, labPx);
         }
         else DrawNoSignal(feed);
+        UIUtil.BrassFrame(feed);
+
         // Kayıt seçimi: canlı yayınlar + eserlerin son kayıtları (seçim sadece bu bilgisayarda)
-        float sh = DrawSourceSelector(new Rect(feed.x, feed.yMax + 8f, feed.width, 80f));
-        smallStyle.normal.textColor = new Color(1f, 1f, 1f, 0.7f);
-        smallStyle.wordWrap = true;
-        GUI.Label(new Rect(feed.x, feed.yMax + 14f + sh, feed.width, 60f), Loc.T("cam.panel.help"), smallStyle);
-        smallStyle.wordWrap = false;
+        float sh = DrawSourceSelector(new Rect(feed.x, feed.yMax + 10f, feed.width, 80f));
+        TxtPx(new Rect(feed.x, feed.yMax + 16f + sh, feed.width, Mathf.Max(0f, p.yMax - footH - pad - (feed.yMax + 16f + sh))), help, TextRole.Caption, UITheme.IvoryDim, TextAnchor.UpperLeft, helpPx, true);
 
         // Sağ: kat planı
-        Rect map = new Rect(feed.xMax + 16f, p.y + 40f, p.xMax - feed.xMax - 30f, ph - 70f);
+        Rect map = new Rect(feed.xMax + pad, top, p.xMax - feed.xMax - pad * 2f, p.yMax - footH - pad - top);
         DrawPlan(map, true, false);
-        GUI.Label(new Rect(p.x + 14f, p.yMax - 24f, pw - 28f, 20f), Loc.T("cam.panel.close"), smallStyle);
+        UIUtil.BrassFrame(map);
     }
 
     /// <param name="clickable">Tıklanınca işaret koyar (fare serbestken: büyük ekran, atölye).</param>
@@ -1465,7 +1624,7 @@ public class BodyCam : MonoBehaviour
     private void DrawPlan(Rect area, bool clickable, bool compact)
     {
         MuseumLayout l = MuseumLayout.Instance;
-        if (l == null || l.Plan.Count == 0) { if (Event.current.type == EventType.Repaint) UIUtil.DrawRect(area, new Color(0.1f, 0.11f, 0.13f)); return; }
+        if (l == null || l.Plan.Count == 0) { if (Event.current.type == EventType.Repaint) UIUtil.DrawRect(area, UITheme.WithAlpha(UITheme.Forest, 0.9f)); return; }
         Rect b = l.PlanArea;
         if (b.width < 1f || b.height < 1f) return;
         float pad = compact ? 8f : 20f;
@@ -1486,50 +1645,54 @@ public class BodyCam : MonoBehaviour
             return;
         }
         if (ev.type != EventType.Repaint) return;
-        UIUtil.DrawRect(area, new Color(0.1f, 0.11f, 0.13f));
-        planStyle.fontSize = compact ? 9 : 10;
+
+        // Arşiv planı: orman zemini
+        UIUtil.DrawRect(area, UITheme.WithAlpha(UITheme.Forest, 0.9f));
+        int tagPx = compact ? 9 : 11;
+        int namePx = compact ? 9 : 11;
+        float wall = 2f;
 
         foreach (MuseumLayout.PlanRoom r in l.Plan)
         {
             Vector2 a = ToScreen(new Vector2(r.rect.xMin, r.rect.yMax));
             Rect rr = new Rect(a.x, a.y, r.rect.width * scale, r.rect.height * scale);
-            Color fill = r.role == "staff" ? new Color(0.45f, 0.12f, 0.12f) : r.role == "security" ? new Color(0.45f, 0.38f, 0.1f)
-                       : r.role == "lobby" ? new Color(0.2f, 0.24f, 0.3f) : r.noPhoto ? new Color(0.3f, 0.16f, 0.18f) : new Color(0.17f, 0.25f, 0.2f);
-            UIUtil.DrawRect(rr, new Color(0.75f, 0.75f, 0.8f));
-            UIUtil.DrawRect(new Rect(rr.x + 2f, rr.y + 2f, rr.width - 4f, rr.height - 4f), fill);
-            planStyle.normal.textColor = new Color(1f, 1f, 1f, 0.55f);
+            Color fill = r.role == "staff" ? UITheme.WithAlpha(UITheme.Bordeaux, 0.55f)
+                       : r.role == "security" ? UITheme.WithAlpha(UITheme.Ochre, 0.18f)
+                       : r.role == "lobby" ? UITheme.WithAlpha(UITheme.Ivory, 0.12f)
+                       : UITheme.WithAlpha(UITheme.Ivory, 0.05f);
+            UIUtil.DrawRect(rr, fill);
+            if (r.noPhoto) UIUtil.Hatch(rr, UITheme.WithAlpha(UITheme.Danger, 0.35f)); // kayıt yasak odalar taranır
+            UIUtil.Outline(rr, wall, UITheme.Graphite);
+            UIUtil.Outline(new Rect(rr.x + wall, rr.y + wall, rr.width - wall * 2f, rr.height - wall * 2f), 1f, UITheme.WithAlpha(UITheme.Ivory, 0.5f));
             string tag = r.role == "staff" ? Loc.T("cam.plan.staff") : r.role == "security" ? Loc.T("cam.plan.security")
                        : r.role == "lobby" ? Loc.T("cam.plan.lobby") : r.noPhoto ? Loc.T("cam.plan.nophoto") : "";
             if (compact && r.role != "staff" && r.role != "security") tag = "";
-            if (tag.Length > 0) GUI.Label(new Rect(rr.x, rr.y + 2f, rr.width, 14f), tag, planStyle);
+            if (tag.Length > 0)
+                TxtPx(new Rect(rr.x + 2f, rr.y + wall + 1f, rr.width - 4f, tagPx + 5f), UITheme.Caps(tag), TextRole.Caption, UITheme.WithAlpha(UITheme.IvoryDim, 0.85f), TextAnchor.UpperCenter, tagPx);
         }
         foreach (Vector2 d in l.PlanDoorPoints)
         {
             Vector2 s = ToScreen(d);
-            UIUtil.DrawRect(new Rect(s.x - 4f, s.y - 4f, 8f, 8f), new Color(0.1f, 0.11f, 0.13f));
+            UIUtil.DrawRect(new Rect(s.x - 4f, s.y - 4f, 8f, 8f), UITheme.Forest);
         }
 
-        // Eserler
+        // Eserler: pirinç baklava + Caption ad
         MuseumSession ms = MuseumSession.Instance;
         foreach (ArtworkDisplay d in ArtworkDisplay.All)
         {
             if (d == null || d.Kind == ArtKind.None || !d.IsActiveForMission) continue;
             Vector3 w = d.transform.position;
             Vector2 s = ToScreen(new Vector2(w.x, w.z));
-            Color c = d.IsSwapped ? new Color(0.5f, 1f, 0.5f) : new Color(1f, 0.82f, 0.3f);
-            UIUtil.DrawRect(new Rect(s.x - 4f, s.y - 4f, 8f, 8f), c);
-            planStyle.normal.textColor = c;
-            GUI.Label(new Rect(s.x - 70f, s.y + 4f, 140f, 14f), PlanName(d, ms), planStyle);
+            Color c = d.IsSwapped ? UITheme.Sage : UITheme.BrassLight;
+            Diamond(s, compact ? 11f : 13f, c, UITheme.Charcoal);
+            TxtPx(new Rect(s.x - 70f, s.y + (compact ? 6f : 7f), 140f, namePx + 6f), PlanName(d, ms), TextRole.Caption, d.IsSwapped ? UITheme.Sage : UITheme.Ivory, TextAnchor.UpperCenter, namePx);
         }
 
         // Hapishane hücresi (ikon + etiket)
         if (JailCell.TryGetPlanPosition(out Vector3 jailW))
         {
             Vector2 js = ToScreen(new Vector2(jailW.x, jailW.z));
-            TextAnchor oldAl = planStyle.alignment;
-            planStyle.alignment = TextAnchor.UpperCenter;
             FloorPlanUI.DrawJailMarker(js, area, planStyle);
-            planStyle.alignment = oldAl;
         }
 
         // Takım arkadaşları
@@ -1542,13 +1705,19 @@ public class BodyCam : MonoBehaviour
             if (!b.Contains(new Vector2(w.x, w.z))) continue;
             Vector2 s = ToScreen(new Vector2(w.x, w.z));
             bool rec = IsRecording(pl.OwnerClientId);
-            UIUtil.DrawRect(new Rect(s.x - 5f, s.y - 5f, 10f, 10f), Color.black);
-            UIUtil.DrawRect(new Rect(s.x - 4f, s.y - 4f, 8f, 8f), pl.PlayerColor);
             Vector3 f = pl.transform.forward;
             Vector2 tip = s + new Vector2(f.x, -f.z) * 12f;
             UIUtil.DrawRect(new Rect(tip.x - 2f, tip.y - 2f, 4f, 4f), pl.PlayerColor);
-            planStyle.normal.textColor = rec ? new Color(1f, 0.35f, 0.3f) : Color.white;
-            GUI.Label(new Rect(s.x - 70f, s.y - 18f, 140f, 14f), (rec ? "● " : "") + pl.PlayerName, planStyle);
+            // Renk noktası: koyu dış hat + fildişi halka + oyuncu rengi
+            UIUtil.DrawRect(new Rect(s.x - 6f, s.y - 6f, 12f, 12f), UITheme.Charcoal);
+            UIUtil.DrawRect(new Rect(s.x - 5f, s.y - 5f, 10f, 10f), UITheme.Ivory);
+            UIUtil.DrawRect(new Rect(s.x - 3.5f, s.y - 3.5f, 7f, 7f), pl.PlayerColor);
+            string label = (rec ? "REC " : "") + pl.PlayerName;
+            float lw = Mathf.Min(150f, TxtW(label, TextRole.BodyStrong, namePx) + 10f);
+            Rect lr = new Rect(s.x - lw * 0.5f, s.y - 11f - (namePx + 5f), lw, namePx + 5f);
+            UIUtil.DrawRect(lr, UITheme.WithAlpha(UITheme.CharDeep, 0.78f));
+            UIUtil.DrawRect(new Rect(lr.x, lr.yMax - 2f, lr.width, 2f), rec ? UITheme.Danger : pl.PlayerColor);
+            TxtPx(lr, label, TextRole.BodyStrong, rec ? UITheme.DangerLight : UITheme.Ivory, TextAnchor.MiddleCenter, namePx);
         }
     }
 }

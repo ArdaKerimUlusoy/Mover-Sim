@@ -28,7 +28,6 @@ public class StaffDoor : MonoBehaviour
     private Light lampLight;
     private Vector3 signPos, signOut;
     private bool hasSign;
-    private static GUIStyle signStyle, signSmall, signShadow;
     private const float SignMaxDistance = 18f;
 
     private static readonly List<GuardAI> guards = new List<GuardAI>();
@@ -98,28 +97,30 @@ public class StaffDoor : MonoBehaviour
         if (Physics.Linecast(cam.transform.position, signPos, out RaycastHit hit, ~0, QueryTriggerInteraction.Ignore) &&
             hit.distance < dist - 0.5f && hit.collider.GetComponentInParent<PlayerStealth>() == null) return; // duvar arkası
 
-        if (signStyle == null)
-        {
-            signStyle = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter, fontSize = 18, fontStyle = FontStyle.Bold };
-            signSmall = new GUIStyle(signStyle) { fontSize = 12 };
-            signShadow = new GUIStyle(signStyle);
-            signShadow.normal.textColor = new Color(0f, 0f, 0f, 0.9f);
-        }
-
+        // Plaket tabela: Danger şeritli koyu kart, başlık BodyStrong, kilitliyse altında Caption (Ochre) ve Lock ikonu
+        float sc = UITheme.Scale;
         float alpha = Mathf.Clamp01((SignMaxDistance - dist) / 4f);
+        string title = Loc.T("label.staffonly");
+        string sub = Unlocked ? null : Loc.T("label.staffonly.locked");
+        GUIStyle ts = UITheme.Style(TextRole.BodyStrong, UITheme.DangerLight, TextAnchor.MiddleCenter);
+        GUIStyle ss = UITheme.Style(TextRole.Caption, UITheme.Ochre, TextAnchor.MiddleCenter);
+        float ic = Mathf.Round(18f * sc);
+        float w = Mathf.Min(Screen.width - 20f, Mathf.Max(ts.CalcSize(new GUIContent(title)).x + ic + 40f,
+                  sub != null ? ss.CalcSize(new GUIContent(sub)).x + 28f : 0f));
+        float h = Mathf.Round((sub != null ? 52f : 32f) * sc);
+        Rect r = new Rect(Mathf.Round(sp.x - w * 0.5f), Mathf.Round(Screen.height - sp.y - h * 0.5f), w, h);
+
         Color old = GUI.color;
         GUI.color = new Color(1f, 1f, 1f, alpha);
-        float x = sp.x, y = Screen.height - sp.y;
-        Rect r = new Rect(x - 160f, y - 14f, 320f, 28f);
-        string title = Loc.T("label.staffonly");
-        GUI.Label(new Rect(r.x + 1f, r.y + 1f, r.width, r.height), title, signShadow);
-        signStyle.normal.textColor = new Color(1f, 0.25f, 0.22f);
-        GUI.Label(r, title, signStyle);
-        if (!Unlocked)
-        {
-            signSmall.normal.textColor = new Color(1f, 0.85f, 0.4f);
-            GUI.Label(new Rect(x - 160f, y + 12f, 320f, 20f), Loc.T("label.staffonly.locked"), signSmall);
-        }
+        UIUtil.Panel(r, PanelKind.Plaque, 0.92f);
+        UIUtil.DrawRect(new Rect(r.x + 4f, r.y + 4f, r.width - 8f, 2f), UITheme.WithAlpha(UITheme.Danger, alpha));
+        float rowH = Mathf.Round(26f * sc);
+        float tw = ts.CalcSize(new GUIContent(title)).x;
+        float tx = r.center.x - (tw + ic + 6f) * 0.5f;
+        UIUtil.Icon(new Rect(tx, r.y + 6f + (rowH - ic) * 0.5f, ic, ic), IconId.Lock, UITheme.DangerLight);
+        GUI.Label(new Rect(tx + ic + 6f, r.y + 6f, tw + 4f, rowH), title, ts);
+        if (sub != null)
+            GUI.Label(new Rect(r.x + 8f, r.y + 6f + rowH, r.width - 16f, Mathf.Round(18f * sc)), sub, ss);
         GUI.color = old;
     }
 

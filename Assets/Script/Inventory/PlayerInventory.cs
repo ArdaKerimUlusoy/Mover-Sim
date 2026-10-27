@@ -79,11 +79,6 @@ public partial class PlayerInventory : NetworkBehaviour
     private InventorySlot lastHeld;       // G ile geri almak için
     private bool hasLastHeld;
 
-    // Bildirim
-    private string toastText;
-    private Color toastColor;
-    private float toastUntil;
-
     // Sunucu: çalma oturumu
     private ulong serverStealTargetId;
     private float serverStealUntil = -1f;
@@ -99,8 +94,6 @@ public partial class PlayerInventory : NetworkBehaviour
     // Sunucunun herkese yolladığı (istenmeden gelen) sahte verileri — istek cevaplarıyla karışmasın diye ayrı
     private readonly Dictionary<ushort, byte[]> pushedForgeries = new Dictionary<ushort, byte[]>();
     private readonly Dictionary<ushort, int> pushedReceived = new Dictionary<ushort, int>();
-
-    private GUIStyle titleStyle, rowStyle, smallStyle, hintStyle, buttonStyle, boxStyle, hudStyle, cardTitleStyle, moneyStyle;
 
     // ---------------- Okuma ----------------
 
@@ -1183,17 +1176,17 @@ public partial class PlayerInventory : NetworkBehaviour
 
     // ---------------- Arayüz ----------------
 
-    private static readonly Color Good = new Color(0.55f, 0.9f, 0.55f);
-    private static readonly Color Bad = new Color(1f, 0.45f, 0.4f);
+    private static readonly Color Good = UITheme.Sage;
+    private static readonly Color Bad = UITheme.DangerLight;
 
     /// <summary>Kendi ekranında kısa uyarı (ör. itildin — PushSystem).</summary>
     public void ShowLocalToast(string text) => ShowToast(text, Bad);
 
+    /// <summary>Eski imza korunur: iyi renk = Success, diğer her şey = Danger. Bildirim yeni toast kuyruğuna gider.</summary>
     private void ShowToast(string text, Color color)
     {
-        toastText = text;
-        toastColor = color;
-        toastUntil = Time.unscaledTime + 3f;
+        bool good = color == Good;
+        UIUtil.ShowToast(text, good ? ToastKind.Success : ToastKind.Danger, UITheme.ToastHold, good ? IconId.Check : IconId.Warning);
     }
 
     private void OnGUI()
@@ -1208,11 +1201,6 @@ public partial class PlayerInventory : NetworkBehaviour
             DrawHotbar();
         }
 
-        if (!string.IsNullOrEmpty(toastText) && Time.unscaledTime < toastUntil)
-        {
-            UIUtil.DrawPrompt(toastText, UIUtil.CenterSlot(), toastColor);
-        }
-
         if (IsPanelOpen)
         {
             if (externalPanel != null) externalPanel.DrawPanel(this);
@@ -1222,47 +1210,51 @@ public partial class PlayerInventory : NetworkBehaviour
 
     private void DrawWeightHud()
     {
-        float w = 230f, h = 50f;
+        float w = 230f, h = 54f;
         Rect r = UIUtil.HudRect(UIUtil.HudCorner.BottomRight, UIUtil.HudOrder.Weight, w, h);
-        UIUtil.Panel(r);
-
-        GUI.Label(new Rect(r.x + 12f, r.y + 6f, r.width - 24f, 20f),
-            $"{Loc.T("inv.hud")}  {Loc.T("inv.weight", CurrentWeightKg.ToString("0.#"), CapacityKg.ToString("0.#"))}", hudStyle);
+        UIUtil.Panel(r, PanelKind.Plaque);
 
         float ratio = LoadRatio;
-        Color c = ratio < 0.6f ? UIUtil.Mint : ratio < 0.9f ? UIUtil.Gold : Bad;
-        UIUtil.Bar(new Rect(r.x + 12f, r.y + 31f, r.width - 24f, 8f), ratio, c);
+        Color c = ratio < 0.6f ? UITheme.Sage : ratio < 0.9f ? UITheme.Ochre : UITheme.DangerLight;
+        UIUtil.Icon(new Rect(r.x + 12f, r.y + 6f, 20f, 20f), IconId.Bag, c);
+        string txt = Loc.T("inv.weight", CurrentWeightKg.ToString("0.#"), CapacityKg.ToString("0.#"));
+        UIUtil.Text(new Rect(r.x + 40f, r.y + 4f, r.width - 52f, 24f), EconomyPanelUI.Fit(txt, TextRole.BodyStrong, r.width - 52f), TextRole.BodyStrong, UITheme.Ivory);
+        UIUtil.ProgressBar(new Rect(r.x + 12f, r.y + 35f, r.width - 24f, 10f), ratio, c);
 
         // İpuçları kilo kutusunun hemen üstünde, sağa yaslı (köşe yığını: hiçbir şeyle çakışmaz)
         string hint = Loc.T("inv.open") + "   " + Loc.T("throw.hint");
         bool held = HasHeldItem;
-        float hw = 480f, hh = held ? 38f : 18f;
-        Rect hr = UIUtil.HudRect(UIUtil.HudCorner.BottomRight, UIUtil.HudOrder.BagHints, hw, hh);
-        if (held) GUI.Label(new Rect(hr.x, hr.y, hw, 18f), Loc.T("held.hint"), hintStyle);
-        GUI.Label(new Rect(hr.x, hr.yMax - 18f, hw, 18f), hint, hintStyle);
+        const float lh = 24f;
+        Rect hr = UIUtil.HudRect(UIUtil.HudCorner.BottomRight, UIUtil.HudOrder.BagHints, 480f, held ? lh * 2f + 2f : lh);
+        if (held) EconomyPanelUI.KeyHints(new Rect(hr.x, hr.y, hr.width, lh), Loc.T("held.hint"), UITheme.IvoryDim, true, true);
+        EconomyPanelUI.KeyHints(new Rect(hr.x, hr.yMax - lh, hr.width, lh), hint, UITheme.IvoryDim, true, true);
     }
 
     private void DrawMoneyHud()
     {
         TeamBank bank = TeamBank.Instance;
-        float w = 170f;
-        float h = bank != null ? 56f : 34f;
+        const float lh = 24f;
+        float w = 200f;
+        float h = 12f + (bank != null ? lh * 2f : lh);
         Rect r = UIUtil.HudRect(UIUtil.HudCorner.TopRight, UIUtil.HudOrder.Money, w, h);
-        UIUtil.Panel(r);
+        UIUtil.Panel(r, PanelKind.Plaque);
 
-        float y = r.y + 6f;
+        float y = r.y + 6f, tw = r.width - 48f;
         if (bank != null)
         {
-            GUI.Label(new Rect(r.x + 12f, y, r.width - 24f, 22f), Loc.T("money.team", bank.Money.ToString("N0")), moneyStyle);
-            y += 22f;
+            UIUtil.Icon(new Rect(r.x + 12f, y + 2f, 20f, 20f), IconId.Players, UITheme.IvoryDim);
+            string t = Loc.T("money.team", bank.Money.ToString("N0"));
+            UIUtil.Text(new Rect(r.x + 40f, y, tw, lh), EconomyPanelUI.Fit(t, TextRole.BodyStrong, tw), TextRole.BodyStrong, UITheme.Ivory);
+            y += lh;
         }
-        GUI.Label(new Rect(r.x + 12f, y, r.width - 24f, 22f), Loc.T("money.personal", PersonalMoney.ToString("N0")), moneyStyle);
+        UIUtil.Icon(new Rect(r.x + 12f, y + 2f, 20f, 20f), IconId.Money, UITheme.BrassLight);
+        string p = Loc.T("money.personal", PersonalMoney.ToString("N0"));
+        UIUtil.Text(new Rect(r.x + 40f, y, tw, lh), EconomyPanelUI.Fit(p, TextRole.BodyStrong, tw), TextRole.BodyStrong, UITheme.BrassLight);
     }
 
     // ---------------- Hızlı envanter (3 yuva): ses kutusunun hemen üstünde ----------------
 
     public const int HotbarSlots = 3;
-    private GUIStyle slotKeyStyle, slotCountStyle, slotNameStyle;
 
     /// <summary>1 / 2 / 3: çantanın ilk üç satırındaki eşyayı doğrudan ele al / elden kaldır.</summary>
     private void TickHotbarKeys(Keyboard kb)
@@ -1285,11 +1277,12 @@ public partial class PlayerInventory : NetworkBehaviour
         if (!HotbarVisible) return;
         const float size = 58f, gap = 8f;
         float w = HotbarSlots * size + (HotbarSlots - 1) * gap;
-        const float nameH = 18f; // üstte elde tutulanın adı için yer
+        const float nameH = 26f; // üstte elde tutulanın adı için yer
         Rect full = UIUtil.HudRect(UIUtil.HudCorner.BottomCenter, UIUtil.HudOrder.Hotbar, w, size + nameH);
         Rect area = new Rect(full.x, full.y + nameH, w, size);
         Event e = Event.current;
         int held = heldSlot.Value;
+        bool cursorFree = Cursor.lockState != CursorLockMode.Locked;
 
         for (int i = 0; i < HotbarSlots; i++)
         {
@@ -1299,7 +1292,8 @@ public partial class PlayerInventory : NetworkBehaviour
             bool isHeld = has && held == i;
 
             // Panel açıkken (imleç serbest) yuvaya tıklayarak da ele alınır; boş yuva = boş el
-            if (e.type == EventType.MouseDown && e.button == 0 && Cursor.lockState != CursorLockMode.Locked && r.Contains(e.mousePosition))
+            bool hover = cursorFree && r.Contains(e.mousePosition);
+            if (e.type == EventType.MouseDown && e.button == 0 && hover)
             {
                 if (has) ToggleHeld(i);
                 else if (held != NoHeld) SetHeld(NoHeld);
@@ -1307,272 +1301,294 @@ public partial class PlayerInventory : NetworkBehaviour
             }
             if (e.type != EventType.Repaint) continue;
 
-            UIUtil.Slot(r, isHeld, has ? 1f : 0.7f);
+            SlotState st = !has ? SlotState.Empty : isHeld ? SlotState.Selected : hover ? SlotState.Hover : SlotState.Filled;
+            UIUtil.Slot(r, st);
             if (def != null)
             {
                 InventorySlot s = slots[i];
-                DrawIcon(new Rect(r.x + 10f, r.y + 10f, r.width - 20f, r.height - 20f), def, s, false);
-                if (s.Count > 1) GUI.Label(new Rect(r.x, r.y, r.width - 8f, r.height - 6f), "x" + s.Count, slotCountStyle);
+                EconomyPanelUI.DrawItemIcon(r, def, s);
+                if (s.Count > 1) EconomyPanelUI.Count(r, "x" + s.Count, UITheme.Ivory);
             }
-            // Tuş numarası: köşede küçük rozet (simgenin üstüne binmez)
-            Rect kb = new Rect(r.x - 4f, r.y - 4f, 18f, 18f);
-            UIUtil.DrawRect(kb, isHeld ? new Color(0.86f, 0.62f, 0.25f, 1f) : new Color(0.1f, 0.07f, 0.08f, 0.95f));
-            slotKeyStyle.normal.textColor = isHeld ? new Color(0.12f, 0.07f, 0.06f) : UIUtil.Gold;
-            GUI.Label(kb, (i + 1).ToString(), slotKeyStyle);
+            // Kısayol numarası: sol üstte Caption (ikonun üstüne binmez)
+            UIUtil.Text(new Rect(r.x + 5f, r.y + 2f, 18f, 16f), (i + 1).ToString(), TextRole.Caption, isHeld ? UITheme.BrassLight : UITheme.IvoryDim);
         }
 
         // Aletler (çantada yer kaplamaz): maymuncuk ve boya kutusu sayısı, yuvaların sağında
         if (e.type == EventType.Repaint)
         {
             float bx = area.xMax + 14f;
-            DrawToolBadge(ref bx, area.y + (size - 46f) * 0.5f, UIUtil.IconLockpick, LockpickCount, Loc.T("tool.lockpick"));
-            DrawToolBadge(ref bx, area.y + (size - 46f) * 0.5f, UIUtil.IconPaint, SprayCount, Loc.T("tool.paint"));
+            DrawToolBadge(ref bx, area.y + (size - 46f) * 0.5f, IconId.Lockpick, LockpickCount);
+            DrawToolBadge(ref bx, area.y + (size - 46f) * 0.5f, IconId.Brush, SprayCount);
         }
 
-        // Elde tutulan eşyanın adı yuvaların hemen üstünde
+        // Elde tutulan eşyanın adı yuvaların hemen üstünde (küçük plaket üstünde)
         if (e.type == EventType.Repaint && held >= 0 && held < HotbarSlots && held < slots.Count)
         {
             ItemDefinition hd = Def(slots[held]);
-            if (hd != null) GUI.Label(new Rect(full.x - 60f, full.y, w + 120f, nameH), hd.DisplayName, slotNameStyle);
+            if (hd != null)
+            {
+                string nm = EconomyPanelUI.Fit(hd.DisplayName, TextRole.BodyStrong, 280f);
+                float tw = UIUtil.Measure(nm, TextRole.BodyStrong).x + 24f;
+                Rect nr = new Rect(full.center.x - tw * 0.5f, full.y, tw, nameH - 2f);
+                UIUtil.Panel(nr, PanelKind.Plaque, 0.9f);
+                UIUtil.Text(nr, nm, TextRole.BodyStrong, UITheme.BrassLight, TextAnchor.MiddleCenter);
+            }
         }
     }
 
-    private void DrawToolBadge(ref float x, float y, Texture2D icon, int count, string name)
+    /// <summary>Alet rozeti: küçük plaket + simge, sağ altta adet rozeti.</summary>
+    private void DrawToolBadge(ref float x, float y, IconId icon, int count)
     {
         if (count <= 0) return;
         Rect r = new Rect(x, y, 46f, 46f);
-        UIUtil.Panel(r, 0.95f);
-        if (icon != null) GUI.DrawTexture(new Rect(r.x + 7f, r.y + 5f, 32f, 32f), icon, ScaleMode.ScaleToFit);
-        else GUI.Label(new Rect(r.x, r.y + 4f, r.width, 20f), name, slotNameStyle);
-        GUI.Label(new Rect(r.x, r.y, r.width - 5f, r.height - 3f), "x" + count, slotCountStyle);
-        x += 52f;
+        UIUtil.Panel(r, PanelKind.Plaque, 0.95f);
+        UIUtil.Icon(new Rect(r.x + 8f, r.y + 5f, 30f, 30f), icon, UITheme.Ivory);
+        string t = "x" + count;
+        float bw = UIUtil.Measure(t, TextRole.Caption).x + 22f;
+        UIUtil.Badge(new Vector2(r.xMax - bw + 4f, r.yMax - 14f), t, UITheme.Brass, UITheme.Charcoal);
+        x += 54f;
     }
+
+    // ---------------- Çanta paneli ----------------
+
+    private int bagSel = -1;        // çanta ızgarasında seçili yuva
+    private const int BagCols = 5;
 
     private void DrawPanel(PlayerInventory bag, bool stealing)
     {
         ItemDatabase db = ItemDatabase.Instance;
+        Event e = Event.current;
+        float sc = UITheme.Scale;
+        float pad = UITheme.S5 * sc;
+        int n = bag.SlotCount;
 
-        // Unity'nin GUILayout'u her karede önce "Layout", sonra "Repaint" çizer ve ikisinde de
-        // AYNI elemanların çizilmesini ister. Bilgi kartının hangi eşya için çizileceği bu yüzden
-        // sadece Layout anında değişir; aksi halde "Invalid GUILayout state" hatası olur.
-        if (Event.current.type == EventType.Layout) hoveredSlot = pendingHoveredSlot;
+        float panelW = Mathf.Min(420f * sc, Screen.width - 32f);
+        float cardW = Mathf.Clamp(Screen.width - panelW - 48f, 0f, 270f * sc);
+        float totalW = panelW + (cardW > 0f ? 10f + cardW : 0f);
+        float h = Mathf.Min(580f * sc, Screen.height - 32f);
+        Rect panel = new Rect((Screen.width - totalW) * 0.5f, (Screen.height - h) * 0.5f, panelW, h);
+        UIUtil.Panel(panel, PanelKind.Plaque);
 
-        float w = 500f, h = 470f;
-        Rect panel = new Rect((Screen.width - w) / 2f - 110f, (Screen.height - h) / 2f, w, h);
-        GUI.Box(panel, GUIContent.none, boxStyle);
+        float x = panel.x + pad, cw = panel.width - pad * 2f, y = panel.y + pad;
 
-        GUILayout.BeginArea(new Rect(panel.x + 20f, panel.y + 14f, panel.width - 40f, panel.height - 28f));
-
+        // Başlık (çalarken sahibin adı)
+        string title;
         if (stealing)
         {
             PlayerNetworkSetup ps = bag.GetComponent<PlayerNetworkSetup>();
-            GUILayout.Label(Loc.T("steal.title", ps != null ? ps.PlayerName : "?"), titleStyle);
-            GUILayout.Label(Loc.T("steal.help"), smallStyle);
+            title = Loc.T("steal.title", ps != null ? ps.PlayerName : "?");
+        }
+        else title = Loc.T("inv.title");
+        float ic = 28f * sc, th = 34f * sc;
+        UIUtil.Icon(new Rect(x, y + (th - ic) * 0.5f, ic, ic), stealing ? IconId.Players : IconId.Bag, UITheme.BrassLight);
+        float tw = cw - ic - 10f;
+        UIUtil.Text(new Rect(x + ic + 10f, y, tw, th), EconomyPanelUI.Fit(title, TextRole.Title, tw), TextRole.Title, UITheme.Ivory);
+        y += th + 4f;
+        UIUtil.DrawRect(new Rect(x, y, 48f * sc, 2f), UITheme.Brass);
+        y += 10f;
+        if (stealing) y += EconomyPanelUI.Wrapped(new Rect(x, y, cw, 200f), Loc.T("steal.help"), TextRole.Body, UITheme.IvoryDim) + 6f;
+
+        // Kilo (çalarken KENDİ çantanın doluluğu önemli)
+        float ratio = LoadRatio;
+        Color wc = ratio < 0.6f ? UITheme.Sage : ratio < 0.9f ? UITheme.Ochre : UITheme.DangerLight;
+        string wtxt = Loc.T("inv.weight", CurrentWeightKg.ToString("0.#"), CapacityKg.ToString("0.#"));
+        UIUtil.Text(new Rect(x, y, cw, 28f * sc), EconomyPanelUI.Fit(wtxt, TextRole.Numeric, cw), TextRole.Numeric, wc);
+        y += 30f * sc;
+        UIUtil.ProgressBar(new Rect(x, y, cw, 10f * sc), ratio, wc);
+        y += 16f * sc;
+        if (!stealing && LoadRatio > 0.01f)
+            y += EconomyPanelUI.Wrapped(new Rect(x, y, cw, 60f), Loc.T("inv.speed", Mathf.RoundToInt(SpeedMultiplier * 100f)), TextRole.Caption, UITheme.IvoryDim) + 2f;
+        if (!stealing) y += EconomyPanelUI.Wrapped(new Rect(x, y, cw, 60f), Loc.T("inv.tools", LockpickCount, SprayCount), TextRole.Caption, UITheme.IvoryDim) + 2f; // çantada yer kaplamayan aletler
+        y += 6f;
+
+        float hintH = 24f * sc;
+        Rect hintR = new Rect(x, panel.yMax - pad - hintH, cw, hintH);
+        Rect view = new Rect(x, y, cw, Mathf.Max(60f, hintR.y - 8f - y));
+
+        // Seçim + klavye (yön tuşları: ızgarada gezin, Enter: ele al / çal)
+        if (n == 0) bagSel = -1;
+        else if (bagSel < 0 || bagSel >= n) bagSel = Mathf.Clamp(bagSel, 0, n - 1);
+        int actIdx = -1, actKind = 0; // 1: ele al / çal, 2: bırak
+        bool keyNav = false;
+        if (e.type == EventType.KeyDown && n > 0 && GUIUtility.keyboardControl == 0)
+        {
+            int move = 0;
+            if (e.keyCode == KeyCode.LeftArrow) move = -1;
+            else if (e.keyCode == KeyCode.RightArrow) move = 1;
+            else if (e.keyCode == KeyCode.UpArrow) move = -BagCols;
+            else if (e.keyCode == KeyCode.DownArrow) move = BagCols;
+            if (move != 0) { bagSel = Mathf.Clamp(bagSel + move, 0, n - 1); keyNav = true; e.Use(); }
+            else if (e.keyCode == KeyCode.Return || e.keyCode == KeyCode.KeypadEnter) { actIdx = bagSel; actKind = 1; e.Use(); }
+        }
+
+        // Izgara ölçüleri
+        float gap = 8f * sc;
+        float avail = view.width;
+        int rowsN = Mathf.Max(1, (n + BagCols - 1) / BagCols);
+        float cell = Mathf.Floor((avail - gap * (BagCols - 1)) / BagCols);
+        if (rowsN * (cell + gap) > view.height)
+        {
+            avail -= 16f;
+            cell = Mathf.Floor((avail - gap * (BagCols - 1)) / BagCols);
+        }
+        float contentH = rowsN * (cell + gap);
+
+        int hoverNow = -1;
+        if (n == 0)
+        {
+            Rect er = view;
+            UIUtil.Icon(new Rect(er.center.x - 22f * sc, er.y + er.height * 0.4f - 44f * sc, 44f * sc, 44f * sc), IconId.Bag, UITheme.WithAlpha(UITheme.IvoryDim, 0.7f));
+            EconomyPanelUI.Wrapped(new Rect(er.x + 8f, er.y + er.height * 0.4f + 6f, er.width - 16f, 60f), Loc.T(stealing ? "steal.emptybag" : "inv.empty"), TextRole.Body, UITheme.IvoryDim, TextAnchor.UpperCenter);
         }
         else
         {
-            GUILayout.Label(Loc.T("inv.title"), titleStyle);
-        }
-
-        // Kilo çubuğu (çalarken KENDİ çantanın doluluğu önemli)
-        GUILayout.Label(Loc.T("inv.weight", CurrentWeightKg.ToString("0.#"), CapacityKg.ToString("0.#")), rowStyle);
-        Rect bar = GUILayoutUtility.GetRect(10f, 10f, GUILayout.ExpandWidth(true), GUILayout.Height(10f));
-        UIUtil.DrawRect(bar, new Color(1f, 1f, 1f, 0.15f));
-        UIUtil.DrawRect(new Rect(bar.x, bar.y, bar.width * LoadRatio, bar.height),
-            LoadRatio < 0.9f ? new Color(1f, 0.8f, 0.3f) : Bad);
-
-        if (!stealing && LoadRatio > 0.01f)
-        {
-            GUILayout.Label(Loc.T("inv.speed", Mathf.RoundToInt(SpeedMultiplier * 100f)), smallStyle);
-        }
-        if (!stealing) GUILayout.Label(Loc.T("inv.tools", LockpickCount, SprayCount), smallStyle); // çantada yer kaplamayan aletler
-
-        GUILayout.Space(8f);
-
-        if (bag.SlotCount == 0)
-        {
-            GUILayout.Label(Loc.T(stealing ? "steal.emptybag" : "inv.empty"), rowStyle);
-        }
-
-        scroll = GUILayout.BeginScrollView(scroll);
-        int dropIndex = -1, takeIndex = -1;
-        bool repaint = Event.current.type == EventType.Repaint;
-        int hoverNow = -1;
-
-        for (int i = 0; i < bag.SlotCount; i++)
-        {
-            InventorySlot s = bag.GetSlot(i);
-            ItemDefinition def = db != null ? db.Get(s.ItemIndex) : null;
-            if (def == null) continue;
-
-            bool held = !stealing && heldSlot.Value == i;
-
-            GUILayout.BeginHorizontal(GUILayout.Height(44f));
-
-            Rect iconRect = GUILayoutUtility.GetRect(36f, 36f, GUILayout.Width(36f), GUILayout.Height(36f));
-            iconRect.y += 4f;
-            DrawIcon(iconRect, def, s);
-            if (held) UIUtil.DrawRect(new Rect(iconRect.x, iconRect.yMax + 1f, iconRect.width, 3f), new Color(1f, 0.8f, 0.3f));
-
-            GUILayout.Space(8f);
-            GUILayout.BeginVertical();
-            string title = s.Count > 1 ? $"{def.DisplayName}  x{s.Count}" : def.DisplayName;
-            if (held) title += "  " + Loc.T("inv.inhand");
-            GUILayout.Label(title, rowStyle);
-
-            string info = $"{ItemDefinition.TypeName(def.type)}  •  {(def.weightKg * s.Count).ToString("0.#")} kg";
-            if (s.HasSimilarity) info += "  •  " + Loc.T("inv.similarity", s.Similarity);
-            GUILayout.Label(info, smallStyle);
-            GUILayout.EndVertical();
-
-            GUILayout.FlexibleSpace();
-
-            if (stealing)
+            if (keyNav) scroll.y = EconomyPanelUI.EnsureVisible(scroll.y, bagSel / BagCols, cell + gap, view.height);
+            bool mouseIn = view.Contains(e.mousePosition);
+            scroll = GUI.BeginScrollView(view, scroll, new Rect(0f, 0f, avail, contentH));
+            for (int i = 0; i < n; i++)
             {
-                bool fits = CanFit(def);
-                GUI.enabled = fits;
-                if (GUILayout.Button(fits ? Loc.T("steal.take") : Loc.T("steal.nofit"), buttonStyle, GUILayout.Width(110f), GUILayout.Height(28f)))
+                InventorySlot s = bag.GetSlot(i);
+                ItemDefinition def = db != null ? db.Get(s.ItemIndex) : null;
+                Rect cr = new Rect((i % BagCols) * (cell + gap), (i / BagCols) * (cell + gap), cell, cell);
+                bool hov = mouseIn && cr.Contains(e.mousePosition);
+                if (hov) hoverNow = i;
+                if (e.type == EventType.MouseDown && e.button == 0 && hov)
                 {
-                    takeIndex = i;
+                    bagSel = i;
+                    if (e.clickCount >= 2) { actIdx = i; actKind = 1; } // çift tık: ele al / çal
+                    e.Use();
                 }
-                GUI.enabled = true;
+                if (e.type != EventType.Repaint) continue;
+
+                bool isHeld = !stealing && heldSlot.Value == i;
+                bool fits = !stealing || def == null || CanFit(def); // sığmayan çalma hedefi: soluk + tarama
+                SlotState st = def == null ? SlotState.Empty : !fits ? SlotState.Disabled : bagSel == i ? SlotState.Selected : hov ? SlotState.Hover : SlotState.Filled;
+                UIUtil.Slot(cr, st);
+                if (def == null) continue;
+                EconomyPanelUI.DrawItemIcon(cr, def, s);
+                if (s.Count > 1) EconomyPanelUI.Count(cr, "x" + s.Count, UITheme.Ivory);
+                if (!stealing && i < HotbarSlots) UIUtil.Text(new Rect(cr.x + 5f, cr.y + 2f, 18f, 16f), (i + 1).ToString(), TextRole.Caption, UITheme.IvoryDim);
+                if (isHeld) UIUtil.Icon(new Rect(cr.xMax - 18f * sc, cr.y + 3f, 15f * sc, 15f * sc), IconId.Check, UITheme.Sage); // elde
             }
-            else
+            GUI.EndScrollView();
+        }
+        if (e.type == EventType.Repaint) hoveredSlot = hoverNow;
+
+        EconomyPanelUI.KeyHints(hintR, stealing ? Loc.T("steal.close") : Loc.T("inv.close"), UITheme.IvoryDim, false, false);
+
+        // Bilgi kartı (panelin sağında): fare üstündeki, yoksa seçili eşya; eylemler yalnızca seçili eşya için
+        if (cardW > 0f)
+        {
+            int show = hoveredSlot >= 0 && hoveredSlot < n ? hoveredSlot : bagSel;
+            Rect card = new Rect(panel.xMax + 10f, panel.y, cardW, h);
+            int kind = DrawInfoCard(card, bag, show, stealing, show == bagSel && bagSel >= 0);
+            if (kind != 0) { actIdx = bagSel; actKind = kind; }
+        }
+
+        if (actIdx >= 0 && actIdx < n)
+        {
+            if (actKind == 2)
             {
-                if (GUILayout.Button(held ? Loc.T("inv.putaway") : Loc.T("inv.hold"), buttonStyle, GUILayout.Width(90f), GUILayout.Height(28f)))
-                {
-                    ToggleHeld(i);
-                }
-                if (GUILayout.Button(Loc.T("inv.drop"), buttonStyle, GUILayout.Width(70f), GUILayout.Height(28f)))
-                {
-                    dropIndex = i;
-                }
+                if (heldSlot.Value == actIdx) SetHeld(NoHeld);
+                DropRpc(actIdx);
             }
-
-            GUILayout.EndHorizontal();
-
-            if (repaint && GUILayoutUtility.GetLastRect().Contains(Event.current.mousePosition)) hoverNow = i;
-        }
-
-        GUILayout.EndScrollView();
-
-        GUILayout.Label(stealing ? Loc.T("steal.close") : Loc.T("inv.close"), hintStyle);
-        GUILayout.EndArea();
-
-        if (repaint) pendingHoveredSlot = hoverNow;
-
-        // Bilgi kartı (panelin sağında)
-        if (hoveredSlot >= 0 && hoveredSlot < bag.SlotCount)
-        {
-            DrawInfoCard(new Rect(panel.xMax + 10f, panel.y, 220f, 300f), bag.GetSlot(hoveredSlot),
-                !stealing && heldSlot.Value == hoveredSlot);
-        }
-
-        if (dropIndex >= 0)
-        {
-            if (heldSlot.Value == dropIndex) SetHeld(NoHeld);
-            DropRpc(dropIndex);
-        }
-
-        if (takeIndex >= 0 && takeIndex < bag.SlotCount)
-        {
-            TakeFromRpc(bag.NetworkObject, takeIndex, bag.GetSlot(takeIndex));
+            else if (stealing)
+            {
+                ItemDefinition d = db != null ? db.Get(bag.GetSlot(actIdx).ItemIndex) : null;
+                if (d != null && CanFit(d)) TakeFromRpc(bag.NetworkObject, actIdx, bag.GetSlot(actIdx));
+            }
+            else ToggleHeld(actIdx);
         }
     }
 
-    private void DrawInfoCard(Rect r, InventorySlot s, bool held)
+    /// <summary>
+    /// Bilgi kartı (Label): ad, tür, ağırlık, değer, benzerlik, bağlamsal eylemler.
+    /// Dönüş: 0 eylem yok, 1 ele al / kaldır / çal, 2 bırak.
+    /// </summary>
+    private int DrawInfoCard(Rect r, PlayerInventory bag, int idx, bool stealing, bool actions)
     {
-        ItemDefinition def = Def(s);
-        if (def == null) return;
+        float sc = UITheme.Scale, pad = 16f * sc;
+        UIUtil.Panel(r, PanelKind.Label);
+        float x = r.x + pad, cw = r.width - pad * 2f, y = r.y + pad;
 
-        GUI.Box(r, GUIContent.none, boxStyle);
-        GUILayout.BeginArea(new Rect(r.x + 14f, r.y + 14f, r.width - 28f, r.height - 28f));
+        InventorySlot s = default;
+        ItemDefinition def = null;
+        if (idx >= 0 && idx < bag.SlotCount)
+        {
+            s = bag.GetSlot(idx);
+            def = Def(s);
+        }
+        if (def == null)
+        {
+            // Boş durum: soluk çanta simgesi
+            float ie = 40f * sc;
+            UIUtil.Icon(new Rect(r.center.x - ie * 0.5f, r.center.y - ie, ie, ie), IconId.Bag, UITheme.WithAlpha(UITheme.Graphite, 0.6f));
+            EconomyPanelUI.Wrapped(new Rect(x, r.center.y + 6f, cw, 60f), Loc.T(stealing ? "steal.emptybag" : "inv.empty"), TextRole.Body, UITheme.Graphite, TextAnchor.UpperCenter);
+            return 0;
+        }
 
-        Rect icon = GUILayoutUtility.GetRect(96f, 96f, GUILayout.Width(r.width - 28f), GUILayout.Height(96f));
-        icon.x += (icon.width - 96f) / 2f;
-        icon.width = 96f;
-        DrawIcon(icon, def, s);
+        bool held = !stealing && heldSlot.Value == idx;
 
-        GUILayout.Space(6f);
-        GUILayout.Label(def.DisplayName, cardTitleStyle);
-        GUILayout.Label(ItemDefinition.TypeName(def.type), smallStyle);
-        GUILayout.Space(6f);
+        // Üst: büyük yuva + tür (Section) + ad
+        float big = 72f * sc;
+        Rect slotR = new Rect(x, y, big, big);
+        UIUtil.Slot(slotR, SlotState.Filled);
+        EconomyPanelUI.DrawItemIcon(slotR, def, s);
+        float tx = slotR.xMax + 12f, tw = r.xMax - pad - tx;
+        UIUtil.Text(new Rect(tx, y, tw, 18f * sc), EconomyPanelUI.Fit(UITheme.Caps(ItemDefinition.TypeName(def.type)), TextRole.Section, tw), TextRole.Section, UITheme.Bordeaux);
+        EconomyPanelUI.Wrapped(new Rect(tx, y + 20f * sc, tw, big - 20f * sc), def.DisplayName, TextRole.BodyStrong, UITheme.Charcoal);
+        y += big + 8f;
+        UIUtil.DrawRect(new Rect(x, y, cw, 1f), UITheme.WithAlpha(UITheme.Graphite, 0.45f));
+        y += 8f;
 
-        GUILayout.Label(Loc.T("card.weight", (def.weightKg * s.Count).ToString("0.#")), rowStyle);
-        if (s.Count > 1) GUILayout.Label(Loc.T("card.count", s.Count), rowStyle);
-        if (def.baseValue > 0) GUILayout.Label(Loc.T("card.value", Mathf.RoundToInt(def.baseValue * PriceRules.DisplayMultiplier(s.LookKey) * s.Count).ToString("N0")), rowStyle);
+        y += EconomyPanelUI.Wrapped(new Rect(x, y, cw, 80f), Loc.T("card.weight", (def.weightKg * s.Count).ToString("0.#")), TextRole.Body, UITheme.Charcoal) + 3f;
+        if (s.Count > 1) y += EconomyPanelUI.Wrapped(new Rect(x, y, cw, 80f), Loc.T("card.count", s.Count), TextRole.Body, UITheme.Charcoal) + 3f;
+        if (def.baseValue > 0)
+            y += EconomyPanelUI.Wrapped(new Rect(x, y, cw, 80f), Loc.T("card.value", Mathf.RoundToInt(def.baseValue * PriceRules.DisplayMultiplier(s.LookKey) * s.Count).ToString("N0")), TextRole.Body, UITheme.Charcoal) + 3f;
 
         if (s.HasSimilarity)
         {
-            Color old = GUI.contentColor;
-            GUI.contentColor = ItemDefinition.GradeColor(s.Similarity);
             string simKey = def.type == ItemType.Original ? "card.swapquality" : "card.similarity";
-            GUILayout.Label(Loc.T(simKey, s.Similarity, ItemDefinition.GradeName(s.Similarity)), rowStyle);
-            GUI.contentColor = old;
+            y += EconomyPanelUI.Wrapped(new Rect(x, y, cw, 80f), Loc.T(simKey, s.Similarity, ItemDefinition.GradeName(s.Similarity)), TextRole.Body, UITheme.Charcoal) + 3f;
+            UIUtil.ProgressBar(new Rect(x, y, cw, 10f * sc), s.Similarity / 100f, ItemDefinition.GradeColor(s.Similarity), 0.75f);
+            y += 16f * sc;
         }
         else if (def.type == ItemType.Original)
         {
-            GUILayout.Label(Loc.T("card.hot"), smallStyle);
+            y += EconomyPanelUI.Wrapped(new Rect(x, y, cw, 80f), Loc.T("card.hot"), TextRole.Caption, UITheme.Graphite) + 3f;
         }
 
         if (def.type == ItemType.Original)
-        {
-            GUILayout.Label(Loc.T("card.price", PriceRules.SalePrice(def, s).ToString("N0")), rowStyle);
-        }
+            y += EconomyPanelUI.Wrapped(new Rect(x, y, cw, 80f), Loc.T("card.price", PriceRules.SalePrice(def, s).ToString("N0")), TextRole.Numeric, UITheme.Bordeaux) + 3f;
         if (def.type == ItemType.Forgery && def.forgeryOf != null)
+            y += EconomyPanelUI.Wrapped(new Rect(x, y, cw, 80f), Loc.T("card.forgeryof", def.forgeryOf.DisplayName), TextRole.Caption, UITheme.Graphite) + 3f;
+        if (def.type == ItemType.Distraction)
+            y += EconomyPanelUI.Wrapped(new Rect(x, y, cw, 80f), Loc.T("card.throwhint"), TextRole.Caption, UITheme.Graphite) + 3f;
+        if (held)
+            UIUtil.Badge(new Vector2(x, y + 2f), Loc.T("inv.inhand").Trim('(', ')'), UITheme.Sage, UITheme.Charcoal);
+
+        // Bağlamsal eylemler (kartın altında)
+        int result = 0;
+        if (actions)
         {
-            GUILayout.Label(Loc.T("card.forgeryof", def.forgeryOf.DisplayName), smallStyle);
+            float bh = 38f * sc, by = r.yMax - pad - bh;
+            if (stealing)
+            {
+                bool fits = CanFit(def);
+                if (UIUtil.Button(new Rect(x, by, cw, bh), fits ? Loc.T("steal.take") : Loc.T("steal.nofit"), ButtonKind.Primary, fits)) result = 1;
+            }
+            else
+            {
+                float w1 = Mathf.Floor(cw * 0.58f), w2 = cw - w1 - 8f;
+                if (UIUtil.Button(new Rect(x, by, w1, bh), held ? Loc.T("inv.putaway") : Loc.T("inv.hold"), ButtonKind.Primary)) result = 1;
+                if (UIUtil.Button(new Rect(x + w1 + 8f, by, w2, bh), Loc.T("inv.drop"), ButtonKind.Danger)) result = 2;
+            }
         }
-
-        if (held) GUILayout.Label(Loc.T("inv.inhand"), smallStyle);
-        if (def.type == ItemType.Distraction) GUILayout.Label(Loc.T("card.throwhint"), smallStyle);
-
-        GUILayout.EndArea();
-    }
-
-    /// <summary>Atölyede yapılan sahtelerde ikon, oyuncunun yaptığı eserin kendisidir.</summary>
-    private static void DrawIcon(Rect r, ItemDefinition def, InventorySlot s, bool backing = true)
-    {
-        if (backing) UIUtil.DrawRect(r, new Color(1f, 1f, 1f, 0.06f));
-        Texture2D icon = PaintBrush.IsBrush(def) && UIUtil.IconBrush != null ? UIUtil.IconBrush : ItemVisuals.IconFor(def, s);
-        if (icon != null) GUI.DrawTexture(r, icon, ScaleMode.ScaleToFit);
-        else UIUtil.DrawRect(new Rect(r.x + 4f, r.y + 4f, r.width - 8f, r.height - 8f), def.uiColor);
+        return result;
     }
 
     private void EnsureStyles()
     {
-        if (titleStyle != null) return;
-
-        UIUtil.ApplySkin();
-        boxStyle = UIUtil.ThemeBox(new GUIStyle(GUI.skin.box), true);
-
-        titleStyle = new GUIStyle(GUI.skin.label) { fontSize = 24, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
-        titleStyle.normal.textColor = UIUtil.Gold;
-
-        cardTitleStyle = new GUIStyle(GUI.skin.label) { fontSize = 18, fontStyle = FontStyle.Bold, wordWrap = true };
-        cardTitleStyle.normal.textColor = UIUtil.Gold;
-
-        rowStyle = new GUIStyle(GUI.skin.label) { fontSize = 16, fontStyle = FontStyle.Bold };
-        rowStyle.normal.textColor = UIUtil.Cream;
-
-        smallStyle = new GUIStyle(GUI.skin.label) { fontSize = 12, wordWrap = true };
-        smallStyle.normal.textColor = UIUtil.Muted;
-
-        hintStyle = new GUIStyle(smallStyle) { alignment = TextAnchor.MiddleRight, wordWrap = false };
-
-        hudStyle = new GUIStyle(GUI.skin.label) { fontSize = 14, fontStyle = FontStyle.Bold };
-        hudStyle.normal.textColor = UIUtil.Cream;
-
-        moneyStyle = new GUIStyle(GUI.skin.label) { fontSize = 14, fontStyle = FontStyle.Bold };
-        moneyStyle.normal.textColor = UIUtil.Gold;
-
-        buttonStyle = UIUtil.ThemeButton(new GUIStyle(GUI.skin.button) { fontSize = 14, fontStyle = FontStyle.Bold });
-
-        slotKeyStyle = new GUIStyle(GUI.skin.label) { fontSize = 12, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter, padding = new RectOffset(0, 0, 0, 0) };
-        slotKeyStyle.normal.textColor = UIUtil.Gold;
-        slotCountStyle = new GUIStyle(GUI.skin.label) { fontSize = 12, fontStyle = FontStyle.Bold, alignment = TextAnchor.LowerRight };
-        slotCountStyle.normal.textColor = UIUtil.Cream;
-        slotNameStyle = new GUIStyle(GUI.skin.label) { fontSize = 11, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter, clipping = TextClipping.Clip };
-        slotNameStyle.normal.textColor = UIUtil.Cream;
+        UIUtil.ApplySkin(); // tema yüklenmeden başka OnGUI stili kopyalanmasın (kendini bir kez kurar)
     }
 }

@@ -47,8 +47,7 @@ public class CanvasPainter
     private float scoreTimer;
     private bool dirty;
 
-    private Rect canvasRect, refRect;
-    private GUIStyle labelStyle, titleStyle, scoreStyle, smallStyle, toolStyle;
+    private Rect canvasRect;
 
     public static readonly Color CanvasBase = new Color(0.96f, 0.93f, 0.85f);
 
@@ -100,17 +99,55 @@ public class CanvasPainter
 
     static float Diff(Color a, Color b) => Mathf.Abs(a.r - b.r) + Mathf.Abs(a.g - b.g) + Mathf.Abs(a.b - b.b);
 
+    // Yerleşim: [araç çubuğu] [tuval + altında ek panel] [sağda eskiz kâğıdı panosu: referans, benzerlik, palet, fırça].
+    // Yalnızca ekran boyutuna bağlı hesap (metin ölçmez): Tick (Update) içinden de güvenle çağrılır.
+    private Rect toolRect, sideRect, extraRect, titleRect, noteRect, rulesRect;
+    private float toolBtn, toolY;
+    private string hoverTip;
+
+    /// <summary>Geri alınabilir adım sayısı (alt çubuk ipucu için).</summary>
+    public int UndoCount => undo.Count;
+
     void Layout()
     {
-        float availW = Screen.width - 60f;
-        float ch = Mathf.Min(Screen.height * 0.6f, availW * 0.66f * H / W);
-        float cw = ch * W / H;
-        float rw = cw * (UseLiveFeed ? 0.55f : 0.42f), rh = rw * H / W;
-        float total = cw + 28f + rw;
-        float x0 = (Screen.width - total) * 0.5f;
-        float y0 = Screen.height * 0.17f;
-        canvasRect = new Rect(x0, y0, cw, ch);
-        refRect = new Rect(x0 + cw + 28f, y0 + 30f, rw, rh);
+        float sw = Screen.width, sh = Screen.height;
+        float m = BenchKit.M;
+        Rect foot = BenchKit.Footer();
+        float topH = BenchKit.Px(44f, 36f);
+        titleRect = new Rect(m, m, sw * 0.55f - m, topH);
+        float noteW = Mathf.Min(380f, sw * 0.4f - m);
+        noteRect = new Rect(sw - m - noteW, m, noteW, topH);
+        float rulesH = BenchGuide.RulesHeight(ArtKind.Painting, sw - m * 2f);
+        rulesRect = new Rect(m, m + topH + 4f, sw - m * 2f, rulesH);
+        float y0 = rulesRect.yMax + m * 0.7f;
+        float y1 = foot.y - m * 0.7f;
+        float midH = Mathf.Max(160f, y1 - y0);
+
+        // Sol araç çubuğu (8 düğme: fırça, silgi, geri al, doldur + 4 fırça şekli)
+        const float pad = 8f, gap = 4f, sep = 10f;
+        toolBtn = Mathf.Clamp((midH - pad * 2f - gap * 7f - sep) / 8f, 28f, BenchKit.Px(44f, 32f));
+        float tbH = pad * 2f + toolBtn * 8f + gap * 7f + sep;
+        toolRect = new Rect(m, y0, toolBtn + pad * 2f, Mathf.Min(tbH, midH));
+
+        // Sağ panel
+        float rw = Mathf.Clamp(sw * 0.27f, 210f, 440f);
+        sideRect = new Rect(sw - m - rw, y0, rw, midH);
+
+        // Orta: tuval (4:3) + altında ek panel (kat planı) yeterli yer varsa
+        float ax = toolRect.xMax + m, aw = Mathf.Max(160f, sideRect.x - m - ax);
+        float extraH = (ExtraPanelDrawer != null && midH >= 420f && aw >= 280f) ? Mathf.Clamp(midH * 0.28f, 110f, 220f) : 0f;
+        float ah = midH - extraH;
+        float cw = Mathf.Max(120f, Mathf.Min(aw - 24f, (ah - 24f) * W / H));
+        float ch = cw * H / W;
+        canvasRect = new Rect(ax + (aw - cw) * 0.5f, y0 + 12f, cw, ch);
+        if (extraH > 0f)
+        {
+            float ey = canvasRect.yMax + 18f;
+            float eh = y1 - ey;
+            float ew = Mathf.Min(aw, Mathf.Max(cw + 20f, 260f), eh * 1.9f);
+            extraRect = (eh >= 100f && ew >= 200f) ? new Rect(ax + (aw - ew) * 0.5f, ey, ew, eh) : Rect.zero;
+        }
+        else extraRect = Rect.zero;
     }
 
     public void Tick(Mouse mouse, Keyboard kb)
@@ -300,146 +337,191 @@ public class CanvasPainter
     public void Draw(string title)
     {
         Layout();
-        if (labelStyle == null)
-        {
-            labelStyle = new GUIStyle(GUI.skin.label) { fontSize = 15, alignment = TextAnchor.MiddleCenter, wordWrap = true };
-            labelStyle.normal.textColor = Color.white;
-            titleStyle = new GUIStyle(labelStyle) { fontSize = 20, fontStyle = FontStyle.Bold };
-        }
 
-        // Arka plan karartma
-        GUI.DrawTexture(new Rect(0, 0, Screen.width, Screen.height), Texture2D.whiteTexture, ScaleMode.StretchToFill, false, 0, new Color(0f, 0f, 0f, 0.55f), 0, 0);
+        // Çalışma yüzeyi: koyu perde + vinyet
+        UIUtil.Scrim(UITheme.WithAlpha(UITheme.CharDeep, 0.82f));
+        UIUtil.Vignette();
 
-        GUI.Label(new Rect(0, Screen.height * 0.03f, Screen.width, 30), title, titleStyle);
-        GUI.Label(new Rect(0, Screen.height * 0.03f + 30, Screen.width, 44),
-            Loc.T("bench.canvashelp", BrushSize, palette.Length, Loc.T(ShowGuide ? "bench.on" : "bench.off")),
-            labelStyle);
+        // Üst çubuk: başlık (sol) + arkadaş notu (sağ), altında kural şeridi
+        BenchKit.FitText(titleRect, title, TextRole.Title, UITheme.Ivory);
+        UIUtil.DrawRect(new Rect(titleRect.x, titleRect.yMax - 2f, 56f, 2f), UITheme.Brass);
+        BenchGuide.DrawOthersNote(noteRect);
+        BenchGuide.DrawRules(ArtKind.Painting, rulesRect);
 
-        // Tuval
-        Rect frame = new Rect(canvasRect.x - 10, canvasRect.y - 10, canvasRect.width + 20, canvasRect.height + 20);
-        GUI.DrawTexture(frame, Texture2D.whiteTexture, ScaleMode.StretchToFill, false, 0, new Color(0.55f, 0.38f, 0.12f), 0, 4);
+        hoverTip = null;
+        DrawToolbar();
+
+        // Tuval: pirinç çerçeve içinde
+        Rect frame = new Rect(canvasRect.x - 10f, canvasRect.y - 10f, canvasRect.width + 20f, canvasRect.height + 20f);
+        UIUtil.DrawRect(frame, UITheme.CharDeep);
         GUI.DrawTexture(canvasRect, canvas, ScaleMode.StretchToFill, false);
+        UIUtil.BrassFrame(frame);
         if (ShowGuide && guide != null) GUI.DrawTexture(canvasRect, guide, ScaleMode.StretchToFill, true);
 
         // Tuvalin altındaki boşluk: kat planı (BodyCam) — ressam çizerken müzedekini yönetebilsin
-        if (ExtraPanelDrawer != null)
+        if (extraRect.width > 0f)
         {
-            float top = canvasRect.yMax + 18f;
-            float h = Screen.height - top - 10f;
-            if (h > 90f) ExtraPanelDrawer(new Rect(canvasRect.x - 10f, top, Mathf.Min(canvasRect.width + 20f, h * 1.9f), h));
+            if (ExtraPanelDrawer != null) ExtraPanelDrawer(extraRect);
+            else if (UseLiveFeed && extraRect.width >= 180f) FloorPlanUI.Draw(extraRect, extraRect.width >= 300f);
         }
 
-        // Referans: monitör (BodyCam) varsa orijinal yerine kamyon monitörünün görüntüsü
-        Rect rframe = new Rect(refRect.x - 6, refRect.y - 6, refRect.width + 12, refRect.height + 12);
-        bool showScore = true; // kamera sinyali yokken benzerlik gizlenir
-        if (ReferenceProvider != null)
+        DrawSidePanel();
+
+        // Araç ipucu (fare düğmenin üstündeyken)
+        if (hoverTip != null && Event.current.type == EventType.Repaint)
         {
-            Texture feed = ReferenceProvider(out string feedLabel);
-            showScore = feed != null;
-            GUI.Label(new Rect(refRect.x - 60, refRect.y - 28, refRect.width + 120, 24), feedLabel, titleStyle);
-            GUI.DrawTexture(rframe, Texture2D.whiteTexture, ScaleMode.StretchToFill, false, 0, new Color(0.12f, 0.12f, 0.14f), 0, 3);
-            GUI.DrawTexture(refRect, Texture2D.whiteTexture, ScaleMode.StretchToFill, false, 0, Color.black, 0, 0);
-            if (feed != null) GUI.DrawTexture(refRect, feed, ScaleMode.ScaleToFit, false);
-            else GUI.Label(refRect, Loc.T("cam.nosignal.help"), labelStyle);
+            Vector2 mp = Event.current.mousePosition;
+            float tw = UIUtil.Measure(hoverTip, TextRole.Caption).x + 20f;
+            Rect tr = new Rect(toolRect.xMax + 6f, Mathf.Clamp(mp.y - 12f, toolRect.y, Screen.height - 30f), tw, 24f);
+            UIUtil.Panel(tr, PanelKind.Plaque);
+            UIUtil.Text(tr, hoverTip, TextRole.Caption, UITheme.Ivory, TextAnchor.MiddleCenter);
         }
-        else if (UseLiveFeed) // arkadaşın canlı yayını (BodyCam yoksa)
-        {
-            LiveFeed.Draw(refRect);
-            // Solda boş yer varsa kat planı
-            float planW = canvasRect.x - 46f;
-            if (planW >= 180f)
-            {
-                float planH = Mathf.Min(planW * 0.72f, canvasRect.height);
-                FloorPlanUI.Draw(new Rect(16f, canvasRect.y, planW, planH), planW >= 300f);
-            }
-        }
-        else
-        {
-            GUI.Label(new Rect(refRect.x, refRect.y - 28, refRect.width, 24), Loc.T("bench.original"), titleStyle);
-            GUI.DrawTexture(rframe, Texture2D.whiteTexture, ScaleMode.StretchToFill, false, 0, new Color(0.55f, 0.38f, 0.12f), 0, 3);
-            GUI.DrawTexture(refRect, reference, ScaleMode.StretchToFill, false);
-        }
-
-        float x0 = refRect.x, w0 = refRect.width;
-        float y = refRect.yMax + 12;
-        if (smallStyle == null)
-        {
-            smallStyle = new GUIStyle(labelStyle) { fontSize = 12, alignment = TextAnchor.UpperCenter };
-            smallStyle.normal.textColor = new Color(1f, 1f, 1f, 0.75f);
-            toolStyle = new GUIStyle(GUI.skin.button) { fontSize = 13, clipping = TextClipping.Clip };
-        }
-
-        // Palet
-        GUI.Label(new Rect(x0, y, w0, 20), Loc.T("bench.colors"), smallStyle);
-        y += 22;
-        float bs = Mathf.Min(40f, (w0 - 8f * 3) / 4f);
-        for (int i = 0; i < palette.Length; i++)
-        {
-            int col = i % 4, row = i / 4;
-            Rect b = new Rect(x0 + col * (bs + 8), y + row * (bs + 8), bs, bs);
-            GUI.DrawTexture(b, Texture2D.whiteTexture, ScaleMode.StretchToFill, false, 0, palette[i], 0, 6);
-            if (i == PaletteIndex && !Eraser)
-                GUI.DrawTexture(new Rect(b.x - 3, b.y - 3, b.width + 6, b.height + 6), Texture2D.whiteTexture, ScaleMode.StretchToFill, false, 0, Color.white, 3, 8);
-            GUI.Label(new Rect(b.x, b.y, b.width, b.height), (i + 1).ToString(), labelStyle);
-            if (GUI.Button(b, GUIContent.none, GUIStyle.none)) { PaletteIndex = i; Eraser = false; }
-        }
-        y += 2 * (bs + 8) + 4;
-
-        // Benzerlik: kamera sinyali yoksa gizli ("--")
-        if (scoreStyle == null) scoreStyle = new GUIStyle(titleStyle) { wordWrap = false, fontSize = 18, clipping = TextClipping.Overflow };
-        Rect bar = new Rect(x0, y + 26, w0, 10);
-        GUI.DrawTexture(bar, Texture2D.whiteTexture, ScaleMode.StretchToFill, false, 0, new Color(1, 1, 1, 0.15f), 0, 4);
-        if (showScore)
-        {
-            byte pct = (byte)Mathf.Clamp(Mathf.RoundToInt(Score * 100), 0, 100);
-            GUI.Label(new Rect(x0, y, w0, 24), Loc.T("bench.similarity", pct, ItemDefinition.GradeName(pct)), scoreStyle);
-            Color fill = Score >= 0.75f ? new Color(0.35f, 0.95f, 0.45f) : (Score >= 0.5f ? new Color(1f, 0.75f, 0.25f) : new Color(1f, 0.4f, 0.3f));
-            GUI.DrawTexture(new Rect(bar.x, bar.y, bar.width * Score, bar.height), Texture2D.whiteTexture, ScaleMode.StretchToFill, false, 0, fill, 0, 4);
-            GUI.Label(new Rect(x0, bar.yMax + 2, w0, 18), Loc.T("bench.regions", RegionsDone, RegionsTotal), smallStyle);
-        }
-        else GUI.Label(new Rect(x0, y, w0, 24), "--", scoreStyle);
-        y += 62;
-
-        // Fırça boyutu: kaydırıcı + / − düğmeleri (boyut halkası imlecin üstünde çizilir)
-        GUI.Label(new Rect(x0, y, w0, 20), Loc.T("bench.brushsize", BrushSize), smallStyle);
-        y += 20;
-        if (GUI.Button(new Rect(x0, y, 28, 22), "−")) BrushSize = Mathf.Clamp(BrushSize - 1, 1, 30);
-        if (GUI.Button(new Rect(refRect.xMax - 28, y, 28, 22), "+")) BrushSize = Mathf.Clamp(BrushSize + 1, 1, 30);
-        float slid = GUI.HorizontalSlider(new Rect(x0 + 36, y + 6, w0 - 72, 14), BrushSize, 1f, 30f);
-        BrushSize = Mathf.Clamp(Mathf.RoundToInt(slid), 1, 30);
-        y += 28;
-
-        // Araç çubuğu: fırça / silgi / geri al
-        float gap = 4f, tw = (w0 - gap * 2f) / 3f;
-        if (ToolButton(new Rect(x0, y, tw, 24), Loc.T("bench.tool.brush"), !Eraser)) Eraser = false;
-        if (ToolButton(new Rect(x0 + tw + gap, y, tw, 24), Loc.T("bench.tool.eraser"), Eraser)) Eraser = true;
-        if (ToolButton(new Rect(x0 + (tw + gap) * 2f, y, tw, 24), Loc.T("bench.undo", undo.Count), false)) Undo();
-        y += 28;
-
-        // Şekil seçimi
-        float sw = (w0 - gap * 3f) / 4f;
-        string[] shapeKeys = { "bench.shape.round", "bench.shape.square", "bench.shape.hline", "bench.shape.vline" };
-        for (int i = 0; i < 4; i++)
-            if (ToolButton(new Rect(x0 + (sw + gap) * i, y, sw, 24), Loc.T(shapeKeys[i]), (int)Shape == i)) Shape = (BrushShape)i;
-        y += 28;
-
-        // Kısayol yardımı
-        GUI.Label(new Rect(x0 - 20f, y, w0 + 40f, 36), Loc.T("bench.toolhelp"), smallStyle);
 
         DrawBrushCursor();
     }
 
-    /// <summary>Seçili durumu vurgulanan küçük araç düğmesi.</summary>
-    bool ToolButton(Rect r, string text, bool selected)
+    /// <summary>Sol araç çubuğu: fırça / silgi / geri al / doldur, ayraç, fırça şekilleri.</summary>
+    void DrawToolbar()
     {
-        if (selected)
-            GUI.DrawTexture(new Rect(r.x - 2, r.y - 2, r.width + 4, r.height + 4), Texture2D.whiteTexture, ScaleMode.StretchToFill, false, 0, new Color(1f, 0.85f, 0.3f), 2, 5);
-        return GUI.Button(r, text, toolStyle);
+        UIUtil.Panel(toolRect, PanelKind.Plaque);
+        const float pad = 8f, gap = 4f;
+        float x = toolRect.x + pad;
+        toolY = toolRect.y + pad;
+
+        if (ToolBtn(x, IconId.Brush, 0, Loc.T("bench.tool.brush"), !Eraser, true)) Eraser = false;
+        if (ToolBtn(x, IconId.Eraser, 0, Loc.T("bench.tool.eraser"), Eraser, true)) Eraser = true;
+        if (ToolBtn(x, IconId.Undo, 0, Loc.T("bench.undo", undo.Count), false, undo.Count > 0)) Undo();
+        if (ToolBtn(x, IconId.Painting, 0, Loc.T("bench.tool.fill"), false, true)) { PushUndo(); FillAll(); }
+
+        float sepY = toolY + 1f;
+        UIUtil.DrawRect(new Rect(x + 4f, sepY + 3f, toolBtn - 8f, 1f), UITheme.WithAlpha(UITheme.Brass, 0.6f));
+        toolY += 10f;
+
+        string[] shapeKeys = { "bench.shape.round", "bench.shape.square", "bench.shape.hline", "bench.shape.vline" };
+        for (int i = 0; i < 4; i++)
+            if (ToolBtn(x, null, i + 1, Loc.T(shapeKeys[i]), (int)Shape == i, true)) Shape = (BrushShape)i;
+    }
+
+    /// <summary>Araç çubuğu düğmesi (simge ya da fırça şekli simgesi). Tıklandıysa true.</summary>
+    bool ToolBtn(float x, IconId? icon, int glyph, string tip, bool selected, bool enabled)
+    {
+        Rect r = new Rect(x, toolY, toolBtn, toolBtn);
+        toolY += toolBtn + 4f;
+        bool click = UIUtil.Button(r, "", ButtonKind.Tool, enabled, false, icon, selected);
+        if (glyph > 0 && Event.current.type == EventType.Repaint)
+        {
+            Color c = !enabled ? UITheme.Graphite : selected ? UITheme.Charcoal : UITheme.IvoryDim;
+            float s = toolBtn * 0.46f;
+            Vector2 ctr = r.center;
+            if (glyph == 1) GUI.DrawTexture(new Rect(ctr.x - s * 0.5f, ctr.y - s * 0.5f, s, s), Texture2D.whiteTexture, ScaleMode.StretchToFill, true, 0, c, 0, s * 0.5f);
+            else if (glyph == 2) UIUtil.DrawRect(new Rect(ctr.x - s * 0.5f, ctr.y - s * 0.5f, s, s), c);
+            else if (glyph == 3) UIUtil.DrawRect(new Rect(ctr.x - s * 0.7f, ctr.y - s * 0.14f, s * 1.4f, s * 0.28f), c);
+            else UIUtil.DrawRect(new Rect(ctr.x - s * 0.14f, ctr.y - s * 0.7f, s * 0.28f, s * 1.4f), c);
+        }
+        if (enabled && Event.current != null && r.Contains(Event.current.mousePosition)) hoverTip = tip;
+        return click;
+    }
+
+    /// <summary>Tüm tuvali seçili renkle doldurur (B tuşuyla aynı).</summary>
+    void FillAll()
+    {
+        Color c = CurColor();
+        for (int i = 0; i < px.Length; i++) px[i] = c;
+        dirty = true;
+    }
+
+    /// <summary>Sağ panel (eskiz kâğıdı): panoya tutturulmuş referans, benzerlik, boya lekeleri, fırça boyutu.</summary>
+    void DrawSidePanel()
+    {
+        Rect p = sideRect;
+        UIUtil.Panel(p, PanelKind.Sketch);
+        float sc = UITheme.Scale;
+        float padX = BenchKit.Px(22f, 18f), padY = BenchKit.Px(20f, 16f);
+        var f = new Flow(p.x + padX, p.y + padY, p.width - padX * 2f);
+        float iw = f.W;
+
+        // Referans kaynağı: monitör (BodyCam) → canlı yayın → eski usul orijinal
+        Texture feed = null;
+        string feedLabel = Loc.T("bench.original");
+        bool provider = ReferenceProvider != null;
+        if (provider) { feed = ReferenceProvider(out string lbl); feedLabel = lbl ?? ""; }
+        bool showScore = !provider || feed != null; // kamera sinyali yokken benzerlik gizlenir ("--")
+
+        // Alttaki bloklar için gereken yükseklik (referans kalan yere sığar)
+        float secH = 26f * sc + 2f;
+        float gap = 6f;
+        float bs = Mathf.Min(BenchKit.Px(40f, 30f), (iw - gap * 3f) / 4f);
+        int rows = (palette.Length + 3) / 4;
+        float paletteH = secH + rows * (bs + gap) + 8f;
+        float brushCap = UIUtil.MeasureHeight(Loc.T("bench.brushsize", BrushSize), TextRole.Caption, iw);
+        float brushH = secH + brushCap + 4f + BenchKit.Px(28f, 26f) + 8f;
+        float simH = BenchKit.SimilarityHeight() + (showScore ? UIUtil.MeasureHeight(Loc.T("bench.regions", RegionsDone, RegionsTotal), TextRole.Caption, iw) + 4f : 0f) + 8f;
+        float avail = p.height - padY * 2f - secH - 10f - paletteH - brushH - simH - 6f;
+        float rh = Mathf.Clamp(avail, 56f, iw * 0.75f);
+        float rwid = Mathf.Min(iw, rh * 4f / 3f);
+
+        f.Section(feedLabel, PanelKind.Sketch);
+        f.Gap(8f);
+        Rect row = f.Row(rh);
+        Rect rr = new Rect(row.x + (row.width - rwid) * 0.5f, row.y, rwid, rh);
+        UIUtil.DrawRect(rr, Color.black);
+        if (feed != null) GUI.DrawTexture(rr, feed, ScaleMode.ScaleToFit, false);
+        else if (provider) DrawNoSignal(rr);
+        else if (UseLiveFeed) LiveFeed.Draw(rr);
+        else GUI.DrawTexture(rr, reference, ScaleMode.StretchToFill, false);
+        UIUtil.BrassFrame(new Rect(rr.x - 3f, rr.y - 3f, rr.width + 6f, rr.height + 6f));
+        // Kâğıda tutturan iki klips
+        DrawClip(new Rect(rr.x + 10f, rr.y - 9f, 18f, 12f));
+        DrawClip(new Rect(rr.xMax - 28f, rr.y - 9f, 18f, 12f));
+        f.Gap(12f);
+
+        // Benzerlik: sinyal yokken "--"
+        int pct = showScore ? Mathf.Clamp(Mathf.RoundToInt(Score * 100f), 0, 100) : -1;
+        BenchKit.SimilarityBlock(f, pct, -1f, showScore ? Loc.T("bench.regions", RegionsDone, RegionsTotal) : null);
+        f.Gap(4f);
+
+        // Boya lekeleri
+        f.Section(Loc.T("bench.colors"), PanelKind.Sketch);
+        int pick = BenchKit.PaletteGrid(f, palette, PaletteIndex, !Eraser, 4);
+        if (pick >= 0) { PaletteIndex = pick; Eraser = false; }
+        f.Gap(4f);
+
+        // Fırça boyutu
+        f.Section(Loc.T("bench.tool.brush"), PanelKind.Sketch);
+        f.Text(Loc.T("bench.brushsize", BrushSize), TextRole.Caption, UITheme.Graphite);
+        f.Gap(4f);
+        float v = BenchKit.SizeRow(f, BrushSize, 1f, 30f, 1f);
+        BrushSize = Mathf.Clamp(Mathf.RoundToInt(v), 1, 30);
+    }
+
+    /// <summary>Sinyal yok: tarama dokusu + kamera simgesi + yönerge.</summary>
+    void DrawNoSignal(Rect r)
+    {
+        UIUtil.Hatch(r, UITheme.WithAlpha(UITheme.Graphite, 0.45f));
+        string full = Loc.T("cam.nosignal.help");
+        int nl = full.IndexOf('\n');
+        string head = nl > 0 ? full.Substring(0, nl) : full;
+        string rest = nl > 0 ? full.Substring(nl + 1) : "";
+        bool roomy = r.height >= 110f && r.width >= 150f;
+        float isz = Mathf.Clamp(r.height * 0.22f, 18f, 32f);
+        float ty = r.center.y - (roomy ? 36f : 14f);
+        UIUtil.Icon(new Rect(r.center.x - isz * 0.5f, ty, isz, isz), IconId.Camera, UITheme.DangerLight);
+        UIUtil.Text(new Rect(r.x + 4f, ty + isz + 2f, r.width - 8f, 20f), head, TextRole.BodyStrong, UITheme.DangerLight, TextAnchor.MiddleCenter);
+        if (roomy && rest.Length > 0)
+            BenchKit.Wrapped(new Rect(r.x + 8f, ty + isz + 24f, r.width - 16f, r.yMax - (ty + isz + 24f) - 4f), rest, TextRole.Caption, UITheme.IvoryDim, TextAnchor.UpperCenter);
+    }
+
+    static void DrawClip(Rect c)
+    {
+        UIUtil.DrawRect(c, UITheme.Graphite);
+        UIUtil.DrawRect(new Rect(c.x, c.y, c.width, 3f), UITheme.Brass);
+        UIUtil.Outline(c, 1f, UITheme.Charcoal);
     }
 
     /// <summary>Fare tuvalin üstündeyken fırçanın gerçek boyutunu/şeklini gösteren halka (imlecin etrafında).</summary>
     void DrawBrushCursor()
     {
+        if (!GUI.enabled) return;
         Vector2 mp = Event.current.mousePosition;
         if (!canvasRect.Contains(mp)) return;
         float sc = canvasRect.width / W;
@@ -451,8 +533,8 @@ public class CanvasPainter
         Rect r = new Rect(mp.x - dw * 0.5f, mp.y - dh * 0.5f, dw, dh);
         Rect outer = new Rect(r.x - 1.5f, r.y - 1.5f, r.width + 3f, r.height + 3f);
         // Koyu dış çizgi + iç çizgi: her zeminde görünür
-        GUI.DrawTexture(outer, Texture2D.whiteTexture, ScaleMode.StretchToFill, true, 0, new Color(0f, 0f, 0f, 0.75f), 1.5f, rad > 0f ? outer.width * 0.5f : 0f);
-        GUI.DrawTexture(r, Texture2D.whiteTexture, ScaleMode.StretchToFill, true, 0, Eraser ? new Color(1f, 0.5f, 0.5f) : Color.white, 2f, rad);
+        GUI.DrawTexture(outer, Texture2D.whiteTexture, ScaleMode.StretchToFill, true, 0, UITheme.WithAlpha(UITheme.CharDeep, 0.75f), 1.5f, rad > 0f ? outer.width * 0.5f : 0f);
+        GUI.DrawTexture(r, Texture2D.whiteTexture, ScaleMode.StretchToFill, true, 0, Eraser ? UITheme.DangerLight : UITheme.Ivory, 2f, rad);
         Color pc = CurColor();
         GUI.DrawTexture(new Rect(mp.x - 2f, mp.y - 2f, 4f, 4f), Texture2D.whiteTexture, ScaleMode.StretchToFill, true, 0, new Color(pc.r, pc.g, pc.b, 1f), 0, 2f);
     }

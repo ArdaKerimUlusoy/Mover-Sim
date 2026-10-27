@@ -546,48 +546,53 @@ public class LockpickSystem : MonoBehaviour
         PlayerInventory inv = PlayerInventory.Local;
         if (phase != Phase.Idle)
         {
+            PromptHud.Idle(2);
             DrawRacePanel(inv != null ? inv.LockpickCount : 0);
             return;
         }
-        if (target == null || StaffDoor.Unlocked) return;
+        UIUtil.Tween(0x4C4B5043, false, 0.05f);   // panel giriş geçişini sıfırla
+        if (target == null || StaffDoor.Unlocked) { PromptHud.Idle(2); return; }
         bool has = inv != null && inv.HasLockpick;
 
+        // Maymuncuk yoksa: kullanılamaz durumu (neden: fiyat); varsa basılı tutma istemi
         if (!has)
         {
-            UIUtil.DrawPrompt(Loc.T("lockpick.need", UpgradeCatalog.LockpickPrice.ToString("N0")), UIUtil.CenterSlot(), new Color(1f, 0.55f, 0.45f));
+            PromptHud.Show(Loc.T("lockpick.need", UpgradeCatalog.LockpickPrice.ToString("N0")), PromptTone.Danger, -1f, 2);
             return;
         }
-        UIUtil.DrawPrompt(Loc.T("lockpick.prompt", inv.LockpickCount), UIUtil.CenterSlot(), Color.white);
+        PromptHud.Show(Loc.T("lockpick.prompt", inv.LockpickCount), PromptTone.Normal, -1f, 2);
     }
 
-    private GUIStyle titleStyle, barStyle;
-
-    /// <summary>Başarı (mavi) ve Kırılma (turuncu) çubukları — önce dolan kazanır.</summary>
+    /// <summary>Başarı (Sage) ve Kırılma (Danger) çubukları — önce dolan kazanır.</summary>
     private void DrawRacePanel(int count)
     {
-        if (titleStyle == null)
-        {
-            titleStyle = new GUIStyle(GUI.skin.label) { fontSize = 15, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
-            titleStyle.normal.textColor = new Color(0.55f, 1f, 0.55f);
-            barStyle = new GUIStyle(GUI.skin.label) { fontSize = 12, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleLeft };
-            barStyle.normal.textColor = Color.white;
-        }
-
-        const float W = 340f, H = 86f;
-        float y = UIUtil.CenterSlot(H);
+        float sc = UITheme.Scale;
+        float W = Mathf.Round(380f * sc), pad = UITheme.S4 * sc;
+        float rowH = Mathf.Round(22f * sc);
+        float H = Mathf.Round(pad * 2f + 28f * sc + rowH * 2f + UITheme.S2 * sc);
+        float enter = UIUtil.Ease.OutCubic(UIUtil.Tween(0x4C4B5043, true, UITheme.MotionBase));
+        float y = UIUtil.CenterSlot(H) + (1f - enter) * 12f * sc;
         Rect panel = new Rect((Screen.width - W) * 0.5f, y + 10f, W, H);
-        UIUtil.Panel(panel);
-        UIUtil.DrawRect(new Rect(panel.x, panel.y, panel.width, 1f), new Color(0.4f, 0.6f, 0.75f, 0.7f));
-        GUI.Label(new Rect(panel.x, panel.y + 4f, W, 22f), Loc.T("lockpick.title", count), titleStyle);
 
-        DrawBar(new Rect(panel.x + 14f, panel.y + 32f, W - 28f, 18f), successBar, new Color(0.25f, 0.55f, 0.95f), Loc.T("lockpick.success"));
-        DrawBar(new Rect(panel.x + 14f, panel.y + 56f, W - 28f, 18f), failBar, new Color(0.95f, 0.55f, 0.12f), Loc.T("lockpick.fail"));
+        Color old = GUI.color;
+        GUI.color = new Color(old.r, old.g, old.b, old.a * enter);
+        UIUtil.Panel(panel, PanelKind.Plaque, 0.95f);
+
+        float ic = Mathf.Round(24f * sc);
+        UIUtil.Icon(new Rect(panel.x + pad, panel.y + pad - 2f * sc, ic, ic), IconId.Lockpick, UITheme.BrassLight);
+        UIUtil.Text(new Rect(panel.x + pad + ic + UITheme.S2 * sc, panel.y + pad - 2f * sc, W - pad * 2f - ic, ic),
+            Loc.T("lockpick.title", count), TextRole.BodyStrong, UITheme.Ivory);
+
+        float by = panel.y + pad + 28f * sc;
+        DrawBar(new Rect(panel.x + pad, by, W - pad * 2f, rowH), successBar, UITheme.Sage, Loc.T("lockpick.success"));
+        DrawBar(new Rect(panel.x + pad, by + rowH + UITheme.S2 * sc, W - pad * 2f, rowH), failBar, UITheme.Danger, Loc.T("lockpick.fail"));
+        GUI.color = old;
     }
 
     private void DrawBar(Rect r, float v, Color fill, string label)
     {
-        UIUtil.DrawRect(r, new Color(0f, 0f, 0f, 0.6f));
-        UIUtil.DrawRect(new Rect(r.x + 1f, r.y + 1f, (r.width - 2f) * Mathf.Clamp01(v), r.height - 2f), fill);
-        GUI.Label(new Rect(r.x + 5f, r.y, r.width, r.height), label, barStyle);
+        float labelW = Mathf.Round(84f * UITheme.Scale);
+        UIUtil.Text(new Rect(r.x, r.y, labelW, r.height), label, TextRole.Caption, UITheme.IvoryDim);
+        UIUtil.ProgressBar(new Rect(r.x + labelW, r.y + r.height * 0.5f - 6f, r.width - labelW, 12f), Mathf.Clamp01(v), fill);
     }
 }

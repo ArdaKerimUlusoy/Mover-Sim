@@ -303,14 +303,11 @@ public class PlayerInteractor : MonoBehaviour
 
         if (stealth != null && stealth.CurrentHidingSpot != null)
         {
-            UIUtil.DrawPrompt(Loc.T("hide.leave"), UIUtil.CenterSlot(), Color.white);
+            PromptHud.Show(Loc.T("hide.leave"));
             return;
         }
 
-        if (kind == TargetKind.None) return;
-
-        float y = UIUtil.CenterSlot();
-        Vector2 center = new Vector2(Screen.width / 2f, Screen.height / 2f);
+        if (kind == TargetKind.None) { PromptHud.Idle(); return; }
 
         switch (kind)
         {
@@ -324,36 +321,34 @@ public class PlayerInteractor : MonoBehaviour
                 {
                     text += "   " + Loc.T("inv.similarity", targetItem.Similarity);
                 }
-                UIUtil.DrawPrompt(text, y, fits ? Color.white : new Color(1f, 0.45f, 0.4f));
+                PromptHud.Show(text, fits ? PromptTone.Normal : PromptTone.Danger);
                 break;
             }
 
             case TargetKind.Interactable:
             {
                 bool can = targetInteractable.CanInteract(gameObject);
-                UIUtil.DrawPrompt(targetInteractable.GetPrompt(this), y, can ? Color.white : new Color(0.75f, 0.75f, 0.75f));
                 float duration = targetInteractable.GetHoldDuration(gameObject);
-                if (can && duration > 0f && holdTarget == targetInteractable && holdTime > 0f)
-                {
-                    UIUtil.DrawRing(center, 22f, holdTime / duration, new Color(1f, 0.8f, 0.3f));
-                }
+                float ihold = -1f;
+                if (can && duration > 0f)
+                    ihold = holdTarget == targetInteractable ? Mathf.Clamp01(holdTime / duration) : 0f;
+                PromptHud.Show(targetInteractable.GetPrompt(this), can ? PromptTone.Normal : PromptTone.Dim, ihold);
                 break;
             }
 
             case TargetKind.Trash:
-                UIUtil.DrawPrompt(Loc.T("trash.prompt"), y, Color.white);
+                PromptHud.Show(Loc.T("trash.prompt"));
                 break;
 
             case TargetKind.Visitor:
                 if (!targetVisitorBehind)
                 {
-                    UIUtil.DrawPrompt(Loc.T("pick.getbehind"), y, new Color(0.8f, 0.8f, 0.8f), 16);
+                    PromptHud.Show(Loc.T("pick.getbehind"), PromptTone.Dim);
                 }
                 else
                 {
-                    UIUtil.DrawPrompt(Loc.T("pick.prompt"), y, new Color(1f, 0.85f, 0.4f));
-                    if (holdTarget == this && holdTime > 0f)
-                        UIUtil.DrawRing(center, 22f, holdTime / pickpocketHoldDuration, new Color(0.5f, 0.9f, 0.5f));
+                    float phold = holdTarget == this ? Mathf.Clamp01(holdTime / pickpocketHoldDuration) : 0f;
+                    PromptHud.Show("E", Loc.T("pick.prompt"), PromptTone.Warn, phold, true);
                 }
                 break;
 
@@ -364,19 +359,16 @@ public class PlayerInteractor : MonoBehaviour
 
                 if (targetPlayer.SlotCount == 0)
                 {
-                    UIUtil.DrawPrompt(Loc.T("steal.emptyprompt", name), y, new Color(0.8f, 0.8f, 0.8f), 16);
+                    PromptHud.Show(Loc.T("steal.emptyprompt", name), PromptTone.Dim);
                 }
                 else if (inventory != null && !inventory.IsBehind(targetPlayer))
                 {
-                    UIUtil.DrawPrompt(Loc.T("steal.getbehind", name), y, new Color(0.8f, 0.8f, 0.8f), 16);
+                    PromptHud.Show(Loc.T("steal.getbehind", name), PromptTone.Dim);
                 }
                 else
                 {
-                    UIUtil.DrawPrompt(Loc.T("steal.prompt", name), y, new Color(1f, 0.85f, 0.4f));
-                    if (holdTarget == targetPlayer && holdTime > 0f)
-                    {
-                        UIUtil.DrawRing(center, 22f, holdTime / stealHoldDuration, new Color(1f, 0.45f, 0.35f));
-                    }
+                    float shold = holdTarget == targetPlayer ? Mathf.Clamp01(holdTime / stealHoldDuration) : 0f;
+                    PromptHud.Show(Loc.T("steal.prompt", name), PromptTone.Warn, shold);
                 }
                 break;
             }

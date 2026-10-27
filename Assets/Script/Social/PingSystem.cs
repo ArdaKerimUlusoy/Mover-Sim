@@ -26,7 +26,6 @@ public class PingSystem : NetworkBehaviour
     private readonly Dictionary<ulong, Ping> pings = new Dictionary<ulong, Ping>();
     private readonly Dictionary<ulong, float> serverCooldowns = new Dictionary<ulong, float>();
     private float nextLocalPing;
-    private GUIStyle labelStyle, shadowStyle;
 
     private void Update()
     {
@@ -102,13 +101,7 @@ public class PingSystem : NetworkBehaviour
         Camera cam = Camera.main;
         if (cam == null) return;
 
-        if (labelStyle == null)
-        {
-            labelStyle = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter, fontSize = 14, fontStyle = FontStyle.Bold };
-            shadowStyle = new GUIStyle(labelStyle);
-            shadowStyle.normal.textColor = new Color(0f, 0f, 0f, 0.85f);
-        }
-
+        float sc = UITheme.Scale;
         float now = Time.unscaledTime;
         foreach (Ping p in pings.Values)
         {
@@ -124,32 +117,42 @@ public class PingSystem : NetworkBehaviour
                 if (ps != null && ps.OwnerClientId == p.Owner) { color = ps.PlayerColor; who = ps.PlayerName; }
             }
 
-            if (p.ItemIndex == GuardPingIndex) color = new Color(1f, 0.3f, 0.25f); // güvenlik işareti kırmızı
+            bool guardPing = p.ItemIndex == GuardPingIndex;
+            // Pirinç baklava; güvenlik işareti Danger; içinde oyuncu rengi noktası
+            Color mark = guardPing ? UITheme.Danger : UITheme.BrassLight;
             float fade = Mathf.Clamp01((p.Until - now) / 1.5f);
             float bob = Mathf.Sin(now * 5f) * 3f;
             Vector2 c = new Vector2(sp.x, Screen.height - sp.y + bob);
+            float half = 8f * sc;
 
             // Elmas işaret
             Matrix4x4 old = GUI.matrix;
             GUIUtility.RotateAroundPivot(45f, c);
-            UIUtil.DrawRect(new Rect(c.x - 9f, c.y - 9f, 18f, 18f), new Color(0f, 0f, 0f, 0.6f * fade));
-            UIUtil.DrawRect(new Rect(c.x - 7f, c.y - 7f, 14f, 14f), new Color(color.r, color.g, color.b, fade));
+            UIUtil.DrawRect(new Rect(c.x - half - 2f, c.y - half - 2f, (half + 2f) * 2f, (half + 2f) * 2f), UITheme.WithAlpha(UITheme.CharDeep, 0.85f * fade));
+            UIUtil.DrawRect(new Rect(c.x - half, c.y - half, half * 2f, half * 2f), UITheme.WithAlpha(mark, fade));
+            if (!guardPing)
+                UIUtil.DrawRect(new Rect(c.x - 3f, c.y - 3f, 6f, 6f), new Color(color.r, color.g, color.b, fade));
             GUI.matrix = old;
 
-            string text = who + "  " + Mathf.RoundToInt(sp.z) + "m";
-            if (p.ItemIndex == GuardPingIndex) text = Loc.T("ping.guard") + "\n" + text;
-            else if (p.ItemIndex >= 0 && ItemDatabase.Instance != null)
+            // Etiket: üstte ad (Caption), altında mesafe (Mono)
+            string title = guardPing ? Loc.T("ping.guard") : who;
+            if (!guardPing && p.ItemIndex >= 0 && ItemDatabase.Instance != null)
             {
                 ItemDefinition d = ItemDatabase.Instance.Get(p.ItemIndex);
-                if (d != null) text = d.DisplayName + "\n" + text;
+                if (d != null) title = d.DisplayName + " · " + who;
             }
-
-            Rect r = new Rect(c.x - 120f, c.y - 52f, 240f, 40f);
+            string dist = Mathf.RoundToInt(sp.z) + " m";
+            GUIStyle ts = UITheme.Style(TextRole.Caption, guardPing ? UITheme.DangerLight : UITheme.Ivory, TextAnchor.MiddleCenter);
+            GUIStyle ds = UITheme.Style(TextRole.Mono, UITheme.BrassLight, TextAnchor.MiddleCenter);
+            float tw = Mathf.Max(ts.CalcSize(new GUIContent(title)).x, ds.CalcSize(new GUIContent(dist)).x) + 16f;
+            float th = Mathf.Round(36f * sc);
+            Rect r = new Rect(c.x - tw * 0.5f, c.y - half * 1.5f - 8f - th, tw, th);
             Color oldC = GUI.color;
             GUI.color = new Color(1f, 1f, 1f, fade);
-            GUI.Label(new Rect(r.x + 1f, r.y + 1f, r.width, r.height), text, shadowStyle);
-            labelStyle.normal.textColor = color;
-            GUI.Label(r, text, labelStyle);
+            UIUtil.DrawRect(r, UITheme.WithAlpha(UITheme.CharDeep, 0.78f * fade));
+            UIUtil.DrawRect(new Rect(r.x, r.yMax - 2f, r.width, 2f), UITheme.WithAlpha(mark, fade));
+            GUI.Label(new Rect(r.x, r.y + 1f, r.width, th * 0.5f), title, ts);
+            GUI.Label(new Rect(r.x, r.y + th * 0.5f - 2f, r.width, th * 0.5f), dist, ds);
             GUI.color = oldC;
         }
     }

@@ -330,16 +330,6 @@ public partial class MuseumLayout
         var infl = new Rect(hole.x - 0.9f, hole.y - 0.9f, hole.width + 1.8f, hole.height + 1.8f);
         wallSlots.RemoveAll(s => infl.Contains(s.pos));
 
-        // --- Merdiven başı güvenlik aynası: direğe monte, bodrum salonunu gösterir (sabit kamera noktası) ---
-        {
-            Vector2 pole = c.A + perp * (hw + 0.35f);
-            Decor(interior, "Mirror_Pole", PrimitiveType.Cube, L(pole, 1.15f), 0f, new Vector3(0.06f, 2.3f, 0.06f), dark);
-            Vector2 mpos = pole - c.dir * 0.14f;
-            Vector3 mn = new Vector3(-c.dir.x * 0.94f - perp.x * 0.34f, -0.26f, -c.dir.y * 0.94f - perp.y * 0.34f).normalized; // odaya doğru, merdiven eksenine ve aşağı eğik
-            Vector3 pp = museum.TransformPoint(L(c.B + c.dir * 0.8f, -D + 2.2f));
-            Vector3 pd = museum.TransformDirection(new Vector3(c.dir.x * 0.98f, -0.17f, c.dir.y * 0.98f));
-            SecurityMirror.Create(interior, W(mpos, 2.3f), museum.TransformDirection(mn), pp, pd);
-        }
         return true;
     }
 

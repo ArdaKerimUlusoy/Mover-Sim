@@ -66,7 +66,6 @@ public class ArtPlaque : MonoBehaviour
     private const float ShowDistance = 3.6f;
 
     private ArtworkDisplay display;
-    private static GUIStyle style, shadow;
 
     private void Awake() => display = GetComponent<ArtworkDisplay>();
 
@@ -92,23 +91,31 @@ public class ArtPlaque : MonoBehaviour
         // Tablonun önünden bakılıyorsa (arkasından değil)
         if (display.WallMounted && Vector3.Dot(cam.transform.position - transform.position, transform.forward) < 0f) return;
 
-        if (style == null)
-        {
-            style = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter, fontSize = 14, fontStyle = FontStyle.Bold };
-            shadow = new GUIStyle(style);
-            shadow.normal.textColor = new Color(0f, 0f, 0f, 0.8f);
-        }
-
         bool faded = ArtNames.IsFaded(display);
         string text = ArtNames.MuseumName(display);
         float alpha = Mathf.Clamp01((ShowDistance - sp.z) / 1.2f);
-        Rect r = new Rect(sp.x - 150f, Screen.height - sp.y - 13f, 300f, 26f);
-        UIUtil.DrawRect(new Rect(r.x + 60f, r.y + 2f, r.width - 120f, r.height - 4f), new Color(0.25f, 0.18f, 0.08f, 0.55f * alpha));
+        if (alpha <= 0.01f || string.IsNullOrEmpty(text)) return;
+
+        // Sergi etiketi: fildişi küçük kart (Label), kömür başlık, ince çizgi, altta mono katalog no
+        GUIStyle ts = UITheme.Style(TextRole.BodyStrong, faded ? UITheme.Graphite : UITheme.Charcoal, TextAnchor.MiddleCenter);
+        GUIStyle ns = UITheme.Style(TextRole.Mono, UITheme.Graphite, TextAnchor.MiddleCenter);
+        float sc = UITheme.Scale;
+        float maxW = Mathf.Min(Screen.width - 40f, 360f * sc);
+        float tw = Mathf.Min(maxW - 28f, ts.CalcSize(new GUIContent(text)).x);
+        float w = Mathf.Max(tw + 28f, 120f * sc);
+        float titleH = Mathf.Round(ts.CalcSize(new GUIContent(text)).x > maxW - 28f ? 40f * sc : 24f * sc);
+        float numH = Mathf.Round(16f * sc);
+        float h = titleH + numH + 14f;
+        Rect r = new Rect(Mathf.Round(sp.x - w * 0.5f), Mathf.Round(Screen.height - sp.y - h * 0.5f), w, h);
+
         Color old = GUI.color;
-        GUI.color = new Color(1f, 1f, 1f, alpha * (faded ? 0.45f : 1f));
-        GUI.Label(new Rect(r.x + 1f, r.y + 1f, r.width, r.height), text, shadow);
-        style.normal.textColor = faded ? new Color(0.75f, 0.72f, 0.65f) : new Color(1f, 0.9f, 0.6f);
-        GUI.Label(r, text, style);
+        GUI.color = new Color(1f, 1f, 1f, alpha * (faded ? 0.8f : 1f));
+        UIUtil.Panel(r, PanelKind.Label, 0.97f);
+        ts.wordWrap = true;
+        GUI.Label(new Rect(r.x + 12f, r.y + 5f, r.width - 24f, titleH), text, ts);
+        ts.wordWrap = false;
+        UIUtil.DrawRect(new Rect(r.x + 14f, r.y + 7f + titleH, r.width - 28f, 1f), UITheme.WithAlpha(UITheme.Graphite, 0.5f * alpha));
+        GUI.Label(new Rect(r.x + 12f, r.y + 8f + titleH, r.width - 24f, numH), "No. " + (100 + (ArtworkLook.Hash(display.name) & 0x7FFFFFFF) % 900), ns);
         GUI.color = old;
     }
 }

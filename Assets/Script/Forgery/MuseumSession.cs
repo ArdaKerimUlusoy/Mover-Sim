@@ -586,38 +586,51 @@ public class MuseumSession : NetworkBehaviour
     {
         if (!Ready || SessionMenuUI.IsPaused) return;
         if (WorkbenchUI.IsOpen) return;
-
-        if (hudStyle == null)
-        {
-            hudStyle = new GUIStyle(GUI.skin.label) { fontSize = 14, fontStyle = FontStyle.Bold };
-            hudStyle.normal.textColor = Color.white;
-            hudBig = new GUIStyle(hudStyle) { fontSize = 22, alignment = TextAnchor.MiddleCenter };
-        }
+        if (Event.current.type != EventType.Repaint) return;
 
         MuseumTheme th = Theme;
         bool quotaMet = QuotaMet;
         PlayerStealth me = PlayerStealth.Local;
         bool localInside = me != null && me.IsSpawned && !me.IsJailed && TruckZone.IsInside(me.GetComponent<PlayerNetworkSetup>());
         bool showTruck = quotaMet || localInside;
+
+        float sc = UITheme.Scale;
+        float pad = UITheme.S4 * sc;
+        float rowH = 24f * sc;
+        float w = 340f * sc;
+        float innerW = w - pad * 2f;
+        float h = pad * 0.75f + 26f * sc + rowH + 10f * sc + (showTruck ? rowH + 4f * sc : 0f) + pad * 0.75f;
+
         // Sol üst köşe: oda kodu kutusunun altı, garaj hazırlık panelinin üstü (çakışmaz)
-        Rect r = UIUtil.HudRect(UIUtil.HudCorner.TopLeft, UIUtil.HudOrder.Mission, 330f, showTruck ? 96f : 74f);
-        UIUtil.Panel(r, quotaMet ? UIUtil.Mint : UIUtil.Gold);
-        UIUtil.Tape(r);
-        hudStyle.normal.textColor = UIUtil.Gold;
-        GUI.Label(new Rect(r.x + 16f, r.y + 6f, r.width - 26f, 22f), Loc.T("mission.title", Level, th.name, th.City), hudStyle);
-        hudStyle.normal.textColor = UIUtil.Cream;
+        Rect r = UIUtil.HudRect(UIUtil.HudCorner.TopLeft, UIUtil.HudOrder.Mission, w, h);
+        Color accent = quotaMet ? UITheme.Sage : UITheme.Brass;
+        UIUtil.Panel(r, accent);
+
+        float x = r.x + pad, y = r.y + pad * 0.75f;
+        // Başlık: görev no, müze, şehir
+        y += UIUtil.SectionHeader(new Rect(x, y, innerW, 0f), Loc.T("mission.title", Level, th.name, th.City));
+
+        // Kota satırı: para simgesi + ekip kazancı, altında kota çubuğu
         int earned = Mathf.Max(0, Earned);
-        GUI.Label(new Rect(r.x + 16f, r.y + 28f, r.width - 26f, 20f), Loc.T("mission.quota", earned, Quota), hudStyle);
+        float iconS = 20f * sc;
+        UIUtil.Icon(new Rect(x, y + (rowH - iconS) * 0.5f, iconS, iconS), IconId.Money, quotaMet ? UITheme.Sage : UITheme.BrassLight);
+        UIUtil.Text(new Rect(x + iconS + 8f * sc, y, innerW - iconS - 8f * sc, rowH), Loc.T("mission.quota", earned, Quota), TextRole.BodyStrong,
+            quotaMet ? UITheme.Sage : UITheme.Ivory);
+        y += rowH + 4f * sc;
         float ratio = Quota > 0 ? Mathf.Clamp01(earned / (float)Quota) : 0f;
-        UIUtil.Bar(new Rect(r.x + 16f, r.y + 52f, r.width - 30f, 8f), ratio, quotaMet ? UIUtil.Mint : UIUtil.Gold);
+        UIUtil.ProgressBar(new Rect(x, y, innerW, 8f * sc), ratio, quotaMet ? UITheme.Sage : UITheme.BrassLight);
+        y += 8f * sc + 6f * sc;
 
         if (!showTruck) return;
 
+        // Kamyon durumu: kimler kamyonda, kimler hapiste
         TruckZone.Status st = TruckZone.GetStatus();
-        GUI.Label(new Rect(r.x + 16f, r.y + 66f, r.width - 26f, 22f), Loc.T("mission.truckinfo", st.inside, st.total, st.jailed), hudStyle);
+        UIUtil.Icon(new Rect(x, y + (rowH - iconS) * 0.5f, iconS, iconS), IconId.Truck, st.jailed > 0 ? UITheme.Ochre : UITheme.IvoryDim);
+        UIUtil.Text(new Rect(x + iconS + 8f * sc, y, innerW - iconS - 8f * sc, rowH), Loc.T("mission.truckinfo", st.inside, st.total, st.jailed),
+            TextRole.Caption, st.jailed > 0 ? UITheme.Ochre : UITheme.IvoryDim);
 
         // Kota doldu ama yerel oyuncu kamyonun dışında: geri dönmesi gerek (kamyondakilere kapı ipucunu TruckEscapeUI çizer)
         if (quotaMet && !localInside && !SequenceActive)
-            UIUtil.DrawPrompt(Loc.T("mission.return"), UIUtil.TopSlot(30f), new Color(1f, 0.85f, 0.4f), 22);
+            HudKit.Banner(Loc.T("mission.return"), IconId.Truck, UITheme.Sage, UITheme.Ivory);
     }
 }

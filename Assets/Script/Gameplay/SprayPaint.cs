@@ -61,7 +61,6 @@ public class SprayPaint : MonoBehaviour
     private float progress;
     private bool waitRelease;
     private float nextHiss;
-    private GUIStyle tipStyle;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void Boot()
@@ -846,21 +845,24 @@ public class SprayPaint : MonoBehaviour
     private void OnGUI()
     {
         if (regCmm == null || PlayerStealth.Local == null || SessionMenuUI.IsPaused || WorkbenchUI.IsOpen || BodyCam.PanelOpen) return;
-        if (tipStyle == null) tipStyle = new GUIStyle(GUI.skin.label) { fontSize = 13, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
 
+        // Boyalı gölgede gizli: küçük olumlu durum satırı (Sage)
         if (PlayerStealth.Local.CurrentHidingSpot == null && LocalConcealed())
         {
-            tipStyle.normal.textColor = new Color(0.7f, 0.85f, 1f);
-            GUI.Label(new Rect(0f, Screen.height * 0.5f + 70f, Screen.width, 20f), Loc.T("spray.concealed"), tipStyle);
+            string conc = Loc.T("spray.concealed");
+            float cw = UIUtil.Measure(conc, TextRole.Caption).x + 24f;
+            Rect cr = new Rect((Screen.width - cw) * 0.5f, Screen.height * 0.5f + 70f * UITheme.Scale, cw, Mathf.Round(24f * UITheme.Scale));
+            UIUtil.Panel(cr, PanelKind.Plaque, 0.85f);
+            UIUtil.Text(cr, conc, TextRole.Caption, UITheme.Sage, TextAnchor.MiddleCenter);
         }
 
-        if (aim == Aim.None) return;
+        if (aim == Aim.None) { PromptHud.Idle(2); return; }
         PlayerInventory inv = PlayerInventory.Local;
         int count = inv != null ? inv.SprayCount : 0;
         string text = count <= 0 ? Loc.T("spray.need", UpgradeCatalog.SprayPrice)
                     : Loc.T(aim == Aim.Camera ? "spray.camera" : "spray.wall", count);
-        UIUtil.DrawPrompt(text, UIUtil.CenterSlot(), count > 0 ? Color.white : new Color(1f, 0.55f, 0.45f));
-        if (progress > 0f)
-            UIUtil.DrawRing(new Vector2(Screen.width / 2f, Screen.height / 2f), 22f, progress / HoldSeconds, PaintColors[0]);
+        // Mevcut / kullanılamaz (sprey yok: neden) / aktif (basılı tutma ilerlemesi)
+        float hold = count > 0 ? Mathf.Clamp01(progress / HoldSeconds) : -1f;
+        PromptHud.Show(text, count > 0 ? PromptTone.Normal : PromptTone.Danger, hold, 2);
     }
 }
