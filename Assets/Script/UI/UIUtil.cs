@@ -245,6 +245,9 @@ public static class UIUtil
         ThemeField(s.textField);
         ThemeField(s.textArea);
         s.label.normal.textColor = Cream;
+        // Etiketler fareye tepki vermesin (üstüne gelince beyaza dönmesin; sadece düğmeler tepki verir)
+        s.label.hover.textColor = Cream; s.label.active.textColor = Cream; s.label.focused.textColor = Cream;
+        s.label.onNormal.textColor = Cream; s.label.onHover.textColor = Cream; s.label.onActive.textColor = Cream; s.label.onFocused.textColor = Cream;
         s.settings.selectionColor = UITheme.WithAlpha(UITheme.Brass, 0.55f);
         s.settings.cursorColor = UITheme.BrassLight;
 

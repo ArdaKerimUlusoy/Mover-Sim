@@ -856,13 +856,13 @@ public class SprayPaint : MonoBehaviour
             UIUtil.Text(cr, conc, TextRole.Caption, UITheme.Sage, TextAnchor.MiddleCenter);
         }
 
-        if (aim == Aim.None) { PromptHud.Idle(2); return; }
+        if (aim == Aim.None) { PromptHud.Idle(5); return; }
         PlayerInventory inv = PlayerInventory.Local;
         int count = inv != null ? inv.SprayCount : 0;
         string text = count <= 0 ? Loc.T("spray.need", UpgradeCatalog.SprayPrice)
                     : Loc.T(aim == Aim.Camera ? "spray.camera" : "spray.wall", count);
         // Mevcut / kullanılamaz (sprey yok: neden) / aktif (basılı tutma ilerlemesi)
         float hold = count > 0 ? Mathf.Clamp01(progress / HoldSeconds) : -1f;
-        PromptHud.Show(text, count > 0 ? PromptTone.Normal : PromptTone.Danger, hold, 2);
+        PromptHud.Show(text, count > 0 ? PromptTone.Normal : PromptTone.Danger, hold, 5);
     }
 }

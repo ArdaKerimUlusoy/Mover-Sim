@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 
 /// <summary>Etkileşim isteminin tonu (etiket rengini belirler).</summary>
 public enum PromptTone { Normal, Dim, Warn, Danger }
@@ -8,13 +8,14 @@ public enum PromptTone { Normal, Dim, Warn, Danger }
 ///  - "[E] Al", "[Hold E] ...", "[E Basılı Tut] ..." metninden gerçek tuşu çıkarır, tuş kapağına çevirir.
 ///  - Durumlar: mevcut (Normal), kullanılamaz (Dim / Danger), aktif (hold 0–1 dolum), tamamlandı (hold >= 1 → Sage).
 ///  - Hedef değişince / kaybolunca yumuşak giriş-çıkış (UIUtil.Tween); görüşü az kapatır (tek şerit, CenterSlot).
-/// Her kaynak kendi kanalını kullanır (0: etkileşim, 1: taşıma, 2: maymuncuk/alet), böylece birbirinin geçişini bozmaz.
+/// Her kaynak kendi kanalını kullanır (0: etkileşim, 1: taşıma, 2: maymuncuk, 3: garaj kapısı, 4: fırça, 5: sprey), böylece
+/// birbirinin geçişini bozmaz (aynı kanalı paylaşan biri her karede Idle çağırınca istem yanıp sönüyordu).
 /// Yalnızca sunum; oyun mantığı çağıranda kalır.
 /// </summary>
 public static class PromptHud
 {
     private const int TweenBase = 0x50726D00;   // "Prm"
-    private const int Channels = 4;
+    private const int Channels = 6; // 0 etkileşim, 1 taşıma, 2 maymuncuk, 3 garaj kapısı, 4 fırça (duvar), 5 sprey
 
     private static readonly bool[] has = new bool[Channels];
     private static readonly string[] lastKey = new string[Channels], lastLabel = new string[Channels];
@@ -78,7 +79,7 @@ public static class PromptHud
         }
     }
 
-    private static readonly int[] drawFrame = { -1, -1, -1, -1 };
+    private static readonly int[] drawFrame = { -1, -1, -1, -1, -1, -1 };
     private static readonly EventType[] drawEvent = new EventType[Channels];
 
     private static void Draw(int c, float t)

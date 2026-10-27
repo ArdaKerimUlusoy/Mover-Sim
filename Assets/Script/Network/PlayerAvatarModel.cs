@@ -94,7 +94,9 @@ public partial class PlayerAvatar
         pos = Vector3.zero; dir = Vector3.up;
         if (model == null || mHandR == null || mHandR.t == null || brushSmooth < 0.05f) return false;
         Transform h = mHandR.t;
-        pos = midFingerR != null ? h.position + (midFingerR.position - h.position) * 0.55f : h.position + body.forward * 0.05f;
+        // Parmakların sardığı nokta ile aynı (CurlFingers'taki avuç merkezi): fırça yumruğun içinden geçsin
+        pos = midFingerR != null ? h.position + (midFingerR.position - h.position) * 0.5f - body.right * (0.05f * model.lossyScale.y)
+                                 : h.position + body.forward * 0.05f;
         dir = (body.forward * Mathf.Lerp(0.55f, 0.9f, paintSmooth) + Vector3.up * Mathf.Lerp(0.85f, 0.45f, paintSmooth)).normalized;
         return true;
     }

@@ -221,16 +221,29 @@ public class UITheme : MonoBehaviour
         float sc = Scale;
         if (roleStyles == null || !Mathf.Approximately(sc, roleScale)) BuildRoleStyles(sc);
         GUIStyle s = roleStyles[(int)role];
-        s.normal.textColor = Ivory;
+        SetTextColor(s, Ivory);
         s.alignment = TextAnchor.MiddleLeft;
         return s;
+    }
+
+    /// <summary>Yazı rengi tüm durumlarda aynı: fare yazının üstüne gelince beyaza dönmesin (sadece düğmeler tepki verir).</summary>
+    private static void SetTextColor(GUIStyle s, Color c)
+    {
+        s.normal.textColor = c;
+        s.hover.textColor = c;
+        s.active.textColor = c;
+        s.focused.textColor = c;
+        s.onNormal.textColor = c;
+        s.onHover.textColor = c;
+        s.onActive.textColor = c;
+        s.onFocused.textColor = c;
     }
 
     /// <summary>Paylaşılan rol stili, verilen renk ve hizalamayla.</summary>
     public static GUIStyle Style(TextRole role, Color color, TextAnchor anchor = TextAnchor.MiddleLeft)
     {
         GUIStyle s = Style(role);
-        s.normal.textColor = color;
+        SetTextColor(s, color);
         s.alignment = anchor;
         return s;
     }

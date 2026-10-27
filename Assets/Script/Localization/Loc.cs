@@ -547,6 +547,8 @@ public static class Loc
         { "upg.spraypaint.name", new[] { "Paint Pot", "Boya Kutusu" } },
         { "upg.spraypaint.desc", new[] { "Paint for your brush [B]: draw a fake door on a wall or paint over a camera lens (1 pot each). It comes in your character's color", "Fırçan için boya [B]: duvara sahte kapı çiz ya da kamera lensini boya (her iş 1 kutu). Karakterinin renginde gelir" } },
         { "brush.hud",          new[] { "Brush  —  paint pots: {0}   [B] put away", "Fırça  —  boya kutusu: {0}   [B] kaldır" } },
+        { "brush.wall.key",     new[] { "LMB", "Sol tık" } },
+        { "brush.wall.label",   new[] { "Hold: draw a door on the wall (both sides + the top)   ·   Right click: erase", "Basılı tut: duvara kapı çiz (iki yan + üst kenar)   ·   Sağ tık: sil" } },
         { "brush.wall",         new[] { "[Hold left click] Draw a door on the wall: both sides + the top  |  Right click: erase", "[Sol tık basılı] Duvara kapı çiz: iki yan + üst kenar  |  Sağ tık: sil" } },
         { "brush.lens",         new[] { "[Hold left click + move the mouse] Brush over the camera lens", "[Sol tık basılı + fareyi oynat] Kamera lensini fırçala" } },
         { "brush.progress",     new[] { "Left side {0}   Right side {1}   Top {2}   Size {3}", "Sol kenar {0}   Sağ kenar {1}   Üst {2}   Boy {3}" } },

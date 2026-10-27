@@ -1246,3 +1246,9 @@ Arkadaşın commit'i aynı fikirleri (kayıt kamerası + kamyon ekranı, boya / 
 - İçe aktarma: Editor/UIAssetPostprocessor.cs; dokular bozuk görünürse Tools > UI > Reimport UI Textures.
 - Font: Assets/Resources/UI/Fonts/ altına Display.ttf / Body.ttf / Mono.ttf konursa otomatik yüklenir (yoksa Georgia/Consolas/yerleşik).
 - Yeni ortak çizim: UI/PromptHud.cs (istemler), ObjectiveHUD.HudKit, BlackMarket.EconomyPanelUI. Mantık/ağ değişmedi.
+
+## Ek 37: Duvara kapı çizme yazısı, aynada fırça, daha kolay kapı çizimi
+
+- **Duvar yazısı:** "[Sol tık basılı] Duvara kapı çiz…" uzun tuş ifadesi tuş kapağına sığmadığı için soluk düz metin + boş "basılı tut" çubuğu olarak çiziliyordu. Artık tuş kapağı ("Sol tık basılı") ve açık metin ayrı verilir (`brush.wall.key` / `brush.wall.label`).
+- **Aynada fırça:** kendi elindeki üçüncü şahıs fırça da kurulur ama kendi ekranında yalnızca gölge olarak çizilir; boy aynası çizerken görünür yapar → aynada fırça elinde, el boş görünmez. (`PaintBrush.LocalHandBrush`)
+- **Kapı tanıma daha affedici:** en / boy oranı 1.05–4.5 (eskiden 1.6–3.2), en 0.3–2.6 m, boy ≥ 0.6 m; kenar kapsaması %60 (eskiden %70) ve noktalara ±9 cm tolerans; yanların alt %12'si sayılmaz (iki yan aynı yerde bitmek zorunda değil); alt kenarı da çizilmiş (kapalı dikdörtgen) kapılar artık "içi karalanmış" sayılıp reddedilmez.

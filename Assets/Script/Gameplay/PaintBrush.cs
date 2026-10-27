@@ -27,11 +27,14 @@ public class PaintBrush : MonoBehaviour
     private const float WallReach = 4f;                       // duvara çizme menzili (eskisi 2,6 m)
     private const float PointStep = 0.035f;
     // Boy / en sınırları gevşek: duvara küçük ya da yüksekte çizilen kapı da olur (kapı yine duvarın dibine yerleşir)
-    private const float DoorMinTop = 0f, DoorMinHeight = 0.7f, DoorMinWidth = 0.35f, DoorMaxWidth = 2f;
-    private const float DoorRatioMin = 1.6f, DoorRatioMax = 3.2f; // yükseklik / genişlik: kapı oranı
-    private const float DoorMaxInterior = 0.35f;                  // iç bölgedeki nokta oranı (karalama / dolgu kapı sayılmaz)
-    private const float DoorSideVertical = 0.65f;                 // yan kenar noktalarının köşe şeridine yakın olma oranı (dikey kenar)
-    private const float EdgeNeed = 0.7f;
+    // Kapı tanıma bilerek AFFEDİCİ: elle çizilen yamuk / eğri / alt kenarı da çizilmiş kapılar kabul edilir
+    private const float DoorMinTop = 0f, DoorMinHeight = 0.6f, DoorMinWidth = 0.3f, DoorMaxWidth = 2.6f;
+    private const float DoorRatioMin = 0.75f, DoorRatioMax = 5f;   // yükseklik / genişlik: kareye yakın / biraz geniş kapı da olur
+    // "b" / "h" gibi şekiller kapı değil: üst kenar iki yanı birleştirmeli, iki yan da boyun çoğunu kaplamalı (aşağıda)
+    private const float DoorMaxInterior = 0.45f;                  // iç bölgedeki nokta oranı (karalama / dolgu kapı sayılmaz)
+    private const float DoorSideVertical = 0.5f;                  // yan kenar noktalarının köşe şeridine yakın olma oranı (dikey kenar)
+    private const float EdgeNeed = 0.65f;  // üst kenar
+    private const float SideNeed = 0.75f;  // yan kenarlar (kenar şeridinde, boyun %75'i)
 
     private static ItemDefinition brushDef;
     private static int brushIndex = -2;
@@ -136,6 +139,20 @@ public class PaintBrush : MonoBehaviour
         LocalTick();
         TickDoodles();
         UpdateVisuals();
+        handBrushActive = true;
+    }
+
+    private bool handBrushActive;
+
+    /// <summary>
+    /// Eldeki (üçüncü şahıs) fırçalar: karakter iskeleti BU KAREDE pozlandıktan SONRA (LateUpdate) avuca oturtulur.
+    /// Update'te yapılınca el bir kare geriden geliyor, fırça elden kayıyor / titriyordu (dışarıdan ve aynada).
+    /// </summary>
+    private void LateUpdate()
+    {
+        if (!handBrushActive) return;
+        handBrushActive = false;
+        PlaceHandBrushes();
     }
 
     /// <summary>Sunucu: herkesin çantasında tam bir fırça olsun (yeni oyuncu, sıfırlama, el koyma sonrası da).</summary>
@@ -351,10 +368,13 @@ public class PaintBrush : MonoBehaviour
 
         float mid = (umin + umax) * 0.5f;
         float topBand = Mathf.Min(0.35f, h * 0.25f);
-        // Yanlar: üst bandın altından çizimin en altına kadar
-        float vFrom = vmin + 0.05f, vTo = vmax - topBand;
-        edgeL = SideCoverage(true, mid, vFrom, vTo);
-        edgeR = SideCoverage(false, mid, vFrom, vTo);
+        // Yanlar: üst bandın altından çizimin altına kadar (en alttaki %12 sayılmaz: iki yan aynı yerde bitmek zorunda değil)
+        float vFrom = vmin + Mathf.Max(0.05f, h * 0.12f), vTo = vmax - topBand;
+        // Yan kenar = şeklin KENARINA yakın (en/boyun %28'i) dikey çizgi; ortaya doğru kıvrılan "B" / "D" göbekleri sayılmaz
+        edgeL = SideCoverage(true, umin, umax, vFrom, vTo);
+        edgeR = SideCoverage(false, umin, umax, vFrom, vTo);
+        // İçi boş olmalı: ortadan geçen yatay çizgi ("B"nin beli, "H"nin çizgisi) kapı değil
+        if (sizeOk && CrossesInterior(umin, umax, vmin, vmax)) sizeOk = false;
         // Üst: üst banttaki noktalar soldan sağa ne kadar uzanıyor
         edgeTop = TopCoverage(vmax - topBand, umin + w * 0.15f, umax - w * 0.15f);
         doneCenter = new Vector2(mid, 0f);
@@ -364,7 +384,7 @@ public class PaintBrush : MonoBehaviour
     private bool LooksRectangular(float umin, float umax, float vmin, float vmax)
     {
         float w = umax - umin, h = vmax - vmin;
-        float band = w * 0.25f;
+        float band = w * 0.3f;
         float mid = (umin + umax) * 0.5f;
         float sideFrom = vmin + h * 0.1f, sideTo = vmax - h * 0.2f;
         int sideN = 0, sideNear = 0, inner = 0, total = 0;
@@ -377,8 +397,8 @@ public class PaintBrush : MonoBehaviour
                 sideN++;
                 if (nearL || nearR) sideNear++;
             }
-            // iç bölge: yanlardan ve üstten içeride kalan alan
-            if (!nearL && !nearR && p.y < vmax - h * 0.2f) inner++;
+            // iç bölge: yanlardan, üstten ve alttan içeride kalan alan (alt kenarı da çizen kapıyı reddetmesin)
+            if (!nearL && !nearR && p.y < vmax - h * 0.2f && p.y > vmin + h * 0.15f) inner++;
         }
         if (total < 6 || sideN < 4) return false;
         if ((float)sideNear / sideN < DoorSideVertical) return false;
@@ -386,21 +406,35 @@ public class PaintBrush : MonoBehaviour
         return true;
     }
 
-    /// <summary>Bir yarıda (sol / sağ), yükseklik boyunca her 10 cm'lik dilimde en az bir nokta var mı.</summary>
-    private float SideCoverage(bool left, float mid, float from, float to)
+    /// <summary>Sol / sağ kenar şeridinde (şeklin dış kenarına en/boyun %28'i kadar yakın), yükseklik boyunca her 10 cm'lik
+    /// dilimde en az bir nokta var mı. Yamuk / hafif eğri yan kenar olur; içe kıvrılan göbek ("B") olmaz.</summary>
+    private float SideCoverage(bool left, float umin, float umax, float from, float to)
     {
         if (to - from < 0.2f) return 0f;
+        float band = Mathf.Max(0.08f, (umax - umin) * 0.28f);
         int n = 0, hit = 0;
         for (float s = from; s <= to + 0.001f; s += 0.1f)
         {
             n++;
             foreach (Vector2 p in pts)
             {
-                if ((left ? p.x > mid - 0.08f : p.x < mid + 0.08f)) continue;
-                if (Mathf.Abs(p.y - s) < 0.07f) { hit++; break; }
+                if (left ? p.x > umin + band : p.x < umax - band) continue;
+                if (Mathf.Abs(p.y - s) < 0.09f) { hit++; break; }
             }
         }
         return n > 0 ? (float)hit / n : 0f;
+    }
+
+    /// <summary>Şeklin ortasından (yanlardan ve üstten / alttan uzakta) geçen çizgi var mı? Kapının içi boştur.</summary>
+    private bool CrossesInterior(float umin, float umax, float vmin, float vmax)
+    {
+        float w = umax - umin, h = vmax - vmin;
+        float x0 = umin + w * 0.3f, x1 = umax - w * 0.3f, y0 = vmin + h * 0.2f, y1 = vmax - h * 0.25f;
+        int inside = 0;
+        foreach (Vector2 p in pts)
+            if (p.x > x0 && p.x < x1 && p.y > y0 && p.y < y1) inside++;
+        // ~8 nokta ≈ 28 cm çizgi: ortadan geçen bir çizgi parçası (yanlıştan değen tek tük nokta sayılmaz)
+        return inside >= Mathf.Max(8, pts.Count / 14);
     }
 
     /// <summary>Üst bantta (vAbove'un üstü), soldan sağa her 10 cm'lik dilimde nokta var mı.</summary>
@@ -412,12 +446,12 @@ public class PaintBrush : MonoBehaviour
         {
             n++;
             foreach (Vector2 p in pts)
-                if (p.y >= vAbove && Mathf.Abs(p.x - s) < 0.07f) { hit++; break; }
+                if (p.y >= vAbove && Mathf.Abs(p.x - s) < 0.09f) { hit++; break; }
         }
         return n > 0 ? (float)hit / n : 0f;
     }
 
-    private bool DoorComplete => sizeOk && edgeL >= EdgeNeed && edgeR >= EdgeNeed && edgeTop >= EdgeNeed;
+    private bool DoorComplete => sizeOk && edgeL >= SideNeed && edgeR >= SideNeed && edgeTop >= EdgeNeed;
 
     private void TrySubmit(PlayerInventory inv)
     {
@@ -580,16 +614,31 @@ public class PaintBrush : MonoBehaviour
             if (p == null || !p.IsSpawned) continue;
             ulong id = p.OwnerClientId;
             PlayerInventory inv = p.GetComponent<PlayerInventory>();
-            bool show = IsHoldingBrush(inv) && !p.IsHidden && (!p.IsOwner || PlayerAvatar.PreviewActive);
+            // Kendi elindeki fırça da kurulur ama yalnızca GÖLGE olarak çizilir (birinci şahısta kendi gövden gibi);
+            // garajdaki boy aynası çizerken görünür yapar → aynada fırça elinde görünür (F5 önizlemede de)
+            bool show = IsHoldingBrush(inv) && !p.IsHidden;
             remoteBrush.TryGetValue(id, out Transform b);
             if (!show) { if (b != null && b.gameObject.activeSelf) b.gameObject.SetActive(false); continue; }
             if (b == null) { b = BuildBrush("HandBrush_" + id, true); remoteBrush[id] = b; }
             if (!b.gameObject.activeSelf) b.gameObject.SetActive(true);
+            SetShadowOnly(id, b, p.IsOwner && !PlayerAvatar.PreviewActive);
+        }
+    }
+
+    /// <summary>Görünen eldeki fırçaları avuca yerleştirir (LateUpdate: iskelet pozundan sonra).</summary>
+    private void PlaceHandBrushes()
+    {
+        foreach (PlayerStealth p in PlayerStealth.All)
+        {
+            if (p == null || !p.IsSpawned) continue;
+            ulong id = p.OwnerClientId;
+            if (!remoteBrush.TryGetValue(id, out Transform b) || b == null || !b.gameObject.activeSelf) continue;
             // Karakterin avucunda: sap avuçta, uç öne-yukarı (boyarken daha öne) — parmaklar sapı sarar (PlayerAvatarModel)
             if (!avatars.TryGetValue(id, out PlayerAvatar av) || av == null) { av = p.GetComponent<PlayerAvatar>(); avatars[id] = av; }
             if (av != null && av.TryGetBrushGrip(out Vector3 grip, out Vector3 tipDir))
             {
-                b.SetPositionAndRotation(grip + tipDir * 0.03f, Quaternion.FromToRotation(Vector3.up, tipDir) * Quaternion.Euler(0f, p.transform.eulerAngles.y, 0f));
+                // Fırçanın kökü sapın üst ucu: yumruk sapın ortasını kavrasın (sap 0.155 m → yarısı yukarı)
+                b.SetPositionAndRotation(grip + tipDir * 0.065f, Quaternion.FromToRotation(Vector3.up, tipDir) * Quaternion.Euler(0f, p.transform.eulerAngles.y, 0f));
                 b.localScale = Vector3.one * 1.35f;
                 continue;
             }
@@ -600,6 +649,27 @@ public class PaintBrush : MonoBehaviour
     }
 
     private readonly Dictionary<ulong, PlayerAvatar> avatars = new Dictionary<ulong, PlayerAvatar>();
+    private readonly Dictionary<ulong, bool> brushShadowOnly = new Dictionary<ulong, bool>();
+
+    /// <summary>Eldeki fırçanın renderer'ları: sahibinin kendi ekranında sadece gölge (değişince bir kez ayarlanır).</summary>
+    private void SetShadowOnly(ulong id, Transform b, bool shadowOnly)
+    {
+        if (brushShadowOnly.TryGetValue(id, out bool cur) && cur == shadowOnly) return;
+        brushShadowOnly[id] = shadowOnly;
+        var mode = shadowOnly ? UnityEngine.Rendering.ShadowCastingMode.ShadowsOnly : UnityEngine.Rendering.ShadowCastingMode.On;
+        foreach (Renderer r in b.GetComponentsInChildren<Renderer>(true)) r.shadowCastingMode = mode;
+    }
+
+    /// <summary>Yerel oyuncunun elindeki (üçüncü şahıs) fırça — ayna gibi dış kameralar için. Yoksa null.</summary>
+    public static Transform LocalHandBrush
+    {
+        get
+        {
+            if (Instance == null || PlayerStealth.Local == null) return null;
+            Instance.remoteBrush.TryGetValue(PlayerStealth.Local.OwnerClientId, out Transform b);
+            return b != null && b.gameObject.activeInHierarchy ? b : null;
+        }
+    }
     private FirstPersonArms fpArms;
 
     private Transform FindHand(PlayerStealth p, ulong id)
@@ -625,6 +695,8 @@ public class PaintBrush : MonoBehaviour
         if (PlayerInventory.Local == null || SessionMenuUI.IsPaused || WorkbenchUI.IsOpen || BodyCam.PanelOpen) return;
         if (!holding) return;
         if (PlayerStealth.Local != null && PlayerStealth.Local.CurrentHidingSpot != null) return; // saklanırken fırça yazısı yok
+        // Mağaza / çanta / karaborsa gibi bir panel açıkken (imleç serbest) fırça kutusu ve nişangah panelin üstüne çizilmesin
+        if (PlayerInventory.IsPanelOpen || Cursor.lockState != CursorLockMode.Locked) { PromptHud.Idle(4); return; }
         if (tipStyle == null) tipStyle = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleLeft, richText = true };
         int paint = PlayerInventory.Local.SprayCount;
         float sc = UITheme.Scale;
@@ -648,33 +720,18 @@ public class PaintBrush : MonoBehaviour
         UIUtil.DrawRect(sw, SprayPaint.ColorOf(SprayPaint.LocalColor));
         PromptHud.HintDraw(new Rect(rx + swatch + 10f, rowY, s2.x, s2.y), hudText, UITheme.Ivory);
 
-        // Nişangah (boya topu için): 2 px nokta, boya renginde 6 px halka + bekleme halkası
+        // Nişangah: oyunun normal küçük beyaz noktası kalır (fırça için ayrıca pembe halka çizilmez).
+        // Sadece boya topu attıktan sonra kısa bekleme süresinde ince, soluk bir halka dolar.
         Vector2 mid = new Vector2(Screen.width / 2f, Screen.height / 2f);
-        Color pc = SprayPaint.ColorOf(SprayPaint.LocalColor);
-        UIUtil.DrawRect(new Rect(mid.x - 1f, mid.y - 1f, 2f, 2f), UITheme.Ivory);
-        UIUtil.DrawRing(mid, 6f, 1f, UITheme.WithAlpha(pc, 0.9f));
         float cd = nextThrow - Time.unscaledTime;
-        if (cd > 0f) UIUtil.DrawRing(mid, 14f, 1f - Mathf.Clamp01(cd / PaintProjectile.Cooldown), UITheme.WithAlpha(pc, 0.9f));
+        if (cd > 0f) UIUtil.DrawRing(mid, 12f, 1f - Mathf.Clamp01(cd / PaintProjectile.Cooldown), UITheme.WithAlpha(UITheme.Ivory, 0.55f));
         bool wallTip = aimWall || hasPlane;
         if (wallTip)
         {
-            PromptHud.Show(Loc.T("brush.wall"), PromptTone.Normal, -1f, 2);
-            if (hasPlane)
-            {
-                string okHex = ColorUtility.ToHtmlStringRGB(UITheme.Sage), badHex = ColorUtility.ToHtmlStringRGB(UITheme.DangerLight);
-                System.Func<float, string> Mark = f => f >= EdgeNeed ? "<color=#" + okHex + ">" + Loc.T("brush.ok") + "</color>" : "<color=#" + badHex + ">%" + Mathf.RoundToInt(f * 100f) + "</color>";
-                string txt = Loc.T("brush.progress", Mark(edgeL), Mark(edgeR), Mark(edgeTop),
-                                   sizeOk ? "<color=#" + okHex + ">" + Loc.T("brush.ok") + "</color>" : "<color=#" + badHex + ">" + Loc.T("brush.notyet") + "</color>");
-                tipStyle.fontSize = Mathf.RoundToInt(14f * sc);
-                tipStyle.alignment = TextAnchor.MiddleCenter;
-                tipStyle.normal.textColor = UITheme.Ivory;
-                Vector2 ts = tipStyle.CalcSize(new GUIContent(txt));
-                float tw = Mathf.Min(Screen.width - 40f, ts.x + 28f);
-                Rect tr = new Rect((Screen.width - tw) * 0.5f, Screen.height * 0.5f + 46f * sc + 34f * sc, tw, Mathf.Round(26f * sc));
-                UIUtil.Panel(tr, PanelKind.Plaque, 0.9f);
-                GUI.Label(tr, txt, tipStyle);
-            }
+            // Uzun "[Sol tık basılı]" ifadesi tuş kapağına sığmayıp düz (soluk, basılı-tut çubuklu) metne dönüşüyordu: tuş ve metin ayrı verilir
+            PromptHud.Show(Loc.T("brush.wall.key"), Loc.T("brush.wall.label"), PromptTone.Normal, -1f, false, 4); // kendi kanalı (maymuncuk 2'de)
+            // (Sol / sağ / üst kenar yüzdesi gösteren ilerleme satırı kaldırıldı: kapı tamamlanınca kendiliğinden belirir)
         }
-        else PromptHud.Idle(2);
+        else PromptHud.Idle(4);
     }
 }

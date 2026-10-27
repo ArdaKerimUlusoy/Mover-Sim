@@ -32,6 +32,7 @@ public class GarageMirror : MonoBehaviour
     private readonly List<Renderer> showBody = new List<Renderer>();
     private readonly List<Renderer> hideFp = new List<Renderer>();
     private float nextCollect;
+    private bool brushCollected;
     private PlayerStealth collectedFor;
 
     public void Setup(float w, float h)
@@ -209,11 +210,12 @@ public class GarageMirror : MonoBehaviour
     private void CollectRenderers()
     {
         PlayerStealth me = PlayerStealth.Local;
-        if (me == collectedFor && Time.unscaledTime < nextCollect) return;
+        if (me == collectedFor && Time.unscaledTime < nextCollect && (PaintBrush.LocalHandBrush == null) == !brushCollected) return;
         collectedFor = me;
         nextCollect = Time.unscaledTime + 1.5f;
         showBody.Clear();
         hideFp.Clear();
+        brushCollected = PaintBrush.LocalHandBrush != null;
         if (glassRenderer != null) hideFp.Add(glassRenderer);
 
         Camera main = Camera.main;
@@ -229,6 +231,9 @@ public class GarageMirror : MonoBehaviour
             foreach (Renderer r in me.GetComponentsInChildren<Renderer>(true))
                 if (r != null && !hideFp.Contains(r)) showBody.Add(r);
         }
+        // Elindeki fırça (üçüncü şahıs, kendi ekranında sadece gölge): aynada elinde görünsün
+        Transform hb = PaintBrush.LocalHandBrush;
+        if (hb != null) showBody.AddRange(hb.GetComponentsInChildren<Renderer>(true));
     }
 
     private readonly List<Renderer> changedBody = new List<Renderer>();
