@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -207,6 +207,40 @@ public class GuardLook : MonoBehaviour
     /// <summary>Muz kabuğunda kaydı: bu kadar saniye yere yatar (sadece görsel).</summary>
     public void PlaySlip(float seconds) => slipUntil = Time.time + seconds;
 
+    // ---------------- Sersemleme (kafasına bozuk para geldi) ----------------
+    private float dazeUntil = -1f;
+    private Transform dazeStars;
+
+    /// <summary>Kafanın etrafında dönen yıldızlar + sallanan kafa (bu kadar saniye).</summary>
+    public void PlayDaze(float seconds)
+    {
+        dazeUntil = Time.time + seconds;
+        if (dazeStars == null && head != null)
+        {
+            dazeStars = new GameObject("DazeStars").transform;
+            dazeStars.SetParent(transform, false);
+            Material star = M(new Color(1f, 0.85f, 0.2f));
+            if (star.HasProperty("_EmissionColor")) { star.EnableKeyword("_EMISSION"); star.SetColor("_EmissionColor", new Color(1.6f, 1.2f, 0.2f)); }
+            for (int i = 0; i < 4; i++)
+            {
+                float a = i * Mathf.PI * 0.5f;
+                Transform s = Part(dazeStars, "Star", PrimitiveType.Sphere, new Vector3(Mathf.Cos(a) * 0.34f, 0f, Mathf.Sin(a) * 0.34f), Vector3.one * 0.12f, star);
+                s.GetComponent<Renderer>().shadowCastingMode = ShadowCastingMode.Off;
+            }
+        }
+        if (dazeStars != null) dazeStars.gameObject.SetActive(true);
+    }
+
+    private void TickDaze()
+    {
+        if (dazeStars == null || !dazeStars.gameObject.activeSelf) return;
+        if (Time.time >= dazeUntil) { dazeStars.gameObject.SetActive(false); return; }
+        dazeStars.position = head.position + Vector3.up * 0.32f;
+        dazeStars.rotation = Quaternion.Euler(0f, Time.time * 320f, 0f);
+        // Kafa sersem sersem sallanır
+        head.localRotation = Quaternion.Euler(Mathf.Sin(Time.time * 7f) * 8f, Mathf.Sin(Time.time * 3.1f) * 14f, Mathf.Sin(Time.time * 5.3f) * 12f);
+    }
+
     private void Update()
     {
         if (body == null) return;
@@ -247,6 +281,7 @@ public class GuardLook : MonoBehaviour
 
         legL.localRotation = Quaternion.Euler(-swing, 0f, 0f);
         legR.localRotation = Quaternion.Euler(swing, 0f, 0f);
+        TickDaze();
     }
 
     private void OnDestroy()

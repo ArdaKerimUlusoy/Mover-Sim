@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using Unity.Collections;
 using Unity.Netcode;
 using UnityEngine;
@@ -848,10 +848,12 @@ public class VoiceChat : MonoBehaviour
         float textW = Mathf.Max(textStyle.CalcSize(new GUIContent(state)).x, smallStyle.CalcSize(new GUIContent(mode)).x);
         const float iconW = 44f, waveW = 130f, pad = 14f, h = 52f;
         float w = iconW + textW + pad + waveW + pad;
-        Rect r = new Rect((Screen.width - w) * 0.5f, Screen.height - h - 12f, w, h);
+        // Alt orta köşe (en altta): hızlı envanter ve diğer alt yazılar bunun üstüne dizilir
+        Rect r = UIUtil.HudRect(UIUtil.HudCorner.BottomCenter, UIUtil.HudOrder.Voice, w, h);
+        UIUtil.Panel(r, Transmitting || BannedFlash ? 1f : 0.82f);
         // Yasaklı kelime: bütün kutu kırmızıya döner (hemen fark edilsin)
-        UIUtil.DrawRect(r, BannedFlash ? new Color(0.55f, 0.06f, 0.06f, 0.92f) : new Color(0.05f, 0.06f, 0.08f, Transmitting ? 0.82f : 0.65f));
-        if (Transmitting || BannedFlash) UIUtil.DrawRect(new Rect(r.x, r.y, r.width, BannedFlash ? 3f : 2f), live);
+        if (BannedFlash) UIUtil.DrawRect(new Rect(r.x + 3f, r.y + 3f, r.width - 6f, r.height - 6f), new Color(0.6f, 0.07f, 0.07f, 0.85f));
+        if (Transmitting || BannedFlash) UIUtil.DrawRect(new Rect(r.x + 12f, r.y + 3f, r.width - 24f, BannedFlash ? 3f : 2f), live);
 
         bool slash = noMic || (OpenMic && OpenMicMuted);
         bool muted = noMic || (OpenMic ? OpenMicMuted : !Transmitting);
@@ -904,12 +906,11 @@ public class VoiceChat : MonoBehaviour
 
             // Liste satırı
             float nameW = textStyle.CalcSize(new GUIContent(name)).x;
-            Rect row = new Rect(12f, y, Mathf.Max(150f, 48f + nameW), 28f);
-            UIUtil.DrawRect(row, new Color(0.05f, 0.06f, 0.08f, 0.7f));
-            UIUtil.DrawRect(new Rect(row.x, row.y, 3f, row.height), p != null ? p.PlayerColor : Green);
-            DrawWaves(new Vector2(row.x + 18f, row.y + 14f), r.Level, 0.8f, Green);
-            GUI.Label(new Rect(row.x + 38f, row.y + 3f, nameW + 6f, 22f), name, textStyle);
-            y += 32f;
+            Rect row = new Rect(12f, y, Mathf.Max(150f, 52f + nameW), 30f);
+            UIUtil.Panel(row, p != null ? p.PlayerColor : Green, 0.9f);
+            DrawWaves(new Vector2(row.x + 22f, row.y + 15f), r.Level, 0.8f, Green);
+            GUI.Label(new Rect(row.x + 40f, row.y + 4f, nameW + 6f, 22f), name, textStyle);
+            y += 34f;
 
             // Baş üstü simge
             if (cam == null || p == null) continue;

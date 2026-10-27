@@ -23,7 +23,21 @@ public class ForgeryWorkbench : Interactable
     private static readonly List<ForgeryWorkbench> all = new List<ForgeryWorkbench>();
     public static IReadOnlyList<ForgeryWorkbench> All => all;
 
-    private void OnEnable() { if (!all.Contains(this)) all.Add(this); }
+    /// <summary>Tek masaya inildi: eski kurulumdan kalan ikinci masa ("ForgeryWorkbench_2") oyunda etkisizdir
+    /// (iki kişi aynı masada aynı anda, her biri kendi seçtiği eseri / kaydı çizer). Editörde sahneden de silinir.</summary>
+    public bool Retired => name == "ForgeryWorkbench_2";
+
+    private void OnEnable()
+    {
+        if (Retired)
+        {
+            // Ağ nesnesi olduğu için yok edilmez: görünmez ve etkileşimsiz kalır
+            foreach (Renderer r in GetComponentsInChildren<Renderer>(true)) r.enabled = false;
+            foreach (Collider c in GetComponentsInChildren<Collider>(true)) c.enabled = false;
+            return;
+        }
+        if (!all.Contains(this)) all.Add(this);
+    }
     private void OnDisable() { all.Remove(this); }
 
     /// <summary>Verilen noktaya en yakın masa (yoksa null). Masalar sahnede sabit; çalışma anında eklenmez.</summary>
@@ -34,7 +48,7 @@ public class ForgeryWorkbench : Interactable
         for (int i = all.Count - 1; i >= 0; i--)
         {
             ForgeryWorkbench b = all[i];
-            if (b == null) { all.RemoveAt(i); continue; }
+            if (b == null || b.Retired) { all.RemoveAt(i); continue; }
             float d = (b.transform.position - pos).sqrMagnitude;
             if (d < bd) { bd = d; best = b; }
         }
@@ -83,7 +97,7 @@ public class ForgeryWorkbench : Interactable
 
     public override string GetPrompt(PlayerInteractor player) => Loc.T(WorkbenchUI.HasTargets() ? "bench.prompt" : "bench.notargets");
 
-    public override bool CanInteract(GameObject player) => base.CanInteract(player) && !WorkbenchUI.IsOpen && WorkbenchUI.HasTargets();
+    public override bool CanInteract(GameObject player) => base.CanInteract(player) && !Retired && !WorkbenchUI.IsOpen && WorkbenchUI.HasTargets();
 
     public override void ClientInteract(PlayerInteractor player)
     {

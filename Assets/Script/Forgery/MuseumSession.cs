@@ -1,4 +1,4 @@
-using Unity.Netcode;
+﻿using Unity.Netcode;
 using UnityEngine;
 
 /// <summary>
@@ -477,6 +477,8 @@ public class MuseumSession : NetworkBehaviour
         foreach (PlayerStealth p in PlayerStealth.All) if (p != null && p.IsSpawned && p.IsJailed) p.ServerSetJailed(0); // hapis yoksa da temizle
         HidingSpot.ServerReleaseAll();      // dolaptakiler çıkar: doluluk + hidden temizlenir, sahibine çıkış bildirilir
         ServerSendEveryoneToTruck();
+        // Garaj ayrı sahnedeyse yeni görev garajda başlar (hazırlık, boya, alet); kamyona garaj kapısından binilir
+        GarageSceneLink.ServerSendEveryoneToGarage();
         if (ChatManager.Instance != null)
         {
             if (runReset) ChatManager.Instance.ServerSystemMessage("mission.restart", Theme.name, "");
@@ -597,20 +599,22 @@ public class MuseumSession : NetworkBehaviour
         PlayerStealth me = PlayerStealth.Local;
         bool localInside = me != null && me.IsSpawned && !me.IsJailed && TruckZone.IsInside(me.GetComponent<PlayerNetworkSetup>());
         bool showTruck = quotaMet || localInside;
-        Rect r = new Rect(12f, 84f, 330f, showTruck ? 92f : 70f);
-        UIUtil.DrawRect(r, new Color(0.05f, 0.06f, 0.08f, 0.75f));
-        GUI.Label(new Rect(r.x + 10f, r.y + 4f, r.width - 20f, 22f), Loc.T("mission.title", Level, th.name, th.City), hudStyle);
+        // Sol üst köşe: oda kodu kutusunun altı, garaj hazırlık panelinin üstü (çakışmaz)
+        Rect r = UIUtil.HudRect(UIUtil.HudCorner.TopLeft, UIUtil.HudOrder.Mission, 330f, showTruck ? 96f : 74f);
+        UIUtil.Panel(r, quotaMet ? UIUtil.Mint : UIUtil.Gold);
+        UIUtil.Tape(r);
+        hudStyle.normal.textColor = UIUtil.Gold;
+        GUI.Label(new Rect(r.x + 16f, r.y + 6f, r.width - 26f, 22f), Loc.T("mission.title", Level, th.name, th.City), hudStyle);
+        hudStyle.normal.textColor = UIUtil.Cream;
         int earned = Mathf.Max(0, Earned);
-        GUI.Label(new Rect(r.x + 10f, r.y + 26f, r.width - 20f, 20f), Loc.T("mission.quota", earned, Quota), hudStyle);
-        Rect bar = new Rect(r.x + 10f, r.y + 50f, r.width - 20f, 8f);
-        UIUtil.DrawRect(bar, new Color(1f, 1f, 1f, 0.15f));
+        GUI.Label(new Rect(r.x + 16f, r.y + 28f, r.width - 26f, 20f), Loc.T("mission.quota", earned, Quota), hudStyle);
         float ratio = Quota > 0 ? Mathf.Clamp01(earned / (float)Quota) : 0f;
-        UIUtil.DrawRect(new Rect(bar.x, bar.y, bar.width * ratio, bar.height), quotaMet ? new Color(0.45f, 0.9f, 0.5f) : new Color(1f, 0.8f, 0.3f));
+        UIUtil.Bar(new Rect(r.x + 16f, r.y + 52f, r.width - 30f, 8f), ratio, quotaMet ? UIUtil.Mint : UIUtil.Gold);
 
         if (!showTruck) return;
 
         TruckZone.Status st = TruckZone.GetStatus();
-        GUI.Label(new Rect(r.x + 10f, r.y + 64f, r.width - 20f, 22f), Loc.T("mission.truckinfo", st.inside, st.total, st.jailed), hudStyle);
+        GUI.Label(new Rect(r.x + 16f, r.y + 66f, r.width - 26f, 22f), Loc.T("mission.truckinfo", st.inside, st.total, st.jailed), hudStyle);
 
         // Kota doldu ama yerel oyuncu kamyonun dışında: geri dönmesi gerek (kamyondakilere kapı ipucunu TruckEscapeUI çizer)
         if (quotaMet && !localInside && !SequenceActive)

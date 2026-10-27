@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 using UnityEngine.InputSystem;
 
 /// <summary>
@@ -102,7 +102,7 @@ public static class BenchGuide
         float w = Mathf.Min(680f, Screen.width - 40f);
         float h = Mathf.Min(Screen.height - 60f, 470f);
         Rect r = new Rect((Screen.width - w) * 0.5f, (Screen.height - h) * 0.5f, w, h);
-        UIUtil.DrawRect(r, new Color(0.06f, 0.07f, 0.1f, 0.96f));
+        UIUtil.Panel(r);
         UIUtil.DrawRect(new Rect(r.x, r.y, 6f, r.height), new Color(1f, 0.82f, 0.3f));
 
         GUILayout.BeginArea(new Rect(r.x + 24f, r.y + 16f, r.width - 48f, r.height - 32f));
@@ -143,7 +143,7 @@ public static class BenchGuide
     public static void DrawRingGuide(Rect r, int step, JewelCraft craft)
     {
         EnsureStyles();
-        UIUtil.DrawRect(r, new Color(0.04f, 0.05f, 0.08f, 0.9f));
+        UIUtil.Panel(r);
         UIUtil.DrawRect(new Rect(r.x, r.y, 4f, r.height), new Color(1f, 0.82f, 0.3f));
 
         bool[] done =

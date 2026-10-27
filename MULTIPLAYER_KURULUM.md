@@ -1192,3 +1192,43 @@ Arkadaşın commit'i aynı fikirleri (kayıt kamerası + kamyon ekranı, boya / 
 - Ses: SoundSynth yeniden yazıldı, 8 yeni SoundId (sona eklendi); Ambience.cs müze/alarm/kamyon ortamı.
 - Menü: Tek Oyunculu (SessionManager.StartSinglePlayer, 127.0.0.1 host, kota x0.6), HeistLobbyUI (F3 hazır), GameFlow/ScreenFade geçişleri (tek sahne, aşamalar).
 - TutorialUI (19 adım, F2 ilerler, Esc basılı atlar), ObjectiveHUD sağ üst; SecurityMirror.cs seed'li güvenlik aynaları (E basılı yakın bakış).
+
+## Ek 34: Ayrı garaj sahnesi, boy aynası, yeni arayüz, hızlı envanter, bozuk para sersemletmesi
+
+**Garaj artık ayrı Unity sahnesi (`Assets/Scenes/Garage.unity`).**
+- Unity kodu derledikten sonra `GarageSceneBuilder` **bir kez kendiliğinden** çalışır (SampleScene açıksa): TestMuseum/Garage yeni sahneye taşınır (x +400), garajın kuzey ağzı "KAMYONA" kapısıyla kapanır, 4 garaj doğma noktası, `GarageArea` ve boy aynası eklenir, kamyonun batı duvarına "Garaja dön" kapısı konur, iki sahne kaydedilir ve Garage.unity Build Settings'e eklenir. Elle: **Tools → Sahte Şaheser → Garajı Ayrı Sahneye Taşı**. Yapıldığı `ProjectSettings/SahteSaheserGarageScene.txt` ile işaretlenir.
+- Oyunda sunucu garajı NGO ile **ek sahne (additive)** olarak yükler (`GarageSceneLink`); istemciler ve sonradan katılanlar otomatik yükler. Oyuna ve her yeni göreve garajda başlanır. Garajın kapısında [E] → kamyon; kamyondaki kapıda [E] → garaj (alarm çalarken / kaçış sırasında / bir şey taşırken kapalı).
+- Karaborsa ara sokakta kaldı. Garage.unity yoksa her şey eski düzende çalışır.
+- **Commit'lerken** `Assets/Scenes/Garage.unity` (+ .meta), `SampleScene.unity`, `ProjectSettings/EditorBuildSettings.asset` ve işaret dosyasını da ekleyin; arkadaş çekince araç tekrar çalışmaz.
+
+**Boy aynası** (`GarageMirror`): garajın doğu duvarında, kozmetik dolabının yanında. Gerçek düzlem yansıması (eğik izdüşüm); kendi gövden aynada görünür, birinci şahıs kollar/fırça gizlenir. Yalnızca önündeyken, 12 m içinde ve ekrandayken çizilir (tek kamera, 512×1024).
+
+**Yeni arayüz teması** (`UIUtil` + `UITheme`): galeri çerçevesi — koyu mürdüm zemin, altın kenar, krem yazı, bordo düğmeler, yuvarlak köşeler (dokular bir kez üretilir). Varsayılan GUI kutu/düğme/yazı kutusu da temaya çevrilir.
+**Çakışmalar:** `UIUtil.HudRect(köşe, öncelik, w, h)` — aynı köşedeki kutular önceliğe göre dizilir, asla üst üste binmez:
+- Sol üst: oda kodu → görev paneli → garaj hazırlık paneli
+- Sağ üst: ping → para → hedef
+- Sol alt (aşağıdan): bozuk para ipucu → kamyon ipucu → kamera pili → sohbet
+- Alt orta (aşağıdan): ses kutusu → **hızlı envanter** → fırça bilgisi → model durumu → öğretici
+- Sağ alt: çanta kilosu → ipuçları
+
+**Hızlı envanter:** ses kutusunun üstünde 3 yuva (çantanın ilk 3 satırı). **1/2/3** ile doğrudan ele al / kaldır; çanta açıkken yuvaya tıklanabilir.
+
+**Bozuk para:** yalnızca **Q** (X ve J kaldırıldı, muz kabuğu kaldırıldı). Para güvenliğin kafasına/gövdesine gelirse 2.5 sn yerinde sersemler (başında dönen yıldızlar), duvara düşerse eskisi gibi ses çıkarır.
+**Küçük eşya çalmak:** müzede küçük eşya alırken seni gören ziyaretçi tepki verir, şüphe artar (alarm çalmaz).
+
+## Ek 35: Ressam-hırsız arayüz görselleri, hızlı envanter düzeltmeleri, paralar dolaptan, sersemletme düzeltmesi
+
+- **Arayüz görselleri (Assets/Resources/UI):** koyu tuval zeminli + el boyaması altın çerçeveli + yaldızlı köşeli paneller (`ui_panel`, küçükler için `ui_panel_small`), bordo fırça darbesi düğmeler (`ui_button*`), palet çukuru yuvalar (`ui_slot`, seçili: altın boya halkası `ui_slot_sel`), yazı kutusu, etkileşim yazılarının arkasında koyu fırça darbesi (`ui_stroke`), önemli panellerde maskeleme bandı (`ui_tape`), simgeler (`icon_brush`, `icon_lockpick`, `icon_paint`). `UIUtil` bunları yükler; dosya yoksa aynı renklerde yedek dokular üretir. 64 px'ten küçük kutular otomatik sade panelle çizilir (köşe süsleri taşmaz).
+- **Hızlı envanter:** fırça yuvada fırça simgesiyle görünür; seçili yuva altın halka; tuş numarası köşede rozet. Boş yuvaya (1/2/3) basınca / tıklayınca el boşalır. Maymuncuk ve boya kutusu (çantada yer kaplamayan aletler) yuvaların sağında rozet olarak, çanta panelinde "Aletler" satırında görünür.
+- **Bozuk para:** görev başı bedava 5 para kaldırıldı; paralar kamyondaki dolaptan [E] ile alınır, Q çantadakini atar. Sol alttaki para satırı kalktı. Atılan para uçarken güvenliğin kafasına / gövdesine değerse (`CoinDazer`) 2.5 sn sersemler. Eski ışınlı atıştaki isabet hatası da düzeltildi (ışın güvenliğin kapsülüne çarpınca isabet sayılmıyordu).
+- **Garaja dönüş:** kamyon içindeki "Garaja dön" kapısı kaldırıldı (oyunda kendini siler; editörde SampleScene açılınca da silinir — sahneyi kaydedin). Garaja görev bitince, kamyon [K] ile kapanınca dönülür.
+- **Ayna** 3.2 × 2.1 m (4 kişi yan yana).
+- `Ambience` uzak adım sesi kaynağı yokken her karede hata veriyordu (Console'da Error Pause açıksa oyun duruyordu) → korundu.
+
+## Ek 36: Tek sahte masası, aynı anda birden fazla kayıt + herkes kendi kaydını seçer, hapis kamerası
+
+- **Tek masa:** kamyonda tek sahte masası var; iki (ya da daha fazla) kişi aynı masada AYNI ANDA çalışır, her biri kendi seçtiği eseri çizer (çalışma zaten yerel). Eski kurulumdan kalan `ForgeryWorkbench_2` oyunda görünmez + etkileşimsizdir; editörde SampleScene açılınca sahneden de silinir → **sahneyi kaydedin (Ctrl+S)**. `TestMuseumBuilder` artık ikinci masa kurmaz.
+- **Birden fazla kayıt:** aynı anda en fazla 4 kişi H ile kayıt açabilir (eskiden tek kişi; "arkadaşın zaten yayında" kalktı). Herkesin göğsünde kayıt ışığı yanar.
+- **Kaydı herkes kendisi seçer:** monitöre bakıp **E** → büyük ekranda **"Kayıt seç:"** satırı: canlı yayınlar (● CANLI: isim) ve eserlerin son kayıtları (eser adı). Atölyede tuvalin altındaki harita panelinde de aynı satır var. Seçim sadece o bilgisayarda: ben A'yı seçince bende (monitör + atölye) A, arkadaşım B'yi seçince onda B görünür. Aynı düğmeye tekrar tıklamak seçimi bırakır (otomatik).
+- **Optimizasyon:** her bilgisayar yalnızca izlediği tek canlı yayını çizer (tek kamera, 640x360, 4–15 kare/sn, yalnız biri bakarken). İzlenmeyen kayıt yapanlar için yalnızca "son kayıt" anında tek kare çizilir (aynı kamera, ayrı doku). Son kayıt seçiliyken canlı yayın hiç çizilmez. Ağdan görüntü gitmez (ağda yalnızca kayıttakilerin listesi).
+- **Hapis kamerası:** hapis hücresinin önünü gören güvenlik kamerası (`RoomCamera_Jail`) — bodrumdaki hapiste de, köşe yerleşiminde de. Kurtarma girişimi kameraya yakalanabilir.

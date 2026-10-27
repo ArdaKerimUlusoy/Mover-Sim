@@ -159,10 +159,11 @@ public class HeistControls : MonoBehaviour
             // Birleştirme: kayıt / boya göstergesi BodyCam ve fırçada. Kamyonda sadece kat planı ipucu kalır.
             if (FloorPlanUI.LocalInTruck)
             {
-                Rect hr = new Rect(12f, Screen.height - 58f, 220f, 24f);
-                UIUtil.DrawRect(hr, new Color(0.05f, 0.06f, 0.08f, 0.72f));
-                small.normal.textColor = new Color(0.85f, 0.85f, 0.85f);
-                GUI.Label(new Rect(hr.x + 10f, hr.y + 4f, hr.width - 20f, 16f), Loc.T("heist.hint.truck"), small);
+                string th = Loc.T("heist.hint.truck");
+                Rect hr = UIUtil.HudRect(UIUtil.HudCorner.BottomLeft, UIUtil.HudOrder.TruckHint, small.CalcSize(new GUIContent(th)).x + 28f, 26f);
+                UIUtil.Panel(hr, 0.85f);
+                small.normal.textColor = UIUtil.Cream;
+                GUI.Label(new Rect(hr.x + 13f, hr.y + 5f, hr.width - 18f, 16f), th, small);
             }
             return;
         }
@@ -170,8 +171,8 @@ public class HeistControls : MonoBehaviour
         bool inTruck = FloorPlanUI.LocalInTruck;
 
         // Sol alt: kamera / pil / dikkat / sprey
-        Rect r = new Rect(12f, Screen.height - 128f, 270f, 98f);
-        UIUtil.DrawRect(r, new Color(0.05f, 0.06f, 0.08f, 0.72f));
+        Rect r = UIUtil.HudRect(UIUtil.HudCorner.BottomLeft, UIUtil.HudOrder.TruckHint, 270f, 98f);
+        UIUtil.Panel(r);
         float cap = Mathf.Max(1f, me.BatteryCapacity);
         float bat = me.BatterySeconds;
         string batText = $"{Mathf.FloorToInt(bat / 60f)}:{Mathf.FloorToInt(bat % 60f):00}";

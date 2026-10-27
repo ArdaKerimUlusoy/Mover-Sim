@@ -111,10 +111,23 @@ public class ChatUI : MonoBehaviour
 
         EnsureStyles();
 
-        float x = 12f;
         float lineH = 22f;
         float inputH = 30f;
-        float bottom = Screen.height - 12f - AlarmFeedback.HintHeight;
+
+        // Kaç satır görünecek (yerleşim için önceden say; aşağıdaki çizim döngüsüyle aynı kural)
+        var all = chat.Lines;
+        int visibleNow = 0;
+        for (int i = all.Count - 1; i >= 0 && visibleNow < visibleLines; i--)
+        {
+            if (!IsTyping && Time.unscaledTime - all[i].Time > fadeAfterSeconds + 1f) break;
+            visibleNow++;
+        }
+        bool showHint = !IsTyping && !SessionMenuUI.IsPaused && visibleNow == 0;
+        float totalH = (IsTyping ? inputH + 4f : 0f) + lineH * visibleNow + (showHint ? 18f : 0f);
+        // Sol alt köşe: ipucu satırı ve kamera pilinin ÜSTÜNE dizilir (çakışmaz)
+        Rect area = UIUtil.HudRect(UIUtil.HudCorner.BottomLeft, UIUtil.HudOrder.Chat, width, Mathf.Max(1f, totalH));
+        float x = area.x;
+        float bottom = area.yMax;
 
         // --- Yazma kutusu ---
         // Enter / Esc tuşlarını Update yönetiyor; burada kutunun bu tuşları işlemesini engelliyoruz.
@@ -131,7 +144,6 @@ public class ChatUI : MonoBehaviour
         if (IsTyping)
         {
             Rect inputRect = new Rect(x, bottom - inputH, width, inputH);
-            GUI.DrawTexture(inputRect, bgTex);
             GUI.SetNextControlName(InputControlName);
             input = GUI.TextField(inputRect, input, ChatManager.MaxMessageLength, inputStyle);
             if (GUI.GetNameOfFocusedControl() != InputControlName) GUI.FocusControl(InputControlName);
@@ -171,10 +183,9 @@ public class ChatUI : MonoBehaviour
             shown++;
         }
 
-        if (!IsTyping && !SessionMenuUI.IsPaused)
+        if (showHint && shown == 0)
         {
-            GUI.Label(new Rect(x, Screen.height - 12f - AlarmFeedback.HintHeight - 18f - lineH * shown, width, 18f),
-                shown == 0 ? Loc.T("chat.hint") : "", hintStyle);
+            GUI.Label(new Rect(x, bottom - 18f, width, 18f), Loc.T("chat.hint"), hintStyle);
         }
     }
 
@@ -188,21 +199,18 @@ public class ChatUI : MonoBehaviour
     {
         if (lineStyle != null) return;
 
+        UIUtil.ApplySkin();
         bgTex = new Texture2D(1, 1);
-        bgTex.SetPixel(0, 0, new Color(0f, 0f, 0f, 0.6f));
+        bgTex.SetPixel(0, 0, new Color(0.13f, 0.095f, 0.115f, 0.75f)); // tema zemini (mürdüm)
         bgTex.Apply();
 
         lineStyle = new GUIStyle(GUI.skin.label)
         {
             fontSize = 15, richText = true, alignment = TextAnchor.MiddleLeft, clipping = TextClipping.Clip
         };
-        lineStyle.normal.textColor = Color.white;
+        lineStyle.normal.textColor = UIUtil.Cream;
 
-        inputStyle = new GUIStyle(GUI.skin.textField) { fontSize = 16, alignment = TextAnchor.MiddleLeft };
-        inputStyle.normal.background = null;
-        inputStyle.focused.background = null;
-        inputStyle.normal.textColor = Color.white;
-        inputStyle.focused.textColor = Color.white;
+        inputStyle = UIUtil.ThemeField(new GUIStyle(GUI.skin.textField) { fontSize = 16, alignment = TextAnchor.MiddleLeft });
         inputStyle.padding = new RectOffset(8, 8, 4, 4);
 
         hintStyle = new GUIStyle(GUI.skin.label) { fontSize = 12 };

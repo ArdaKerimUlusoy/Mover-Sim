@@ -29,7 +29,7 @@ public partial class PlayerStealth
     private float serverLinger;
 
     // Birleştirme: kayıt BodyCam'deyse (FeatureMerge) "kayıtta mı" BodyCam'den okunur (kat planındaki ●REC / bakış yönü)
-    public bool IsRecording => recording.Value || (!FeatureMerge.FriendCamcorder && BodyCam.Live && BodyCam.Recorder == OwnerClientId);
+    public bool IsRecording => recording.Value || (!FeatureMerge.FriendCamcorder && BodyCam.IsRecording(OwnerClientId));
     public float BatterySeconds => batteryDeci.Value / 10f;
     public float BatteryCapacity => UpgradeCatalog.BatteryCapacity(inventory != null ? inventory.GetUpgradeLevel(UpgradeType.CameraBattery) : 0);
     /// <summary>Kesintisiz kayıt süresi (sn). RecordGraceSeconds'ı geçince kayıt göze batar.</summary>

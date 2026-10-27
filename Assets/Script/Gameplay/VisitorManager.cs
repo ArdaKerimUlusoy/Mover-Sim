@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using Unity.Netcode;
 using UnityEngine;
 using UnityEngine.AI;
@@ -432,6 +432,33 @@ public class VisitorManager : MonoBehaviour
         Vector3 d = target - v.t.position;
         d.y = 0f;
         if (d.sqrMagnitude > 0.01f) v.t.rotation = Quaternion.Slerp(v.t.rotation, Quaternion.LookRotation(d), Time.deltaTime * 8f);
+    }
+
+    /// <summary>Sunucu: oyuncu müzede küçük bir eşya aldı. Onu gören ilk sakin ziyaretçi şüphelenir ("hı?"), az sonra
+    /// güvenliğe söyler: şüphe artar, güvenlik bakmaya gelir — alarm çalmaz (minor rapor). Gören olursa oyuncunun şüphesi hemen biraz artar.</summary>
+    public void ServerWitnessPetty(PlayerStealth p)
+    {
+        if (p == null || !p.IsSpawned || p.IsHidden || p.IsJailed) return;
+        SecurityManager sm = SecurityManager.Instance;
+        if (sm != null && sm.AlarmActive) return;
+        float now = Time.time;
+        foreach (Visitor v in visitors)
+        {
+            if (v.t == null || v.agent == null || (v.mode != Mode.Walk && v.mode != Mode.Look)) continue;
+            Vector3 eye = v.t.position + Vector3.up * 1.6f;
+            if (!Vision.CanSee(eye, v.t.forward, SightRange, SightAngle, p)) continue;
+            v.mode = Mode.Witness;
+            v.photo = false;
+            v.minor = true;
+            v.recordReport = false;
+            v.culprit = p;
+            v.crimePos = p.transform.position;
+            v.until = now + 0.9f;
+            if (v.agent.isOnNavMesh) v.agent.ResetPath();
+            if (p.TryGetComponent(out PlayerInventory inv)) inv.ServerPlaySound(SoundId.GuardHuh, v.t.position);
+            p.ServerAddSuspicionNoAlarm(0.2f);
+            return; // bir tanıklık yeter
+        }
     }
 
     /// <summary>Suç işleyen birini görüyor mu? minor = sadece kaydın yasak olduğu yerde kayıt ışığını gördü.</summary>

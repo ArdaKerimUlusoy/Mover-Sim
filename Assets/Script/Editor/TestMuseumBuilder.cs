@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using Unity.AI.Navigation;
 using Unity.Netcode;
 using Unity.Netcode.Components;
@@ -50,6 +50,8 @@ public static class TestMuseumBuilder
     /// <summary>true: yeni masa eklendi.</summary>
     public static bool EnsureSecondWorkbench()
     {
+        return false; // tek masaya inildi (iki kişi aynı masayı aynı anda kullanır); ikinci masa artık eklenmez
+#pragma warning disable CS0162
         GameObject root = GameObject.Find(RootName);
         if (root == null) return false;
         Transform truck = root.transform.Find("Truck");
@@ -58,6 +60,7 @@ public static class TestMuseumBuilder
         Workbench(truck.gameObject, "ForgeryWorkbench_2", new Vector3(-30.7f, 0.45f, 6.45f), 2f);
         EditorSceneManager.MarkSceneDirty(root.scene);
         return true;
+#pragma warning restore CS0162
     }
 
     [MenuItem("Tools/Sahte Şaheser/Create Test Museum")]
@@ -90,7 +93,8 @@ public static class TestMuseumBuilder
 
         BuildStreet(root);
         BuildTruck(root);
-        BuildGarage(root);
+        // Garaj ayrı sahnedeyse (Assets/Scenes/Garage.unity) ana sahnede yeniden kurulmaz
+        if (!GarageSceneBuilder.GarageSceneExists) BuildGarage(root);
         BuildBlackMarket(root);
         BuildMuseum(root);
 
@@ -183,7 +187,7 @@ public static class TestMuseumBuilder
         }
 
         Workbench(truck, "ForgeryWorkbench", new Vector3(-33.2f, 0.45f, 6.45f));
-        Workbench(truck, "ForgeryWorkbench_2", new Vector3(-30.7f, 0.45f, 6.45f), 2f); // ikinci masa: iki oyuncu aynı anda çalışabilsin
+        // Tek masa: iki oyuncu aynı masada aynı anda çalışabilir (her biri kendi seçtiği kaydı izler)
         Terminal(truck, "BriefingTerminal", new Vector3(-34.8f, 0.6f, 2.3f));
         Cabinet(truck, "Cabinet_Coins", new Vector3(-32.2f, 0.6f, 2.4f), "distraction_coin", 5, -1);
 

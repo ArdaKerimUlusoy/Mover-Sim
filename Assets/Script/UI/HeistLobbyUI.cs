@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using Unity.Collections;
 using Unity.Netcode;
@@ -180,11 +180,11 @@ public class HeistLobbyUI : MonoBehaviour
     {
         if (title != null) return;
         title = new GUIStyle(GUI.skin.label) { fontSize = 14, fontStyle = FontStyle.Bold };
-        title.normal.textColor = new Color(1f, 0.85f, 0.4f);
+        title.normal.textColor = UIUtil.Gold;
         row = new GUIStyle(GUI.skin.label) { fontSize = 14, fontStyle = FontStyle.Bold };
-        row.normal.textColor = Color.white;
+        row.normal.textColor = UIUtil.Cream;
         small = new GUIStyle(GUI.skin.label) { fontSize = 12, wordWrap = true };
-        small.normal.textColor = new Color(0.85f, 0.85f, 0.85f);
+        small.normal.textColor = UIUtil.Muted;
         hint = new GUIStyle(small) { fontStyle = FontStyle.Bold };
         hint.normal.textColor = new Color(0.6f, 0.95f, 0.65f);
     }
@@ -208,10 +208,12 @@ public class HeistLobbyUI : MonoBehaviour
 
         bool solo = GameFlow.Solo;
         var players = PlayerNetworkSetup.All;
-        float w = 292f;
+        float w = 300f;
         float h = 34f + (solo ? 0f : players.Count * 24f + 8f) + 118f;
-        Rect r = new Rect(12f, 84f, w, h);
-        UIUtil.DrawRect(r, new Color(0.05f, 0.06f, 0.08f, 0.78f));
+        // Sol üst köşe: oda kodu kutusunun altına dizilir (görev paneliyle çakışmaz)
+        Rect r = UIUtil.HudRect(UIUtil.HudCorner.TopLeft, UIUtil.HudOrder.Lobby, w, h);
+        UIUtil.Panel(r, UIUtil.Gold);
+        r.x += 6f; // sol şeridin sağından başla
 
         float y = r.y + 6f;
         GUI.Label(new Rect(r.x + 10f, y, w - 20f, 22f), Loc.T("lobby.title"), title);

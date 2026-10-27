@@ -352,7 +352,8 @@ public class SessionMenuUI : MonoBehaviour
     private void DrawHud(SessionManager sm)
     {
         if (WorkbenchUI.IsOpen) return; // atölye panelinin üstüne binmesin
-        Rect r = new Rect(12f, 12f, 270f, 64f);
+        // Sol üst köşe (en üstte); görev ve garaj panelleri altına dizilir
+        Rect r = UIUtil.HudRect(UIUtil.HudCorner.TopLeft, UIUtil.HudOrder.SessionCode, 270f, 64f);
         GUI.Box(r, GUIContent.none, boxStyle);
         if (sm.ActiveSession == null)
         {
@@ -372,8 +373,8 @@ public class SessionMenuUI : MonoBehaviour
 
         if (!string.IsNullOrEmpty(pingText))
         {
-            Rect pr = new Rect(Screen.width - 152f, 12f, 140f, 30f);
-            GUI.Box(pr, GUIContent.none, boxStyle);
+            Rect pr = UIUtil.HudRect(UIUtil.HudCorner.TopRight, UIUtil.HudOrder.Ping, 140f, 32f);
+            UIUtil.Panel(pr);
             pingStyle.normal.textColor = pingColor;
             GUI.Label(pr, pingText, pingStyle);
         }
@@ -607,26 +608,24 @@ public class SessionMenuUI : MonoBehaviour
     {
         if (titleStyle != null) return;
 
-        panelTex = new Texture2D(1, 1);
-        panelTex.SetPixel(0, 0, new Color(0.08f, 0.09f, 0.11f, 0.88f));
-        panelTex.Apply();
+        UIUtil.ApplySkin(); // oyunun arayüz teması (yuvarlak altın çerçeveli paneller, bordo düğmeler)
+        panelTex = UIUtil.PanelTexture;
 
         whiteTex = Texture2D.whiteTexture;
 
-        boxStyle = new GUIStyle(GUI.skin.box);
-        boxStyle.normal.background = panelTex;
+        boxStyle = UIUtil.ThemeBox(new GUIStyle(GUI.skin.box), true);
 
         titleStyle = new GUIStyle(GUI.skin.label)
         {
             fontSize = 26, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter
         };
-        titleStyle.normal.textColor = Color.white;
+        titleStyle.normal.textColor = UIUtil.Gold;
 
         labelStyle = new GUIStyle(GUI.skin.label) { fontSize = 15, alignment = TextAnchor.MiddleLeft };
-        labelStyle.normal.textColor = new Color(0.9f, 0.9f, 0.9f);
+        labelStyle.normal.textColor = UIUtil.Cream;
 
         smallStyle = new GUIStyle(GUI.skin.label) { fontSize = 13 };
-        smallStyle.normal.textColor = new Color(0.8f, 0.8f, 0.8f);
+        smallStyle.normal.textColor = UIUtil.Muted;
 
         sectionStyle = new GUIStyle(GUI.skin.label) { fontSize = 12, fontStyle = FontStyle.Bold };
         sectionStyle.normal.textColor = new Color(1f, 0.8f, 0.3f);
@@ -642,12 +641,12 @@ public class SessionMenuUI : MonoBehaviour
             fontSize = 15, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter
         };
 
-        buttonStyle = new GUIStyle(GUI.skin.button) { fontSize = 18, fontStyle = FontStyle.Bold };
-        smallButtonStyle = new GUIStyle(GUI.skin.button) { fontSize = 14, fontStyle = FontStyle.Bold };
+        buttonStyle = UIUtil.ThemeButton(new GUIStyle(GUI.skin.button) { fontSize = 18, fontStyle = FontStyle.Bold });
+        smallButtonStyle = UIUtil.ThemeButton(new GUIStyle(GUI.skin.button) { fontSize = 14, fontStyle = FontStyle.Bold });
 
-        fieldStyle = new GUIStyle(GUI.skin.textField)
+        fieldStyle = UIUtil.ThemeField(new GUIStyle(GUI.skin.textField)
         {
             fontSize = 22, alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold
-        };
+        });
     }
 }

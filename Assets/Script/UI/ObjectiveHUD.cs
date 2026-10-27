@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 
 /// <summary>
 /// Sağ üstte o anki HEDEF (aşamaya ve role göre) ve bağlama göre tuş ipuçları.
@@ -74,11 +74,11 @@ public class ObjectiveHUD : MonoBehaviour
         if (title == null)
         {
             title = new GUIStyle(GUI.skin.label) { fontSize = 12, fontStyle = FontStyle.Bold };
-            title.normal.textColor = new Color(1f, 0.85f, 0.4f);
+            title.normal.textColor = UIUtil.Gold;
             body = new GUIStyle(GUI.skin.label) { fontSize = 14, fontStyle = FontStyle.Bold, wordWrap = true };
-            body.normal.textColor = Color.white;
+            body.normal.textColor = UIUtil.Cream;
             keys = new GUIStyle(GUI.skin.label) { fontSize = 12, wordWrap = true };
-            keys.normal.textColor = new Color(0.8f, 0.9f, 0.8f);
+            keys.normal.textColor = UIUtil.Muted;
         }
 
         Evaluate(out string objKey, out object[] args, out string hintKey);
@@ -86,14 +86,15 @@ public class ObjectiveHUD : MonoBehaviour
         string hint = string.IsNullOrEmpty(hintKey) ? "" : Loc.T(hintKey);
 
         float w = 320f;
-        float bodyH = body.CalcHeight(new GUIContent(obj), w - 20f);
-        float hintH = hint.Length > 0 ? keys.CalcHeight(new GUIContent(hint), w - 20f) : 0f;
-        Rect r = new Rect(Screen.width - w - 12f, 50f, w, 26f + bodyH + hintH + 10f);
+        float bodyH = body.CalcHeight(new GUIContent(obj), w - 30f);
+        float hintH = hint.Length > 0 ? keys.CalcHeight(new GUIContent(hint), w - 30f) : 0f;
+        // Sağ üst köşe: ping ve para kutularının altına dizilir (çakışmaz)
+        Rect r = UIUtil.HudRect(UIUtil.HudCorner.TopRight, UIUtil.HudOrder.Objective, w, 30f + bodyH + hintH + 12f);
 
-        UIUtil.DrawRect(r, new Color(0.05f, 0.06f, 0.08f, 0.72f));
-        UIUtil.DrawRect(new Rect(r.x, r.y, 3f, r.height), new Color(1f, 0.8f, 0.3f));
-        GUI.Label(new Rect(r.x + 10f, r.y + 4f, w - 20f, 20f), Loc.T("obj.title"), title);
-        GUI.Label(new Rect(r.x + 10f, r.y + 22f, w - 20f, bodyH), obj, body);
-        if (hintH > 0f) GUI.Label(new Rect(r.x + 10f, r.y + 24f + bodyH, w - 20f, hintH), hint, keys);
+        UIUtil.Panel(r, UIUtil.Gold);
+        UIUtil.Tape(r);
+        GUI.Label(new Rect(r.x + 16f, r.y + 6f, w - 30f, 20f), Loc.T("obj.title"), title);
+        GUI.Label(new Rect(r.x + 16f, r.y + 25f, w - 30f, bodyH), obj, body);
+        if (hintH > 0f) GUI.Label(new Rect(r.x + 16f, r.y + 28f + bodyH, w - 30f, hintH), hint, keys);
     }
 }

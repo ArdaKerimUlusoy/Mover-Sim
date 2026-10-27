@@ -346,7 +346,13 @@ public class PlayerNetworkSetup : NetworkBehaviour
         Vector3 position;
         Quaternion rotation;
 
-        if (SpawnPoint.All.Count > 0)
+        GarageSpawnPoint gp = GarageSpawnPoint.For(OwnerClientId); // garaj ayrı sahnedeyse oyuna garajda başlanır
+        if (gp != null)
+        {
+            position = gp.transform.position + Vector3.up;
+            rotation = Quaternion.Euler(0f, gp.transform.eulerAngles.y, 0f);
+        }
+        else if (SpawnPoint.All.Count > 0)
         {
             SpawnPoint sp = SpawnPoint.All[(int)(OwnerClientId % (ulong)SpawnPoint.All.Count)];
             position = sp.transform.position + Vector3.up;

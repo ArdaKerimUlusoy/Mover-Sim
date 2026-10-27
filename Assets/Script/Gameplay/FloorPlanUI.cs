@@ -57,7 +57,7 @@ public class FloorPlanUI : MonoBehaviour
         GUI.depth = -15;
         float w = Mathf.Min(Screen.width - 40f, 1280f), h = Mathf.Min(Screen.height - 80f, 760f);
         Rect panel = new Rect((Screen.width - w) * 0.5f, (Screen.height - h) * 0.5f, w, h);
-        UIUtil.DrawRect(panel, new Color(0.04f, 0.05f, 0.07f, 0.93f));
+        UIUtil.Panel(panel);
         EnsureStyles();
         GUI.Label(new Rect(panel.x + 16f, panel.y + 8f, panel.width - 32f, 30f), Loc.T("plan.title"), titleStyle);
         GUI.Label(new Rect(panel.x + 16f, panel.yMax - 30f, panel.width - 32f, 24f), Loc.T("plan.hint"), hintStyle);

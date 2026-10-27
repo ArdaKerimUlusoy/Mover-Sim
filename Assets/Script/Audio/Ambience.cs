@@ -97,7 +97,7 @@ public class Ambience : MonoBehaviour
         Apply(truck, truckLevel * TruckVol);
 
         // Müzede ara sıra uzaktan yankılı adımlar (alarmda çalmaz)
-        if (museumLevel > 0.9f && !alarm && Time.time >= nextFarStep)
+        if (far != null && museumLevel > 0.9f && !alarm && Time.time >= nextFarStep)
         {
             nextFarStep = Time.time + Random.Range(12f, 28f);
             far.panStereo = Random.Range(-0.8f, 0.8f);

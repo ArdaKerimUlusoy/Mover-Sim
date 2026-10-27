@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
@@ -304,6 +304,7 @@ public partial class MuseumLayout
         Vector3 se = new Vector3(38f, 0f, -16f);
         jail.localRotation = rot;
         jail.localPosition = new Vector3(corners[bi].corner.x, -D, corners[bi].corner.y) - rot * se;
+        AddJailCamera(jail); // hapsin önünü gören güvenlik kamerası
 
         // --- Bodrum bilgileri (dünya) ---
         HasBasement = true;

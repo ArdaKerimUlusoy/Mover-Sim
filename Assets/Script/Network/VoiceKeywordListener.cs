@@ -1339,8 +1339,8 @@ public class VoiceKeywordListener : MonoBehaviour
         Color c = new Color(1f, 1f, 1f, 0.75f);
 
         float w = Mathf.Min(420f, style.CalcSize(new GUIContent(line)).x + 24f); // sağ alttaki çanta ipuçlarıyla çakışmasın
-        Rect r = new Rect((Screen.width - w) * 0.5f, Screen.height - 64f - 28f, w, 22f);
-        UIUtil.DrawRect(r, new Color(0.05f, 0.06f, 0.08f, 0.7f));
+        Rect r = UIUtil.HudRect(UIUtil.HudCorner.BottomCenter, UIUtil.HudOrder.KeywordStatus, w, 26f);
+        UIUtil.Panel(r, 0.85f);
         style.normal.textColor = c;
         GUI.Label(r, line, style);
     }

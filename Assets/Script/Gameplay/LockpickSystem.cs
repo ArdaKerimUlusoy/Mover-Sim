@@ -576,7 +576,7 @@ public class LockpickSystem : MonoBehaviour
         const float W = 340f, H = 86f;
         float y = UIUtil.CenterSlot(H);
         Rect panel = new Rect((Screen.width - W) * 0.5f, y + 10f, W, H);
-        UIUtil.DrawRect(panel, new Color(0.04f, 0.08f, 0.12f, 0.82f));
+        UIUtil.Panel(panel);
         UIUtil.DrawRect(new Rect(panel.x, panel.y, panel.width, 1f), new Color(0.4f, 0.6f, 0.75f, 0.7f));
         GUI.Label(new Rect(panel.x, panel.y + 4f, W, 22f), Loc.T("lockpick.title", count), titleStyle);
 

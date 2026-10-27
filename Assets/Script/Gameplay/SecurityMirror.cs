@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.Rendering.Universal;
@@ -266,7 +266,7 @@ public class SecurityMirror : MonoBehaviour
         if (zoomed != this || !rendered || rt == null || Event.current.type != EventType.Repaint) return;
         float size = Mathf.Min(Screen.height * 0.72f, Screen.width * 0.7f);
         var r = new Rect((Screen.width - size) * 0.5f, (Screen.height - size) * 0.5f - 10f, size, size);
-        UIUtil.DrawRect(new Rect(r.x - 10f, r.y - 10f, r.width + 20f, r.height + 20f), new Color(0.06f, 0.06f, 0.08f, 0.92f));
+        UIUtil.Panel(new Rect(r.x - 10f, r.y - 10f, r.width + 20f, r.height + 20f));
         // Ayna görüntüsü yatay çevrili çizilir
         GUI.DrawTextureWithTexCoords(r, rt, new Rect(1f, 0f, -1f, 1f), false);
         UIUtil.DrawPrompt(Loc.T("mirror.zoom"), r.yMax + 18f, new Color(0.85f, 0.9f, 1f), 18);

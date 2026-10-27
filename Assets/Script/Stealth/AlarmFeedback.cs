@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
@@ -34,7 +34,8 @@ public class AlarmFeedback : MonoBehaviour
         get
         {
             PlayerStealth me = PlayerStealth.Local;
-            return me != null && me.IsSpawned && !me.IsJailed && MuseumSession.Instance != null && MuseumSession.Instance.Ready;
+            // Alet paraları artık görev başı verilmiyor (paralar kamyondaki dolaptan alınır): satır yalnızca alet parası varsa çıkar
+            return me != null && me.IsSpawned && !me.IsJailed && me.CoinsLeft > 0 && MuseumSession.Instance != null && MuseumSession.Instance.Ready;
         }
     }
 
@@ -168,7 +169,11 @@ public class AlarmFeedback : MonoBehaviour
     {
         if (!HintsVisible) return;
         string text = Loc.T("gadget.hints", me.CoinsLeft, me.BananasLeft);
-        Rect r = new Rect(12f, Screen.height - 12f - 18f, 520f, 20f);
+        float tw = Mathf.Min(hintStyle.CalcSize(new GUIContent(text)).x + 26f, Screen.width * 0.5f);
+        // Sol alt köşe (en altta): kamera pili ve sohbet bunun üstüne dizilir
+        Rect box = UIUtil.HudRect(UIUtil.HudCorner.BottomLeft, UIUtil.HudOrder.GadgetHints, tw, HintRowHeight + 4f);
+        UIUtil.Panel(box, 0.8f);
+        Rect r = new Rect(box.x + 13f, box.y + 4f, box.width - 18f, HintRowHeight - 4f);
         GUI.Label(new Rect(r.x + 1f, r.y + 1f, r.width, r.height), text, hintShadow);
         GUI.Label(r, text, hintStyle);
     }
@@ -179,7 +184,7 @@ public class AlarmFeedback : MonoBehaviour
         for (int i = spotted.Count - 1; i >= 0; i--)
             if (Time.unscaledTime - spotted[i].start > SpottedSeconds) spotted.RemoveAt(i);
 
-        float baseY = Screen.height * 0.18f;
+        float baseY = Screen.height * 0.26f; // üst ortadaki şüphe / alarm yazılarının altında kalsın
         for (int i = 0; i < spotted.Count; i++)
         {
             Spotted s = spotted[i];
@@ -192,8 +197,8 @@ public class AlarmFeedback : MonoBehaviour
             float h = 52f * pop;
             Rect box = new Rect((Screen.width - w) / 2f, baseY + i * 60f - (h - 52f) / 2f, w, h);
 
-            UIUtil.DrawRect(box, new Color(0.35f, 0.04f, 0.04f, 0.82f * fade));
-            UIUtil.DrawRect(new Rect(box.x, box.y, 5f, box.height), new Color(1f, 0.25f, 0.2f, fade));
+            UIUtil.Panel(box, new Color(1f, 0.3f, 0.25f), fade);
+            UIUtil.DrawRect(new Rect(box.x + 3f, box.y + 3f, box.width - 6f, box.height - 6f), new Color(0.45f, 0.05f, 0.05f, 0.55f * fade));
 
             // Simge: kırmızı rozet içinde "!"
             Rect icon = new Rect(box.x + 14f, box.y + (box.height - 34f) / 2f, 34f, 34f);

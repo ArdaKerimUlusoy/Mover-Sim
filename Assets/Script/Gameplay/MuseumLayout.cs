@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using Unity.AI.Navigation;
 using Unity.Netcode;
 using UnityEngine;
@@ -898,9 +898,27 @@ public partial class MuseumLayout : MonoBehaviour
             blocked[fc.x, fc.y] = true;
             // Duvar yuvaları: hücrenin içine düşenleri sil
             wallSlots.RemoveAll(s => { Vector2Int c = CellOf(s.pos + s.normal * 0.5f); return blocked[c.x, c.y]; });
+            AddJailCamera(jail);
             return;
         }
         // Uygun köşe yoksa olduğu yerde kalır (güneydoğu)
+        AddJailCamera(jail);
+    }
+
+    /// <summary>
+    /// Hapis hücresinin önünü gören güvenlik kamerası: hücrenin dış duvarı hizasında, kapıya ve kurtarma alanına bakar
+    /// (kurtarma girişimi görülebilir). Diğer oda kameraları gibi düzenle birlikte kurulur / silinir (Runtime_Interior altında).
+    /// </summary>
+    private void AddJailCamera(Transform jail)
+    {
+        if (jail == null || interior == null) return;
+        // Hücre yerel ölçüleri (TestMuseumBuilder.BuildJail): köşe (38, -16), parmaklıklar z = -12.6 / x = 34.4, kapı önü (35.6, -10.9)
+        Vector3 camW = jail.TransformPoint(new Vector3(37.72f, 2.55f, -9.7f));
+        Vector3 lookW = jail.TransformPoint(new Vector3(35.4f, 0.9f, -11.8f));
+        Vector3 lp = interior.InverseTransformPoint(camW);
+        Vector3 d = interior.InverseTransformDirection(lookW - camW);
+        float yaw = Mathf.Atan2(d.x, d.z) * Mathf.Rad2Deg;
+        RoomCamera.Create(interior, "RoomCamera_Jail", lp, yaw, 1, 12f, new Color(0.18f, 0.18f, 0.2f));
     }
 
     // ---------------- Dolaplar, ganimet masaları ----------------

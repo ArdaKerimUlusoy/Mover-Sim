@@ -628,12 +628,18 @@ public class PaintBrush : MonoBehaviour
         if (tipStyle == null) tipStyle = new GUIStyle(GUI.skin.label) { fontSize = 13, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter, richText = true };
         int paint = PlayerInventory.Local.SprayCount;
 
-        // Alt orta: fırça bilgisi
-        tipStyle.normal.textColor = new Color(1f, 0.85f, 0.9f, 0.9f);
-        GUI.Label(new Rect(0f, Screen.height - 128f, Screen.width, 20f), Loc.T("brush.hud", paint), tipStyle);
-        // Boya rengi (garajda boya alırken seçilir)
-        Vector2 hs = tipStyle.CalcSize(new GUIContent(Loc.T("brush.hud", paint)));
-        Rect sw = new Rect(Screen.width * 0.5f - hs.x * 0.5f - 24f, Screen.height - 125f, 16f, 14f);
+        // Alt orta: fırça bilgisi (köşe yığını: ses kutusu + hızlı envanterin üstünde, çakışmaz)
+        string hudText = Loc.T("brush.hud", paint), throwText = Loc.T("brush.throw");
+        Vector2 hs = tipStyle.CalcSize(new GUIContent(hudText));
+        float bw = Mathf.Max(hs.x + 60f, tipStyle.CalcSize(new GUIContent(throwText)).x + 30f);
+        Rect box = UIUtil.HudRect(UIUtil.HudCorner.BottomCenter, UIUtil.HudOrder.Brush, bw, 48f);
+        UIUtil.Panel(box, 0.85f);
+        tipStyle.normal.textColor = new Color(1f, 1f, 1f, 0.8f);
+        GUI.Label(new Rect(box.x, box.y + 4f, box.width, 20f), throwText, tipStyle);
+        tipStyle.normal.textColor = new Color(1f, 0.85f, 0.9f, 0.95f);
+        GUI.Label(new Rect(box.x + 12f, box.y + 24f, box.width - 12f, 20f), hudText, tipStyle);
+        // Boya rengi (karakter rengi)
+        Rect sw = new Rect(box.x + box.width * 0.5f + 6f - hs.x * 0.5f - 24f, box.y + 27f, 16f, 14f);
         GUI.DrawTexture(new Rect(sw.x - 1f, sw.y - 1f, sw.width + 2f, sw.height + 2f), Texture2D.whiteTexture, ScaleMode.StretchToFill, false, 0f, new Color(0f, 0f, 0f, 0.8f), 0f, 0f);
         GUI.DrawTexture(sw, Texture2D.whiteTexture, ScaleMode.StretchToFill, false, 0f, SprayPaint.ColorOf(SprayPaint.LocalColor), 0f, 0f);
 
@@ -644,8 +650,6 @@ public class PaintBrush : MonoBehaviour
         GUI.DrawTexture(new Rect(mid.x - 2f, mid.y - 2f, 4f, 4f), Texture2D.whiteTexture, ScaleMode.StretchToFill, false, 0f, pc, 0f, 2f);
         float cd = nextThrow - Time.unscaledTime;
         if (cd > 0f) UIUtil.DrawRing(mid, 14f, 1f - Mathf.Clamp01(cd / PaintProjectile.Cooldown), new Color(pc.r, pc.g, pc.b, 0.9f));
-        tipStyle.normal.textColor = new Color(1f, 1f, 1f, 0.8f);
-        GUI.Label(new Rect(0f, Screen.height - 148f, Screen.width, 20f), Loc.T("brush.throw"), tipStyle);
         if (aimWall || hasPlane)
         {
             UIUtil.DrawPrompt(Loc.T("brush.wall"), UIUtil.CenterSlot(), Color.white);

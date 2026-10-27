@@ -164,6 +164,7 @@ public partial class PlayerStealth : NetworkBehaviour
             float level = 0f;
             if (IsJailed) return 0f; // hapisteki oyuncu kimsenin dikkatini çekmez
             if (doingCrime.Value) level += 2f;
+            if (IsServer && Time.time < pettyTheftUntil) level += 2f; // az önce masadan küçük bir eşya aldı
             if (IsHoldingArtwork()) level += 1f;
             if (RestrictedArea.IsInside(transform.position)) level += 1f;
             if (IsWanted) level += 1.5f;
@@ -201,6 +202,17 @@ public partial class PlayerStealth : NetworkBehaviour
         {
             SecurityManager.Instance.ServerTriggerAlarm(transform.position, "alarm.spotted", this);
         }
+    }
+
+    private float pettyTheftUntil = -1f;
+
+    /// <summary>Sunucu: müzede küçük bir ganimet aldı (anlık hırsızlık). Kısa süre güvenlik / kamera gözünde suç işliyor
+    /// sayılır; o anda gören ziyaretçi şüphelenip güvenliğe söyler (alarm değil).</summary>
+    public void ServerPettyTheft()
+    {
+        if (!IsServer || IsJailed) return;
+        pettyTheftUntil = Time.time + 1.6f;
+        if (VisitorManager.Instance != null) VisitorManager.Instance.ServerWitnessPetty(this);
     }
 
     /// <summary>Sunucu: şüphe barına doğrudan ekler (ör. ziyaretçi "burada kayıt yapıyor" diye şikayet etti). Alarm çaldırmaz.

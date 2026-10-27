@@ -143,6 +143,26 @@ public class GuardAI : NetworkBehaviour
         return true;
     }
 
+    /// <summary>Sunucu: kafasına bozuk para geldi, bu kadar saniye olduğu yerde sersemler (yürümez, kimseyi görmez).</summary>
+    public bool ServerDaze(float seconds)
+    {
+        if (!IsServer || !Online || Time.time < slipUntil) return false;
+        slipUntil = Time.time + seconds; // kayma ile aynı "dur" mekanizması (Update başında hiçbir şey yapmaz)
+        slipping = true;
+        if (agent.enabled && agent.isOnNavMesh) { agent.isStopped = true; agent.velocity = Vector3.zero; }
+        DazeRpc(seconds);
+        return true;
+    }
+
+    [Rpc(SendTo.Everyone)]
+    private void DazeRpc(float seconds)
+    {
+        GameAudio.PlayAt(SoundId.CoinLand, transform.position + Vector3.up * 1.6f, 0.9f);
+        GameAudio.PlayAt(SoundId.GuardHuh, transform.position, 0.6f, 0.6f);
+        GuardLook look = GetComponent<GuardLook>();
+        if (look != null) look.PlayDaze(seconds);
+    }
+
     [Rpc(SendTo.Everyone)]
     private void SlipRpc(float seconds)
     {

@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 using UnityEngine.InputSystem;
 
 /// <summary>
@@ -185,9 +185,9 @@ public class TutorialUI : MonoBehaviour
             titleStyle = new GUIStyle(GUI.skin.label) { fontSize = 16, fontStyle = FontStyle.Bold };
             titleStyle.normal.textColor = new Color(1f, 0.85f, 0.4f);
             bodyStyle = new GUIStyle(GUI.skin.label) { fontSize = 14, wordWrap = true };
-            bodyStyle.normal.textColor = new Color(0.95f, 0.95f, 0.95f);
+            bodyStyle.normal.textColor = UIUtil.Cream;
             footStyle = new GUIStyle(GUI.skin.label) { fontSize = 12 };
-            footStyle.normal.textColor = new Color(0.7f, 0.85f, 0.7f);
+            footStyle.normal.textColor = UIUtil.Muted;
         }
 
         Step s = Steps[index];
@@ -206,12 +206,13 @@ public class TutorialUI : MonoBehaviour
         string body = Loc.T("tut." + s.id + ".b", NextKey.ToString());
         float bodyH = bodyStyle.CalcHeight(new GUIContent(body), w - 24f);
         float h = 30f + bodyH + 34f;
-        Rect r = new Rect((Screen.width - w) * 0.5f, Screen.height - h - 24f, w, h);
+        // Alt orta köşe: ses kutusu, hızlı envanter ve fırça yazılarının ÜSTÜNE dizilir (çakışmaz)
+        Rect r = UIUtil.HudRect(UIUtil.HudCorner.BottomCenter, UIUtil.HudOrder.Tutorial, w, h);
 
         GUI.depth = -20;
-        UIUtil.DrawRect(r, new Color(0.04f, 0.05f, 0.08f, 0.86f));
-        Color accent = done ? new Color(0.45f, 0.95f, 0.5f) : new Color(1f, 0.8f, 0.3f);
-        UIUtil.DrawRect(new Rect(r.x, r.y, 4f, r.height), accent);
+        Color accent = done ? UIUtil.Mint : UIUtil.Gold;
+        UIUtil.Panel(r, accent);
+        UIUtil.Tape(r);
 
         string head = Loc.T("tut.header", pos, total, Loc.T("tut." + s.id + ".t"));
         if (done) head = "✓ " + head;

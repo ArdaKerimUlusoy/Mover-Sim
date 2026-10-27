@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -581,7 +581,7 @@ public class WorkbenchUI : MonoBehaviour
         }
 
         float w = 400f, h = phase == Phase.Paint ? 420f : 270f;
-        UIUtil.DrawRect(new Rect(10, 10, w, h), new Color(0.05f, 0.06f, 0.08f, 0.85f));
+        UIUtil.Panel(new Rect(10, 10, w, h));
         GUILayout.BeginArea(new Rect(22, 18, w - 24, h - 22));
         GUILayout.Label(vase.Name, big);
         if (phase == Phase.Sculpt)
@@ -668,7 +668,7 @@ public class WorkbenchUI : MonoBehaviour
     {
         float w = 420f;
         float h = Mathf.Min(Screen.height - 90f, 640f); // altta Vazgeç / Esc yazısına yer kalsın
-        UIUtil.DrawRect(new Rect(10, 10, w, h), new Color(0.05f, 0.06f, 0.08f, 0.88f));
+        UIUtil.Panel(new Rect(10, 10, w, h));
         GUILayout.BeginArea(new Rect(22, 18, w - 24, h - 16));
         GUILayout.Label(bust.Name, big);
         GUILayout.Label(Loc.T("bench.moldhelp"), label);
@@ -829,7 +829,7 @@ public class WorkbenchUI : MonoBehaviour
         if (craft == null) return;
         float w = 420f;
         float h = Mathf.Min(Screen.height - 90f, 640f);
-        UIUtil.DrawRect(new Rect(10, 10, w, h), new Color(0.05f, 0.06f, 0.08f, 0.88f));
+        UIUtil.Panel(new Rect(10, 10, w, h));
         GUILayout.BeginArea(new Rect(22, 18, w - 24, h - 16));
         GUILayout.Label(jewel.Name, big);
 

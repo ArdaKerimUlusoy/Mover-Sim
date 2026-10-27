@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 
 /// <summary>Oyunun aşamaları: ana ekran, garaj / lobi, kamyon, müze. Aynı sahne içinde konuma göre belirlenir.</summary>
 public enum GamePhase { Menu, Garage, Truck, Museum }
@@ -35,9 +35,13 @@ public static class GameFlow
         }
     }
 
-    /// <summary>Dünya konumuna göre aşama: önce kamyon, sonra müze (kat planı sınırı), kalanı garaj.</summary>
+    /// <summary>Dünya konumuna göre aşama: önce kamyon, sonra müze (kat planı sınırı), kalanı garaj.
+    /// Garaj ayrı sahnedeyse (GarageArea) garaj kendi sınırından tanınır; müzenin dışındaki sokak da müze aşaması sayılır.</summary>
     public static GamePhase PhaseAt(Vector3 pos)
     {
+        GarageArea ga = GarageArea.Instance;
+        if (ga != null && ga.Contains(pos)) return GamePhase.Garage;
+
         TruckZone tz = TruckZone.Instance;
         if (tz != null && tz.Contains(pos)) return GamePhase.Truck;
 
@@ -51,7 +55,7 @@ public static class GameFlow
                 if (b.Contains(new Vector2(pos.x, pos.z))) return GamePhase.Museum;
             }
         }
-        return GamePhase.Garage;
+        return ga != null ? GamePhase.Museum : GamePhase.Garage;
     }
 
     /// <summary>Odada yalnızca ben mi varım (tek oyunculu ya da henüz kimse katılmadı)?</summary>
