@@ -130,19 +130,17 @@ public static class BenchGuide
         float fixedH = pad + titleH + 14f + 10f + toggleH + 10f + btnH + 8f + 22f + pad;
         float h = Mathf.Min(Screen.height - m * 2f, fixedH + bodyH);
         Rect r = new Rect((Screen.width - w) * 0.5f, (Screen.height - h) * 0.5f, w, h);
-        UIUtil.Panel(r, PanelKind.Sketch);
-        UIUtil.Corners(r);
+        UIUtil.Panel(r, PanelKind.Plaque);
 
         // Başlık
-        BenchKit.FitText(new Rect(r.x + pad, r.y + pad, iw, titleH), title, TextRole.Title, UITheme.Charcoal);
-        UIUtil.Divider(r.x + pad, r.y + pad + titleH + 6f, iw, UITheme.WithAlpha(UITheme.Bordeaux, 0.7f), true);
+        BenchKit.FitText(new Rect(r.x + pad, r.y + pad, iw, titleH), title, TextRole.Title, UITheme.Ivory);
 
         // Gövde (taşarsa kaydırılır)
         float bodyTop = r.y + pad + titleH + 14f;
         Rect view = new Rect(r.x + pad, bodyTop, iw, r.yMax - pad - 22f - btnH - 8f - toggleH - 10f - bodyTop - 10f);
         bool scrolls = bodyH > view.height;
         tutScroll = GUI.BeginScrollView(view, tutScroll, new Rect(0f, 0f, iw - (scrolls ? 16f : 0f), bodyH));
-        BenchKit.Wrapped(new Rect(0f, 0f, iw - (scrolls ? 16f : 0f) - 8f, bodyH), body, TextRole.Body, UITheme.Charcoal);
+        BenchKit.Wrapped(new Rect(0f, 0f, iw - (scrolls ? 16f : 0f) - 8f, bodyH), body, TextRole.Body, UITheme.IvoryDim);
         GUI.EndScrollView();
 
         // Bir daha gösterme + Tamam
@@ -160,7 +158,7 @@ public static class BenchGuide
         float kh = Mathf.Max(20f, 22f * sc);
         float kw = UIUtil.KeyCapWidth(key);
         UIUtil.KeyCap(new Rect(r.x + pad, y, kw, kh), key);
-        UIUtil.Text(new Rect(r.x + pad + kw + 8f, y, iw - kw - 8f, kh), lab, TextRole.Caption, UITheme.Graphite);
+        UIUtil.Text(new Rect(r.x + pad + kw + 8f, y, iw - kw - 8f, kh), lab, TextRole.Caption, UITheme.IvoryDim);
     }
 
     private static Vector2 tutScroll;

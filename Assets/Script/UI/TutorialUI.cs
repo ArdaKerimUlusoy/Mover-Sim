@@ -4,13 +4,13 @@ using UnityEngine.InputSystem;
 /// <summary>
 /// ÖĞRETİCİ: ilk oyunda otomatik başlayan, adım adım görev anlatımı (kamyon, kayıt, çizim, müzeye giriş, eser değiştirme, kaçış;
 /// fark edilme / alarm / hapis; çok oyunculu roller; bekleme önerileri). Her adım mevcut durumlardan okunan bir koşulla tamamlanır;
-/// F2 ile her adım geçilebilir (bilgi adımları yalnızca F2 ile geçilir). Atlama: Esc'yi basılı tut ya da Esc menüsündeki düğme.
+/// F ile her adım geçilebilir (bilgi adımları yalnızca F ile geçilir; önünde itilebilecek biri varsa F itmedir). Atlama: Esc'yi basılı tut ya da Esc menüsündeki düğme.
 /// Bitince PlayerPrefs'e yazılır; ana menüden / Esc menüsünden yeniden başlatılabilir.
 /// Kendini kurar (sahneye bir şey eklemek gerekmez). Metinler Loc anahtarlarıdır: tut.&lt;id&gt;.t / tut.&lt;id&gt;.b
 /// </summary>
 public class TutorialUI : MonoBehaviour
 {
-    public const Key NextKey = Key.F2;
+    public const Key NextKey = Key.F;
     private const string DonePref = "MoverSim_TutorialDone";
     private const float SkipHoldSeconds = 1.4f;
 
@@ -161,7 +161,7 @@ public class TutorialUI : MonoBehaviour
             if (escHeld >= SkipHoldSeconds) { escHeld = 0f; Skip(); return; }
 
             bool typing = ChatUI.IsTyping;
-            if (!typing && kb[NextKey].wasPressedThisFrame && !SessionMenuUI.IsPaused) { AdvanceStep(); return; }
+            if (!typing && kb[NextKey].wasPressedThisFrame && !SessionMenuUI.IsPaused && !PushSystem.HasTargetInFront) { AdvanceStep(); return; }
         }
 
         if (index < 0 || index >= Steps.Length) return;
@@ -197,16 +197,17 @@ public class TutorialUI : MonoBehaviour
             if (i <= index) pos = total;
         }
 
-        float w = Mathf.Min(Screen.width - 24f, 620f * sc);
-        float padX = 22f * sc, top = 12f * sc;
-        float innerW = w - padX * 2f - 6f * sc;   // sol kenarda eskiz defteri sayfa boşluğu
+        float w = Mathf.Min(Screen.width - 24f, 560f * sc);
+        float padX = 20f * sc, top = 14f * sc;
+        float innerW = w - padX * 2f;
         string title = Loc.T("tut." + s.id + ".t");
         string body = Loc.T("tut." + s.id + ".b", NextKey.ToString());
-        float titleH = Mathf.Ceil(UIUtil.MeasureHeight(title, TextRole.Title, innerW - 90f * sc));
-        titleH = Mathf.Max(titleH, 34f * sc);
+        string count = pos + " / " + total;
+        float countW = UIUtil.Measure(count, TextRole.Caption).x + 8f;
+        float titleH = Mathf.Max(Mathf.Ceil(UIUtil.MeasureHeight(title, TextRole.BodyStrong, innerW - countW - 24f * sc)), 22f * sc);
         float bodyH = Mathf.Ceil(UIUtil.MeasureHeight(body, TextRole.Body, innerW));
-        float footH = 24f * sc;
-        float h = top + 14f * sc + titleH + 6f * sc + bodyH + 10f * sc + footH + 12f * sc;
+        float footH = 22f * sc;
+        float h = top + titleH + 6f * sc + bodyH + 10f * sc + footH + 12f * sc;
         // Alt orta köşe: ses kutusu, hızlı envanter ve fırça yazılarının ÜSTÜNE dizilir (çakışmaz)
         Rect r = UIUtil.HudRect(UIUtil.HudCorner.BottomCenter, UIUtil.HudOrder.Tutorial, w, h);
         r.y += (1f - enter) * 10f;
@@ -215,26 +216,19 @@ public class TutorialUI : MonoBehaviour
         Color oldC = GUI.color;
         GUI.color = new Color(1f, 1f, 1f, enter);
 
-        UIUtil.Panel(r, PanelKind.Sketch);
-        float x = r.x + padX + 6f * sc;
+        UIUtil.Panel(r, PanelKind.Plaque);
+        float x = r.x + padX;
         float y = r.y + top;
 
-        // Adım no (Mono, Terracotta) + ilerleme noktaları (sağ üst)
-        string num = pos.ToString("00") + "/" + total.ToString("00");
-        Color numCol = done ? UITheme.Forest : UITheme.Terracotta;
-        UIUtil.Text(new Rect(x, y, 90f * sc, 18f * sc), num, TextRole.Mono, numCol);
-        if (done) UIUtil.Icon(new Rect(x + 62f * sc, y - 1f * sc, 20f * sc, 20f * sc), IconId.Check, UITheme.Forest);
-        DrawDots(new Rect(r.xMax - padX - 150f * sc, y + 3f * sc, 150f * sc, 12f * sc), pos, total, done);
-        y += 14f * sc;
-
-        UIUtil.Text(new Rect(x, y, innerW, titleH), title, TextRole.Title, UITheme.Charcoal);
+        // Başlık + sağda sade adım sayacı (tamamlanınca onay işareti)
+        UIUtil.Text(new Rect(x, y, innerW - countW - 24f * sc, titleH), title, TextRole.BodyStrong, UITheme.Ivory);
+        UIUtil.Text(new Rect(r.xMax - padX - countW, y, countW, 20f * sc), count, TextRole.Caption, UITheme.IvoryDim, TextAnchor.UpperRight);
+        if (done) UIUtil.Icon(new Rect(r.xMax - padX - countW - 22f * sc, y, 18f * sc, 18f * sc), IconId.Check, UITheme.Sage);
         y += titleH + 6f * sc;
-        UIUtil.Text(new Rect(x, y, innerW, bodyH), body, TextRole.Body, UITheme.Charcoal);
+        UIUtil.Text(new Rect(x, y, innerW, bodyH), body, TextRole.Body, UITheme.IvoryDim);
         y += bodyH + 10f * sc;
 
-        // Ayraç + ipucu satırı (tuşlar tuş kapağı)
-        UIUtil.Divider(x, y - 4f * sc, innerW, UITheme.WithAlpha(UITheme.Graphite, 0.45f));
-        DrawHintLine(new Rect(x, y, innerW, footH), Loc.T("tut.footer", NextKey.ToString()), UITheme.Graphite);
+        DrawHintLine(new Rect(x, y, innerW, footH), Loc.T("tut.footer", NextKey.ToString()), UITheme.IvoryDim);
 
         // Esc basılı tutma göstergesi
         if (escHeld > 0.15f)
@@ -245,24 +239,7 @@ public class TutorialUI : MonoBehaviour
         GUI.color = oldC;
     }
 
-    // İlerleme noktaları: tamamlanan dolu Bordeaux, mevcut Terracotta halka, kalan Graphite çizgi.
-    // Çok adım varsa sığması için aralık daralır.
-    private static void DrawDots(Rect r, int pos, int total, bool done)
-    {
-        if (total <= 0) return;
-        float step = Mathf.Min(r.width / total, 12f);
-        float size = Mathf.Min(step - 3f, 7f);
-        float x0 = r.xMax - step * total;
-        for (int i = 1; i <= total; i++)
-        {
-            Rect d = new Rect(x0 + (i - 1) * step + (step - size) * 0.5f, r.y + (r.height - size) * 0.5f, size, size);
-            if (i < pos || (i == pos && done)) UIUtil.DrawRect(d, UITheme.Forest);
-            else if (i == pos) { UIUtil.DrawRect(d, UITheme.Terracotta); UIUtil.Outline(new Rect(d.x - 2f, d.y - 2f, d.width + 4f, d.height + 4f), 1f, UITheme.WithAlpha(UITheme.Terracotta, 0.7f)); }
-            else UIUtil.DrawRect(d, UITheme.WithAlpha(UITheme.Graphite, 0.35f));
-        }
-    }
-
-    // "[F2] Sonraki adım · Atlamak için [Esc] basılı tut" → [..] parçaları tuş kapağı, kalanı Caption yazı
+    // "[F] Sonraki adım · Atlamak için [Esc] basılı tut" → [..] parçaları tuş kapağı, kalanı Caption yazı
     private static void DrawHintLine(Rect r, string text, Color textColor)
     {
         float x = r.x;

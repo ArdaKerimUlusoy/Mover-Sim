@@ -103,7 +103,7 @@ public class VoiceChat : MonoBehaviour
     private static string[] micDevicesCache;
     private static float micDevicesNext = float.NegativeInfinity;
 
-    private static string[] MicDevices
+    internal static string[] MicDevices
     {
         get
         {
@@ -831,49 +831,44 @@ public class VoiceChat : MonoBehaviour
     private static readonly Color Green = new Color(0.35f, 0.95f, 0.5f);
     private static readonly Color Red = new Color(1f, 0.38f, 0.33f);
 
-    /// <summary>Altta ortada: mikrofon simgesi, durum yazısı, canlı ses dalgası.</summary>
+    /// <summary>
+    /// Altta ortada küçük mikrofon göstergesi: simge + canlı ses dalgası (kutu yerine hafif saydam zemin).
+    /// Yazı yalnızca dikkat gerektiğinde çıkar (mikrofon yok / yasaklı kelime / açık mikrofon susturuldu).
+    /// </summary>
     private void DrawMicWidget()
     {
+        if (Event.current.type != EventType.Repaint) return;
         bool noMic = !HasMicrophone || !micRunning;
-        string state;
         Color live = BannedFlash ? Red : Green; // yasaklı kelime söylenince kırmızı
+        string state = null;
         if (noMic) state = Loc.T("voice.hud.nomic");
         else if (BannedFlash) state = Loc.T("voice.hud.banned");
-        else if (Transmitting) state = Loc.T("voice.hud.talking");
-        else if (OpenMic) state = Loc.T(OpenMicMuted ? "voice.hud.muted" : "voice.hud.open");
-        else state = Loc.T("voice.hud.ptt");
-        string mode = Loc.T(OpenMic ? "voice.mode.open" : "voice.mode.ptt");
+        else if (OpenMic && OpenMicMuted) state = Loc.T("voice.hud.muted");
 
-        // Kutunun genişliği yazıya göre ayarlanır: yazı asla taşmaz / alt satıra kaymaz
-        float textW = Mathf.Max(textStyle.CalcSize(new GUIContent(state)).x, smallStyle.CalcSize(new GUIContent(mode)).x);
-        const float iconW = 44f, waveW = 130f, pad = 14f, h = 52f;
-        float w = iconW + textW + pad + waveW + pad;
-        // Alt orta köşe (en altta): hızlı envanter ve diğer alt yazılar bunun üstüne dizilir
+        const float iconW = 36f, waveW = 84f, pad = 10f, h = 34f;
+        float textW = state != null ? smallStyle.CalcSize(new GUIContent(state)).x + 10f : 0f;
+        float w = iconW + waveW + pad + textW;
         Rect r = UIUtil.HudRect(UIUtil.HudCorner.BottomCenter, UIUtil.HudOrder.Voice, w, h);
-        UIUtil.Panel(r, Transmitting || BannedFlash ? 1f : 0.82f);
-        // Yasaklı kelime: bütün kutu kırmızıya döner (hemen fark edilsin)
-        if (BannedFlash) UIUtil.DrawRect(new Rect(r.x + 3f, r.y + 3f, r.width - 6f, r.height - 6f), new Color(0.6f, 0.07f, 0.07f, 0.85f));
-        if (Transmitting || BannedFlash) UIUtil.DrawRect(new Rect(r.x + 12f, r.y + 3f, r.width - 24f, BannedFlash ? 3f : 2f), live);
+        UIUtil.HudCard(r, Transmitting || BannedFlash ? 1.2f : 0.8f);
+        if (BannedFlash) UIUtil.Round(r, new Color(0.6f, 0.07f, 0.07f, 0.85f), UIUtil.RadiusSmall);
 
         bool slash = noMic || (OpenMic && OpenMicMuted);
         bool muted = noMic || (OpenMic ? OpenMicMuted : !Transmitting);
-        Color iconC = slash ? Red : (Transmitting || BannedFlash) ? live : new Color(0.85f, 0.85f, 0.85f);
-        DrawMicIcon(new Vector2(r.x + 24f, r.y + h * 0.5f), iconC, slash);
-
-        GUI.Label(new Rect(r.x + iconW, r.y + 5f, textW + 4f, 24f), state, textStyle);
-        GUI.Label(new Rect(r.x + iconW, r.y + 27f, textW + 4f, 20f), mode, smallStyle);
+        Color iconC = slash ? Red : (Transmitting || BannedFlash) ? live : new Color(0.85f, 0.85f, 0.85f, 0.85f);
+        DrawMicIcon(new Vector2(r.x + 20f, r.y + h * 0.5f), iconC, slash);
 
         // Ses dalgası (son ~1 sn): gönderilen kısım yeşil, gönderilmeyen soluk
-        float bx = r.x + iconW + textW + pad, mid = r.y + h * 0.5f;
+        float bx = r.x + iconW, mid = r.y + h * 0.5f;
         float barW = waveW / HistoryBars;
         for (int i = 0; i < HistoryBars; i++)
         {
             int idx = (historyHead + i) % HistoryBars;
             float v = noMic ? 0f : history[idx];
-            float bh = Mathf.Max(2f, v * (h - 14f));
-            Color c = historyTx[idx] ? live : new Color(1f, 1f, 1f, muted ? 0.18f : 0.32f);
+            float bh = Mathf.Max(2f, v * (h - 12f));
+            Color c = historyTx[idx] ? live : new Color(1f, 1f, 1f, muted ? 0.16f : 0.3f);
             UIUtil.DrawRect(new Rect(bx + i * barW + 1f, mid - bh * 0.5f, Mathf.Max(1f, barW - 2f), bh), c);
         }
+        if (state != null) GUI.Label(new Rect(bx + waveW + pad, r.y, textW, h), state, smallStyle);
     }
 
     /// <summary>Basit mikrofon çizimi (kapsül + sap + taban); kapalıysa üstünde çapraz çizgi.</summary>

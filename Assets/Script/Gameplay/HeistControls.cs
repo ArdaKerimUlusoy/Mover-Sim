@@ -154,8 +154,9 @@ public class HeistControls : MonoBehaviour
         float pad = UITheme.S3 * sc;
         if (!FeatureMerge.FriendCamcorder && !FeatureMerge.FriendSpray)
         {
-            // Birleştirme: kayıt / boya göstergesi BodyCam ve fırçada. Kamyonda sadece kat planı ipucu kalır.
-            if (FloorPlanUI.LocalInTruck)
+            // Birleştirme: kayıt / boya göstergesi BodyCam ve fırçada. Sade HUD: kamyondaki [M] ipucu da yazılmaz
+            // (öğretici ve Ayarlar > Kontroller anlatır).
+            if (false)
             {
                 string th = Loc.T("heist.hint.truck");
                 float hw = HudKit.KeyLineWidth(th) + pad * 2f + 6f;

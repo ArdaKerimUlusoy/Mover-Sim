@@ -132,11 +132,22 @@ public class PlayerController : MonoBehaviour
             HandleStairStepEffect();
             return;
         }
+        ApplyFieldOfView();
         HandleMouseLook();
         if (lookOnly) return; // dolapta: sadece bakış
         HandleCrouch();
         HandleMovement();
         HandleStairStepEffect();
+    }
+
+    private Camera fovCam;
+
+    /// <summary>Ayarlardaki görüş alanı (oyuncu seçtiyse) kendi kamerana uygulanır.</summary>
+    private void ApplyFieldOfView()
+    {
+        if (playerCamera == null || !GameSettings.HasCustomFov) return;
+        if (fovCam == null || fovCam.transform != playerCamera) fovCam = playerCamera.GetComponent<Camera>();
+        if (fovCam != null && !Mathf.Approximately(fovCam.fieldOfView, GameSettings.FieldOfView)) fovCam.fieldOfView = GameSettings.FieldOfView;
     }
 
     /// <summary>Baygınken kamera yere düşer ve yana yatar; süre bitince yavaşça kalkar.</summary>
@@ -332,7 +343,7 @@ public class PlayerController : MonoBehaviour
         float turnFactor = carrier != null ? carrier.TurnSensitivityMultiplier : 1f;
         Vector2 mouseDelta = Mouse.current.delta.ReadValue() * (lookSensitivity * turnFactor * GameSettings.MouseSensitivity);
 
-        rotationX -= mouseDelta.y;
+        rotationX -= GameSettings.InvertY ? -mouseDelta.y : mouseDelta.y;
         rotationX = Mathf.Clamp(rotationX, -lookXLimit, lookXLimit);
 
         playerCamera.localRotation = Quaternion.Euler(rotationX + currentCamTilt, 0f, 0f);
@@ -346,4 +357,4 @@ public class PlayerController : MonoBehaviour
         }
         transform.Rotate(Vector3.up * mouseDelta.x);
     }
-}
+}

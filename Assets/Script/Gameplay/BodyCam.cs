@@ -1287,16 +1287,15 @@ public class BodyCam : MonoBehaviour
         float max = MaxBattery();
         bool rec = LocalRecording;
         // Sol alt köşe: ipucu satırının üstü, sohbetin altı (köşe yığını: çakışmaz)
-        Rect r = UIUtil.HudRect(UIUtil.HudCorner.BottomLeft, UIUtil.HudOrder.CamBattery, 200f, 44f);
-        UIUtil.Panel(r, PanelKind.Plaque, 0.92f);
+        Rect r = UIUtil.HudRect(UIUtil.HudCorner.BottomLeft, UIUtil.HudOrder.CamBattery, 180f, 44f);
+        UIUtil.HudCard(r);
         bool blink = Mathf.Repeat(Time.unscaledTime, 1f) < 0.6f;
-        if (rec) UIUtil.DrawRect(new Rect(r.x + 2f, r.y + 4f, 3f, r.height - 8f), UITheme.Danger);
         Color ic = rec ? (blink ? UITheme.DangerLight : UITheme.Danger) : UITheme.IvoryDim;
         UIUtil.Icon(new Rect(r.x + 12f, r.y + 5f, 18f, 18f), IconId.Camera, ic);
         string state = rec ? Loc.T("cam.hud.rec") : Live ? Loc.T("cam.hud.other") : Loc.T("cam.hud.off");
         DrawKeyed(new Rect(r.x + 36f, r.y + 4f, r.width - 44f, 21f), state, TextRole.BodyStrong, rec ? UITheme.DangerLight : UITheme.Ivory, 13);
         float f = max > 0f ? Mathf.Clamp01(battery / max) : 0f;
-        UIUtil.ProgressBar(new Rect(r.x + 12f, r.y + 29f, r.width - 24f, 8f), f, f < 0.2f ? UITheme.Danger : UITheme.Sage);
+        UIUtil.ProgressBar(new Rect(r.x + 12f, r.y + 31f, r.width - 24f, 4f), f, f < 0.2f ? UITheme.Danger : UITheme.Sage);
 
         if (rec)
         {
@@ -1440,16 +1439,12 @@ public class BodyCam : MonoBehaviour
         if (ev.type == EventType.Repaint)
         {
             bool hover = b.Contains(ev.mousePosition);
-            if (selected)
-            {
-                // seçili: pirinç dolgu + kömür yazı
-                UIUtil.DrawRect(b, UITheme.BrassLight);
-                UIUtil.Outline(b, 1f, UITheme.Brass);
-            }
+            // seçili: açık dolgu + koyu yazı; diğerleri koyu yuva
+            if (selected) UIUtil.Round(b, UITheme.Ivory, 4f);
             else
             {
-                UIUtil.DrawRect(b, hover ? UITheme.Graphite : UITheme.CharSoft);
-                UIUtil.Outline(b, 1f, hover ? UITheme.BrassLight : UITheme.WithAlpha(UITheme.Brass, 0.7f));
+                UIUtil.Round(b, hover ? UIUtil.WellHover : UIUtil.Well, 4f);
+                UIUtil.RoundLine(b, new Color(1f, 1f, 1f, hover ? 0.2f : 0.08f), 1f, 4f);
             }
             TxtPx(new Rect(b.x + 8f, b.y, b.width - 12f, b.height), text, TextRole.BodyStrong, selected ? UITheme.Charcoal : (hover ? UITheme.Ivory : textColor), TextAnchor.MiddleLeft, px);
             return false;

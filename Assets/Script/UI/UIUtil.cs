@@ -2,18 +2,20 @@
 using UnityEngine;
 
 /// <summary>
-/// OnGUI arayüzleri için ortak çizim yardımcıları — "Sahte Şaheser" tasarım sistemi (müze sergisi, katalog,
-/// eskiz defteri, sergi etiketi). Renk / yazı / doku token'ları UITheme'de; kurallar UI_DESIGN.md'de.
-/// Dokular Assets/Resources/UI/{Panels,Buttons,Frames,Icons,Backgrounds,Textures} altından gelir (9 dilim,
-/// GUIStyle.border). Doku yoksa aynı renklerde yedek dokular üretilir; hiçbir ekran dokusuz kırılmaz.
-/// ESKİ API (Panel, DrawRect, BoxStyle, TitleStyle, ..., Gold, Cream) imzasıyla korunur; görünümü yeni sisteme yönlenir.
+/// OnGUI arayüzleri için ortak çizim yardımcıları — "Sahte Şaheser" sade arayüz sistemi.
+///
+/// Görsel dil (UI_DESIGN.md): düz, sakin, oyun içi. Yarı saydam koyu kartlar (yuvarlatılmış köşe, ince kenar),
+/// açık yüzeyler için düz kırık beyaz kart; süs YOK: köşe süsü, pirinç çerçeve, başlık altı kısa çizgi, numaralı liste,
+/// eskiz ızgarası, tuş kapağı şeritleri kullanılmaz. Her şey kodla çizilir (GUI.DrawTexture yuvarlatma) — doku gerekmez.
+/// ESKİ API (Panel, DrawRect, BoxStyle, TitleStyle, ..., Gold, Cream, Corners, Tape, BrassFrame) imzasıyla korunur;
+/// süs fonksiyonları artık hiçbir şey çizmez ya da ince bir hatta dönüşür.
 /// HUD köşe yerleşimi (HudRect): aynı köşedeki kutular önceliğe göre üst üste DİZİLİR, asla çakışmaz.
 /// </summary>
 public static class UIUtil
 {
-    // ---------------- Eski tema renkleri (imza korunur, değerler yeni paletten) ----------------
+    // ---------------- Eski tema renkleri (imza korunur) ----------------
     public static readonly Color Ink = UITheme.WithAlpha(UITheme.Charcoal, 0.93f);   // panel zemini
-    public static readonly Color Frame = UITheme.WithAlpha(UITheme.Brass, 0.95f);     // pirinç çerçeve
+    public static readonly Color Frame = UITheme.WithAlpha(UITheme.Brass, 0.95f);     // vurgu
     public static readonly Color Gold = UITheme.BrassLight;                           // başlık / vurgu
     public static readonly Color Cream = UITheme.Ivory;                               // ana yazı (koyu üstünde)
     public static readonly Color Muted = UITheme.IvoryDim;                            // ikincil yazı
@@ -21,15 +23,27 @@ public static class UIUtil
     public static readonly Color Mint = UITheme.Sage;                                 // olumlu
     public static readonly Color Coral = UITheme.DangerLight;                         // olumsuz / tehlike (koyu üstünde)
 
+    // ---------------- Yüzey renkleri (yeni sistem) ----------------
+    /// <summary>Koyu kart (menü, pencere): yarı saydam kömür.</summary>
+    public static readonly Color SurfaceDark = new Color(0.075f, 0.07f, 0.066f, 0.9f);
+    /// <summary>Koyu kartın ince kenarı.</summary>
+    public static readonly Color SurfaceDarkEdge = new Color(1f, 1f, 1f, 0.07f);
+    /// <summary>HUD kartı (oyun dünyası üstünde, daha saydam).</summary>
+    public static readonly Color SurfaceHud = new Color(0.05f, 0.047f, 0.044f, 0.62f);
+    /// <summary>Açık kart (belge / tezgah notu): düz kırık beyaz.</summary>
+    public static readonly Color SurfaceLight = new Color(0.945f, 0.93f, 0.895f, 0.98f);
+    public static readonly Color SurfaceLightEdge = new Color(0f, 0f, 0f, 0.10f);
+    /// <summary>İç kutu / yuva zemini (koyu, her iki yüzeyde de okunur).</summary>
+    public static readonly Color Well = new Color(0.14f, 0.13f, 0.12f, 0.92f);
+    public static readonly Color WellHover = new Color(0.2f, 0.185f, 0.17f, 0.96f);
+
+    public const float RadiusBig = 10f, RadiusSmall = 6f;
+
     private static GUIStyle promptStyle;
     private static bool texturesReady;
-    private static Texture2D panelTex, panelSmallTex, btnTex, btnHoverTex, btnActiveTex, fieldTex, fieldFocusTex, slotTex, slotSelTex, tapeTex, splatTex;
+    private static Texture2D panelTex, panelSmallTex, btnTex, btnHoverTex, btnActiveTex, fieldTex, fieldFocusTex;
     private static Texture2D iconBrush, iconLockpick, iconPaint;
-    private static GUIStyle panelDrawStyle, panelSmallDrawStyle, slotDrawStyle, slotSelDrawStyle;
-    private static RectOffset panelBorder, panelSmallBorder, buttonBorder, fieldBorder, slotBorder;
-
-    /// <summary>Büyük panel dokusu ancak bu boydan büyük kutularda kullanılır (altında küçük plaket).</summary>
-    private const float BigPanelMin = 32f;
+    private static RectOffset panelBorder, panelSmallBorder, buttonBorder, fieldBorder;
 
     private static bool IsRepaint => Event.current != null && Event.current.type == EventType.Repaint;
 
@@ -42,10 +56,9 @@ public static class UIUtil
     public static Texture2D IconLockpick { get { EnsureTextures(); return iconLockpick; } }
     public static Texture2D IconPaint { get { EnsureTextures(); return iconPaint; } }
 
-    // ---- Panel stilleri (karaborsa, mağaza vb. ortak kullanır) ----
+    // ---- Panel stilleri (eski ekranlar kullanır) ----
     private static GUIStyle box, title, row, small, button, hint, accent;
 
-    /// <summary>Küçük / satır kutuları için kutu stili (koyu plaket). Büyük pencereler Panel() kullanır.</summary>
     public static GUIStyle BoxStyle { get { EnsureStyles(); return box; } }
     public static GUIStyle TitleStyle { get { EnsureStyles(); return title; } }
     public static GUIStyle RowStyle { get { EnsureStyles(); return row; } }
@@ -61,33 +74,25 @@ public static class UIUtil
 
         box = ThemeBox(new GUIStyle(GUI.skin.box));
 
-        // Eski stiller: boyutlar AYNI (yerleşimler kaymasın), yazı tipi / renk yeni sistemden
-        title = new GUIStyle(GUI.skin.label) { fontSize = 24, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
-        if (UITheme.DisplayFont != null) title.font = UITheme.DisplayFont;
-        title.normal.textColor = Gold;
+        title = new GUIStyle(GUI.skin.label) { fontSize = 22, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
+        if (UITheme.BodyFont != null) title.font = UITheme.BodyFont;
+        title.normal.textColor = Cream;
 
         row = new GUIStyle(GUI.skin.label) { fontSize = 16, fontStyle = FontStyle.Bold };
         row.normal.textColor = Cream;
 
-        small = new GUIStyle(GUI.skin.label) { fontSize = 12, wordWrap = true };
+        small = new GUIStyle(GUI.skin.label) { fontSize = 13, wordWrap = true };
         small.normal.textColor = Muted;
 
         hint = new GUIStyle(small) { alignment = TextAnchor.MiddleRight, wordWrap = false };
 
         accent = new GUIStyle(GUI.skin.label) { fontSize = 15, fontStyle = FontStyle.Bold };
-        accent.normal.textColor = Gold;
+        accent.normal.textColor = Cream;
 
         button = ThemeButton(new GUIStyle(GUI.skin.button) { fontSize = 14, fontStyle = FontStyle.Bold });
     }
 
-    // ---------------- Tema dokuları ----------------
-
-    private static Texture2D Res(string name)
-    {
-        Texture2D t = null;
-        try { t = Resources.Load<Texture2D>("UI/" + name); } catch (System.Exception) { }
-        return t;
-    }
+    // ---------------- Eski GUISkin için düz dokular (kodla üretilir) ----------------
 
     private static RectOffset RO(int l, int r, int t, int b) => new RectOffset(l, r, t, b);
 
@@ -96,56 +101,24 @@ public static class UIUtil
         if (texturesReady) return;
         texturesReady = true;
 
-        // Yeni sistem (Resources/UI/<Klasör>) → eski kök dokular → aynı renklerde üretilen yedekler
-        panelTex = UITheme.Tex("Panels/panel_plaque"); panelBorder = RO(12, 12, 12, 12);
-        if (panelTex == null) { panelTex = MakeRounded(3, 1.5f, Ink, Frame); panelBorder = RO(6, 6, 6, 6); }
+        panelTex = MakeRounded(8, 1f, SurfaceDark, new Color(0.2f, 0.19f, 0.18f, 0.9f)); panelBorder = RO(10, 10, 10, 10);
+        panelSmallTex = MakeRounded(5, 1f, SurfaceDark, new Color(0.2f, 0.19f, 0.18f, 0.9f)); panelSmallBorder = RO(7, 7, 7, 7);
 
-        panelSmallTex = UITheme.Tex("Panels/panel_plaque_small"); panelSmallBorder = RO(6, 6, 6, 6);
-        if (panelSmallTex == null) { panelSmallTex = MakeRounded(2, 1f, Ink, Frame); panelSmallBorder = RO(4, 4, 4, 4); }
+        btnTex = MakeRounded(5, 0f, UITheme.Bordeaux, UITheme.Bordeaux);
+        btnHoverTex = MakeRounded(5, 0f, UITheme.Hex(0x93303D), UITheme.Hex(0x93303D));
+        btnActiveTex = MakeRounded(5, 0f, UITheme.Hex(0x5E1721), UITheme.Hex(0x5E1721));
+        buttonBorder = RO(7, 7, 7, 7);
 
-        btnTex = UITheme.Tex("Buttons/btn_primary_normal");
-        btnHoverTex = UITheme.Tex("Buttons/btn_primary_hover");
-        btnActiveTex = UITheme.Tex("Buttons/btn_primary_pressed");
-        buttonBorder = RO(10, 10, 10, 10);
-        if (btnTex == null || btnHoverTex == null || btnActiveTex == null)
-        {
-            btnTex = MakeRounded(2, 1f, Wine, new Color(0.16f, 0.04f, 0.06f, 1f));
-            btnHoverTex = MakeRounded(2, 1f, UITheme.Hex(0x8E2633), Gold);
-            btnActiveTex = MakeRounded(2, 1f, UITheme.Hex(0x5E1721), Frame);
-            buttonBorder = RO(4, 4, 4, 4);
-        }
+        fieldTex = MakeRounded(5, 1f, new Color(0.05f, 0.047f, 0.044f, 0.95f), new Color(1f, 1f, 1f, 0.14f));
+        fieldFocusTex = MakeRounded(5, 1.5f, new Color(0.05f, 0.047f, 0.044f, 0.98f), new Color(1f, 1f, 1f, 0.5f));
+        fieldBorder = RO(7, 7, 7, 7);
 
-        fieldTex = UITheme.Tex("Panels/field"); fieldFocusTex = UITheme.Tex("Panels/field_focus");
-        fieldBorder = RO(8, 8, 8, 8);
-        if (fieldTex == null) { fieldTex = MakeRounded(2, 1f, UITheme.WithAlpha(UITheme.CharDeep, 0.96f), UITheme.Graphite); fieldBorder = RO(4, 4, 4, 4); }
-        if (fieldFocusTex == null) fieldFocusTex = fieldTex;
-
-        slotTex = UITheme.Tex("Panels/slot"); slotSelTex = UITheme.Tex("Panels/slot_selected");
-        slotBorder = RO(12, 12, 12, 12);
-        if (slotTex == null || slotSelTex == null)
-        {
-            slotTex = MakeRounded(2, 1f, UITheme.WithAlpha(UITheme.CharSoft, 0.85f), UITheme.Graphite);
-            slotSelTex = MakeRounded(2, 2f, UITheme.WithAlpha(UITheme.CharSoft, 0.92f), Gold);
-            slotBorder = RO(5, 5, 5, 5);
-        }
-
-        tapeTex = UITheme.Tex("Frames/frame_corners");
-        splatTex = Res("ui_splat");
-        iconBrush = UITheme.IconTex(IconId.Brush) ?? Res("icon_brush");
-        iconLockpick = UITheme.IconTex(IconId.Lockpick) ?? Res("icon_lockpick");
-        iconPaint = Res("icon_paint") ?? UITheme.IconTex(IconId.Painting);
-
-        panelDrawStyle = new GUIStyle { border = panelBorder };
-        panelDrawStyle.normal.background = panelTex;
-        panelSmallDrawStyle = new GUIStyle { border = panelSmallBorder };
-        panelSmallDrawStyle.normal.background = panelSmallTex;
-        slotDrawStyle = new GUIStyle { border = slotBorder };
-        slotDrawStyle.normal.background = slotTex;
-        slotSelDrawStyle = new GUIStyle { border = slotBorder };
-        slotSelDrawStyle.normal.background = slotSelTex;
+        iconBrush = UITheme.IconTex(IconId.Brush);
+        iconLockpick = UITheme.IconTex(IconId.Lockpick);
+        iconPaint = UITheme.IconTex(IconId.Painting);
     }
 
-    /// <summary>Az yuvarlatılmış, kenarı çizgili doku (yumuşatılmış). 9 dilim için orta 1 piksel uzar. (Yedek)</summary>
+    /// <summary>Yuvarlatılmış, kenarı çizgili doku (yumuşatılmış). 9 dilim için orta 1 piksel uzar.</summary>
     private static Texture2D MakeRounded(int radius, float borderW, Color fill, Color border)
     {
         int size = radius * 2 + 5;
@@ -174,7 +147,7 @@ public static class UIUtil
         return tex;
     }
 
-    /// <summary>Kutu stilini temaya çevirir (koyu plaket). big: büyük kenarlı doku.</summary>
+    /// <summary>Kutu stilini temaya çevirir (koyu kart).</summary>
     public static GUIStyle ThemeBox(GUIStyle s, bool big = false)
     {
         EnsureTextures();
@@ -185,7 +158,7 @@ public static class UIUtil
         return s;
     }
 
-    /// <summary>Düğme stilini temaya çevirir (birincil: bordo, üzerine gelince pirinç iç hat).</summary>
+    /// <summary>Düğme stilini temaya çevirir (düz bordo; üzerine gelince açılır).</summary>
     public static GUIStyle ThemeButton(GUIStyle s)
     {
         EnsureTextures();
@@ -201,15 +174,15 @@ public static class UIUtil
         s.padding = new RectOffset(Mathf.Max(s.padding.left, 12), Mathf.Max(s.padding.right, 12), s.padding.top, s.padding.bottom);
         s.normal.textColor = Cream;
         s.focused.textColor = Cream;
-        s.onNormal.textColor = Gold;
+        s.onNormal.textColor = Color.white;
         s.hover.textColor = Color.white;
         s.onHover.textColor = Color.white;
-        s.active.textColor = Gold;
-        s.onActive.textColor = Gold;
+        s.active.textColor = Color.white;
+        s.onActive.textColor = Color.white;
         return s;
     }
 
-    /// <summary>Yazı kutusu stilini temaya çevirir (derin kömür, pirinç alt çizgi; odakta tam pirinç hat).</summary>
+    /// <summary>Yazı kutusu stilini temaya çevirir (koyu, ince açık kenar; odakta belirgin kenar).</summary>
     public static GUIStyle ThemeField(GUIStyle s)
     {
         EnsureTextures();
@@ -232,7 +205,7 @@ public static class UIUtil
     private static GUISkin skinApplied;
 
     /// <summary>
-    /// Varsayılan GUI kutusu / düğmesi / yazı kutusu / kaydırıcı / kaydırma çubuğu / onay kutusunu temaya çevirir (bir kez).
+    /// Varsayılan GUI kutusu / düğmesi / yazı kutusu / kaydırıcı / kaydırma çubuğunu temaya çevirir (bir kez).
     /// Boyutlar (fixedWidth/Height) DEĞİŞMEZ; yalnızca dokular ve renkler. Sadece OnGUI içinde çağrılabilir.
     /// </summary>
     public static void ApplySkin()
@@ -248,58 +221,42 @@ public static class UIUtil
         // Etiketler fareye tepki vermesin (üstüne gelince beyaza dönmesin; sadece düğmeler tepki verir)
         s.label.hover.textColor = Cream; s.label.active.textColor = Cream; s.label.focused.textColor = Cream;
         s.label.onNormal.textColor = Cream; s.label.onHover.textColor = Cream; s.label.onActive.textColor = Cream; s.label.onFocused.textColor = Cream;
-        s.settings.selectionColor = UITheme.WithAlpha(UITheme.Brass, 0.55f);
-        s.settings.cursorColor = UITheme.BrassLight;
+        s.settings.selectionColor = new Color(1f, 1f, 1f, 0.25f);
+        s.settings.cursorColor = UITheme.Ivory;
 
-        Texture2D track = UITheme.Tex("Buttons/slider_track");
-        Texture2D thumb = UITheme.Tex("Buttons/slider_thumb");
-        Texture2D thumbHi = UITheme.Tex("Buttons/slider_thumb_hover");
-        if (track != null && thumb != null)
-        {
-            s.horizontalSlider.normal.background = track;
-            s.horizontalSlider.border = RO(4, 4, 0, 0);
-            foreach (GUIStyle th in new[] { s.horizontalSliderThumb })
-            {
-                th.normal.background = thumb;
-                th.hover.background = thumbHi != null ? thumbHi : thumb;
-                th.active.background = thumbHi != null ? thumbHi : thumb;
-                th.focused.background = thumb;
-                th.border = RO(0, 0, 0, 0);
-            }
-        }
+        // Kaydırıcı: ince yuvarlak oluk + yuvarlak tutamak
+        Texture2D track = MakeRounded(2, 0f, new Color(1f, 1f, 1f, 0.16f), new Color(1f, 1f, 1f, 0.16f));
+        Texture2D thumb = MakeRounded(6, 0f, UITheme.Ivory, UITheme.Ivory);
+        Texture2D thumbHi = MakeRounded(6, 0f, Color.white, Color.white);
+        s.horizontalSlider.normal.background = track;
+        s.horizontalSlider.border = RO(3, 3, 3, 3);
+        s.horizontalSlider.fixedHeight = 4f;
+        s.horizontalSlider.margin = new RectOffset(s.horizontalSlider.margin.left, s.horizontalSlider.margin.right, 8, 8);
+        GUIStyle th = s.horizontalSliderThumb;
+        th.normal.background = thumb; th.hover.background = thumbHi; th.active.background = thumbHi; th.focused.background = thumb;
+        th.border = RO(0, 0, 0, 0);
+        th.fixedWidth = 14f; th.fixedHeight = 14f;
+        th.margin = new RectOffset(0, 0, -5, 0);
 
-        Texture2D sTrack = UITheme.Tex("Panels/prog_track");
-        if (sTrack != null && thumb != null)
-        {
-            s.verticalScrollbar.normal.background = sTrack;
-            s.verticalScrollbar.border = RO(4, 4, 4, 4);
-            s.verticalScrollbarThumb.normal.background = thumb;
-            s.verticalScrollbarThumb.hover.background = thumbHi != null ? thumbHi : thumb;
-            s.verticalScrollbarThumb.active.background = thumbHi != null ? thumbHi : thumb;
-            s.verticalScrollbarThumb.border = RO(2, 2, 3, 3);
-            s.horizontalScrollbar.normal.background = sTrack;
-            s.horizontalScrollbar.border = RO(4, 4, 4, 4);
-            s.horizontalScrollbarThumb.normal.background = thumb;
-            s.horizontalScrollbarThumb.hover.background = thumbHi != null ? thumbHi : thumb;
-            s.horizontalScrollbarThumb.border = RO(3, 3, 2, 2);
-        }
-
-        Texture2D tOff = UITheme.Tex("Buttons/toggle_off");
-        Texture2D tOn = UITheme.Tex("Buttons/toggle_on");
-        if (tOff != null && tOn != null)
-        {
-            GUIStyle t = s.toggle;
-            t.normal.background = tOff; t.hover.background = tOff; t.active.background = tOn; t.focused.background = tOff;
-            t.onNormal.background = tOn; t.onHover.background = tOn; t.onActive.background = tOff; t.onFocused.background = tOn;
-            t.border = RO(16, 0, 16, 0);
-            t.padding = new RectOffset(Mathf.Max(t.padding.left, 22), t.padding.right, t.padding.top, t.padding.bottom);
-            t.normal.textColor = Cream; t.hover.textColor = Color.white; t.onNormal.textColor = Gold; t.onHover.textColor = Gold;
-        }
+        Texture2D sTrack = MakeRounded(3, 0f, new Color(0f, 0f, 0f, 0.25f), new Color(0f, 0f, 0f, 0.25f));
+        Texture2D sThumb = MakeRounded(3, 0f, new Color(1f, 1f, 1f, 0.35f), new Color(1f, 1f, 1f, 0.35f));
+        Texture2D sThumbHi = MakeRounded(3, 0f, new Color(1f, 1f, 1f, 0.55f), new Color(1f, 1f, 1f, 0.55f));
+        s.verticalScrollbar.normal.background = sTrack;
+        s.verticalScrollbar.border = RO(4, 4, 4, 4);
+        s.verticalScrollbarThumb.normal.background = sThumb;
+        s.verticalScrollbarThumb.hover.background = sThumbHi;
+        s.verticalScrollbarThumb.active.background = sThumbHi;
+        s.verticalScrollbarThumb.border = RO(4, 4, 4, 4);
+        s.horizontalScrollbar.normal.background = sTrack;
+        s.horizontalScrollbar.border = RO(4, 4, 4, 4);
+        s.horizontalScrollbarThumb.normal.background = sThumb;
+        s.horizontalScrollbarThumb.hover.background = sThumbHi;
+        s.horizontalScrollbarThumb.border = RO(4, 4, 4, 4);
     }
 
-    // ---------------- Çizim (eski API) ----------------
+    // ---------------- Temel çizim ----------------
 
-    /// <summary>Ekran ortasında panel kutusu çizer ve iç alanı döner.</summary>
+    /// <summary>Ekran ortasında panel kutusu çizer ve iç alanı döner (eski API).</summary>
     public static Rect BeginCenteredPanel(float w, float h)
     {
         Rect panel = new Rect((Screen.width - w) / 2f, (Screen.height - h) / 2f, w, h);
@@ -319,58 +276,73 @@ public static class UIUtil
         GUI.color = old;
     }
 
-    /// <summary>Temalı panel zemini (koyu plaket). accent verilirse solda ince renk şeridi.</summary>
-    public static void Panel(Rect r, float alpha = 1f) => Panel(r, Color.clear, alpha);
+    /// <summary>Yuvarlatılmış dolu dikdörtgen (yalnızca Repaint).</summary>
+    public static void Round(Rect r, Color c, float radius = RadiusSmall)
+    {
+        if (!IsRepaint || c.a <= 0.001f || r.width <= 0f || r.height <= 0f) return;
+        radius = Mathf.Min(radius, Mathf.Min(r.width, r.height) * 0.5f);
+        GUI.DrawTexture(r, Texture2D.whiteTexture, ScaleMode.StretchToFill, true, 0f, c, 0f, radius);
+    }
 
-    public static void Panel(Rect r, Color accent, float alpha = 1f)
+    /// <summary>Yuvarlatılmış kenar çizgisi (yalnızca Repaint).</summary>
+    public static void RoundLine(Rect r, Color c, float width = 1f, float radius = RadiusSmall)
+    {
+        if (!IsRepaint || c.a <= 0.001f || r.width <= 0f || r.height <= 0f) return;
+        radius = Mathf.Min(radius, Mathf.Min(r.width, r.height) * 0.5f);
+        GUI.DrawTexture(r, Texture2D.whiteTexture, ScaleMode.StretchToFill, true, 0f, c, width, radius);
+    }
+
+    /// <summary>Koyu kart (eski API: Plaque). accent artık çizilmez (sade görünüm).</summary>
+    public static void Panel(Rect r, float alpha = 1f) => Panel(r, PanelKind.Plaque, alpha);
+
+    public static void Panel(Rect r, Color accent, float alpha = 1f) => Panel(r, PanelKind.Plaque, alpha);
+
+    /// <summary>
+    /// Kart: Plaque = koyu yarı saydam (menü / pencere), Catalog / Sketch / Label = düz açık kart (belge, tezgah notu).
+    /// Süs, doku ya da ızgara yoktur.
+    /// </summary>
+    public static void Panel(Rect r, PanelKind kind, float alpha = 1f)
     {
         if (!IsRepaint) return;
-        EnsureTextures();
-        Color old = GUI.color;
-        GUI.color = new Color(old.r, old.g, old.b, old.a * alpha);
-        bool big = r.width >= BigPanelMin && r.height >= BigPanelMin;
-        (big ? panelDrawStyle : panelSmallDrawStyle).Draw(r, false, false, false, false);
-        GUI.color = old;
-        if (accent.a > 0f)
+        float rad = r.width >= 120f && r.height >= 60f ? RadiusBig : RadiusSmall;
+        if (kind == PanelKind.Plaque)
         {
-            float inset = Mathf.Min(big ? 8f : 4f, r.height * 0.25f);
-            DrawRect(new Rect(r.x + (big ? 7f : 4f), r.y + inset, 3f, r.height - inset * 2f), new Color(accent.r, accent.g, accent.b, accent.a * alpha));
+            Round(r, UITheme.WithAlpha(SurfaceDark, SurfaceDark.a * alpha), rad);
+            RoundLine(r, UITheme.WithAlpha(SurfaceDarkEdge, SurfaceDarkEdge.a * alpha), 1f, rad);
+        }
+        else
+        {
+            Round(r, UITheme.WithAlpha(SurfaceLight, SurfaceLight.a * alpha), rad);
+            RoundLine(r, UITheme.WithAlpha(SurfaceLightEdge, SurfaceLightEdge.a * alpha), 1f, rad);
         }
     }
 
-    /// <summary>Önemli paneller için süs: dört köşeye pirinç arşiv köşeleri (eskiden maskeleme bandı).</summary>
-    public static void Tape(Rect r, float alpha = 1f)
+    /// <summary>HUD kartı: oyun dünyasının üstünde hafif, saydam koyu zemin (kenarsız).</summary>
+    public static void HudCard(Rect r, float alpha = 1f)
     {
-        if (!IsRepaint) return;
-        EnsureTextures();
-        if (tapeTex == null) return;
-        DrawSliced(new Rect(r.x - 3f, r.y - 3f, r.width + 6f, r.height + 6f), tapeTex, RO(10, 10, 10, 10), new Color(1f, 1f, 1f, alpha));
+        Round(r, UITheme.WithAlpha(SurfaceHud, SurfaceHud.a * alpha), RadiusSmall);
     }
 
-    /// <summary>Küçük boya lekesi süsü (yalnızca eskiz / tezgah ekranlarında).</summary>
-    public static void Splat(Rect r, Color tint)
+    /// <summary>Gölgeli yazı: oyun dünyası üstünde kart olmadan okunur (HUD).</summary>
+    public static void ShadowText(Rect r, string text, TextRole role, Color color, TextAnchor anchor = TextAnchor.MiddleLeft)
     {
-        if (!IsRepaint) return;
-        EnsureTextures();
-        if (splatTex == null) { DrawRect(new Rect(r.x + r.width * 0.25f, r.y + r.height * 0.25f, r.width * 0.5f, r.height * 0.5f), tint); return; }
-        Color old = GUI.color;
-        GUI.color = tint;
-        GUI.DrawTexture(r, splatTex);
-        GUI.color = old;
+        if (string.IsNullOrEmpty(text)) return;
+        GUIStyle s = UITheme.Style(role, new Color(0f, 0f, 0f, 0.65f * color.a), anchor);
+        GUI.Label(new Rect(r.x + 1f, r.y + 1f, r.width, r.height), text, s);
+        s = UITheme.Style(role, color, anchor);
+        GUI.Label(r, text, s);
     }
 
-    /// <summary>Temalı yuva zemini (hızlı envanter vb.). selected: açık pirinç hat + arşiv köşeleri.</summary>
-    public static void Slot(Rect r, float alpha = 1f) => Slot(r, false, alpha);
+    /// <summary>Eski süs (köşe bandı): artık çizilmez.</summary>
+    public static void Tape(Rect r, float alpha = 1f) { }
 
-    public static void Slot(Rect r, bool selected, float alpha = 1f)
-    {
-        if (!IsRepaint) return;
-        EnsureTextures();
-        Color old = GUI.color;
-        GUI.color = new Color(old.r, old.g, old.b, old.a * alpha);
-        (selected ? slotSelDrawStyle : slotDrawStyle).Draw(r, false, false, false, false);
-        GUI.color = old;
-    }
+    /// <summary>Eski süs (boya lekesi): artık çizilmez.</summary>
+    public static void Splat(Rect r, Color tint) { }
+
+    /// <summary>Yuva zemini (eski API). selected: açık kenar.</summary>
+    public static void Slot(Rect r, float alpha = 1f) => Slot(r, SlotState.Filled, alpha);
+
+    public static void Slot(Rect r, bool selected, float alpha = 1f) => Slot(r, selected ? SlotState.Selected : SlotState.Filled, alpha);
 
     /// <summary>İlerleme çubuğu (eski imza) → ProgressBar.</summary>
     public static void Bar(Rect r, float ratio, Color fill) => ProgressBar(r, ratio, fill);
@@ -521,7 +493,7 @@ public static class UIUtil
         label = label.Substring(close + 1).TrimStart(' ', ':', '-', '—');
     }
 
-    /// <summary>Basılı tutma halkası: progress 0–1 (pirinç noktalar).</summary>
+    /// <summary>Basılı tutma halkası: progress 0–1 (noktalar).</summary>
     public static void DrawRing(Vector2 center, float radius, float progress, Color fill)
     {
         const int segments = 48;
@@ -535,12 +507,12 @@ public static class UIUtil
             float y = center.y + Mathf.Sin(rad) * radius;
 
             if (i < active) DrawRect(new Rect(x - 2.5f, y - 2.5f, 5f, 5f), fill);
-            else DrawRect(new Rect(x - 1.5f, y - 1.5f, 3f, 3f), new Color(UITheme.CharDeep.r, UITheme.CharDeep.g, UITheme.CharDeep.b, 0.6f));
+            else DrawRect(new Rect(x - 1.5f, y - 1.5f, 3f, 3f), new Color(0f, 0f, 0f, 0.45f));
         }
     }
 
     // =====================================================================================
-    //  TASARIM SİSTEMİ v2 — yeni ekranlar bunları kullanır (UI_DESIGN.md)
+    //  Bileşenler
     // =====================================================================================
 
     private static readonly Dictionary<Texture2D, GUIStyle> slicedStyles = new Dictionary<Texture2D, GUIStyle>();
@@ -562,7 +534,7 @@ public static class UIUtil
         GUI.color = old;
     }
 
-    /// <summary>Dokuyu dikdörtgen içine döşer (Textures/tex_* — eskiz ızgarası, kâğıt dokusu, tarama).</summary>
+    /// <summary>Dokuyu dikdörtgen içine döşer.</summary>
     public static void Tile(Rect r, Texture2D tex, Color tint)
     {
         if (!IsRepaint || tex == null) return;
@@ -572,58 +544,26 @@ public static class UIUtil
         GUI.color = old;
     }
 
-    /// <summary>Türüne göre panel: Plaque (koyu, oyun içi), Catalog (fildişi belge), Sketch (eskiz kâğıdı + ızgara), Label (sergi etiketi).</summary>
-    public static void Panel(Rect r, PanelKind kind, float alpha = 1f)
-    {
-        if (!IsRepaint) return;
-        Texture2D tex = UITheme.PanelTex(kind, r, out RectOffset border);
-        if (tex == null)
-        {
-            DrawRect(r, UITheme.WithAlpha(UITheme.PanelFallback(kind), UITheme.PanelFallback(kind).a * alpha));
-            Outline(r, 1f, UITheme.WithAlpha(kind == PanelKind.Plaque ? UITheme.Brass : UITheme.Graphite, alpha));
-        }
-        else DrawSliced(r, tex, border, new Color(1f, 1f, 1f, alpha));
-
-        if (kind == PanelKind.Sketch)
-        {
-            Rect inner = new Rect(r.x + 20f, r.y + 6f, r.width - 26f, r.height - 12f);
-            Tile(inner, UITheme.Tex("Textures/tex_sketch_grid"), new Color(1f, 1f, 1f, alpha));
-            Tile(new Rect(r.x + 1f, r.y + 14f, r.width - 2f, r.height - 15f), UITheme.Tex("Textures/tex_paper_grain"), new Color(1f, 1f, 1f, alpha));
-        }
-    }
-
-    /// <summary>Hafif gölge (YALNIZCA Dialog ve ana menünün açık kartları — sergi etiketi, yapımcılar sayfası — altında).</summary>
+    /// <summary>Yumuşak gölge (diyalog, açık kartlar).</summary>
     public static void Shadow(Rect r, float alpha = 1f)
     {
-        Texture2D t = UITheme.Tex("Panels/panel_shadow");
-        if (t == null) return;
-        DrawSliced(new Rect(r.x - 12f, r.y - 8f, r.width + 24f, r.height + 22f), t, RO(16, 16, 16, 16), new Color(1f, 1f, 1f, alpha));
+        Round(new Rect(r.x - 2f, r.y + 3f, r.width + 4f, r.height + 6f), new Color(0f, 0f, 0f, 0.22f * alpha), RadiusBig + 2f);
     }
 
-    /// <summary>İnce pirinç çerçeve (görüntü / canlı yayın / kat planı). Çerçeve r'nin İÇİNE çizilir (4 px).</summary>
+    /// <summary>Görüntü / yayın / plan çevresi: ince açık hat (eskiden pirinç çerçeve).</summary>
     public static void BrassFrame(Rect r, float alpha = 1f)
     {
-        Texture2D t = UITheme.Tex("Frames/frame_brass");
-        if (t == null) { Outline(r, 2f, UITheme.WithAlpha(UITheme.Brass, alpha)); return; }
-        DrawSliced(r, t, RO(6, 6, 6, 6), new Color(1f, 1f, 1f, alpha));
+        RoundLine(r, new Color(1f, 1f, 1f, 0.14f * alpha), 1f, 4f);
     }
 
-    /// <summary>Dört köşeye arşiv köşeleri (seçili eser, hedef kartı).</summary>
-    public static void Corners(Rect r, float alpha = 1f)
-    {
-        Texture2D t = UITheme.Tex("Frames/frame_corners");
-        if (t == null) return;
-        DrawSliced(r, t, RO(10, 10, 10, 10), new Color(1f, 1f, 1f, alpha));
-    }
+    /// <summary>Eski süs (köşe süsleri): artık çizilmez.</summary>
+    public static void Corners(Rect r, float alpha = 1f) { }
 
-    /// <summary>Klavye odak halkası: r'nin 3 px dışında, hafif nabızlı açık pirinç hat.</summary>
+    /// <summary>Klavye odak halkası: r'nin 3 px dışında açık hat.</summary>
     public static void FocusRing(Rect r)
     {
-        Texture2D t = UITheme.Tex("Frames/frame_focus");
-        float a = 0.75f + 0.25f * Pulse(2.2f);
         Rect o = new Rect(r.x - 3f, r.y - 3f, r.width + 6f, r.height + 6f);
-        if (t == null) { Outline(o, 2f, UITheme.WithAlpha(UITheme.BrassLight, a)); return; }
-        DrawSliced(o, t, RO(5, 5, 5, 5), new Color(1f, 1f, 1f, a));
+        RoundLine(o, new Color(1f, 1f, 1f, 0.55f), 1.5f, RadiusSmall + 2f);
     }
 
     /// <summary>Keskin dikdörtgen hat.</summary>
@@ -635,15 +575,10 @@ public static class UIUtil
         DrawRect(new Rect(r.xMax - t, r.y + t, t, r.height - 2f * t), c);
     }
 
-    /// <summary>Bölüm çizgisi: ince hat; ornament true ise ortada pirinç baklava (katalog başlıkları).</summary>
+    /// <summary>Bölüm ayracı: tam genişlikte çok ince, soluk hat (ornament yok sayılır).</summary>
     public static void Divider(float x, float y, float w, Color c, bool ornament = false)
     {
-        if (!ornament) { DrawRect(new Rect(x, y, w, 1f), c); return; }
-        float mid = x + w * 0.5f;
-        DrawRect(new Rect(x, y, w * 0.5f - 10f, 1f), c);
-        DrawRect(new Rect(mid + 10f, y, w * 0.5f - 10f, 1f), c);
-        Texture2D d = UITheme.Tex("Textures/ornament_diamond");
-        if (d != null && IsRepaint) GUI.DrawTexture(new Rect(mid - 6f, y - 5.5f, 12f, 12f), d);
+        DrawRect(new Rect(x, y, w, 1f), new Color(c.r, c.g, c.b, c.a * 0.5f));
     }
 
     /// <summary>Ekranı kaplayan perde.</summary>
@@ -659,7 +594,7 @@ public static class UIUtil
         GUI.color = old;
     }
 
-    /// <summary>Soldan sağa kömür perde (ana menü sütunu). width: perdenin bittiği x.</summary>
+    /// <summary>Soldan sağa koyu perde (ana menü sütunu). width: perdenin bittiği x.</summary>
     public static void ScrimLeft(float width, float alpha = 1f)
     {
         Texture2D t = UITheme.Tex("Backgrounds/bg_scrim_left");
@@ -670,7 +605,7 @@ public static class UIUtil
         GUI.color = old;
     }
 
-    /// <summary>Aşağıdan yukarı kömür perde (görev sonu / alt şerit).</summary>
+    /// <summary>Aşağıdan yukarı koyu perde.</summary>
     public static void ScrimBottom(float height, float alpha = 1f)
     {
         Texture2D t = UITheme.Tex("Backgrounds/bg_scrim_bottom");
@@ -680,8 +615,8 @@ public static class UIUtil
         GUI.color = old;
     }
 
-    /// <summary>Çapraz tarama (kilitli / devre dışı / ıslak boya alanı).</summary>
-    public static void Hatch(Rect r, Color c) => Tile(r, UITheme.Tex("Textures/tex_hatch"), c);
+    /// <summary>Kilitli / devre dışı alan: düz soluk örtü (eskiden çapraz tarama).</summary>
+    public static void Hatch(Rect r, Color c) => DrawRect(r, new Color(c.r, c.g, c.b, c.a * 0.35f));
 
     // ---------------- Yazı ----------------
 
@@ -704,13 +639,12 @@ public static class UIUtil
         return h;
     }
 
-    /// <summary>Bölüm başlığı: BÜYÜK HARF küçük kalın yazı + altında ince çizgi. Kullandığı yüksekliği döner.</summary>
+    /// <summary>Bölüm başlığı: küçük kalın soluk yazı (alt çizgi yok). Kullandığı yüksekliği döner.</summary>
     public static float SectionHeader(Rect r, string text, PanelKind on = PanelKind.Plaque)
     {
         Color c = UITheme.SectionOn(on);
-        Text(new Rect(r.x, r.y, r.width, 18f * UITheme.Scale), UITheme.Caps(text), TextRole.Section, c);
-        DrawRect(new Rect(r.x, r.y + 20f * UITheme.Scale, r.width, 1f), UITheme.WithAlpha(c, 0.45f));
-        return 26f * UITheme.Scale;
+        Text(new Rect(r.x, r.y, r.width, 20f * UITheme.Scale), text, TextRole.Section, c);
+        return 24f * UITheme.Scale;
     }
 
     // ---------------- Simge ----------------
@@ -720,7 +654,7 @@ public static class UIUtil
     {
         if (!IsRepaint) return;
         Texture2D t = UITheme.IconTex(id);
-        if (t == null) { Outline(new Rect(r.x + r.width * 0.2f, r.y + r.height * 0.2f, r.width * 0.6f, r.height * 0.6f), 2f, color); return; }
+        if (t == null) { RoundLine(new Rect(r.x + r.width * 0.2f, r.y + r.height * 0.2f, r.width * 0.6f, r.height * 0.6f), color, 2f, 3f); return; }
         Color old = GUI.color;
         GUI.color = new Color(color.r, color.g, color.b, color.a * old.a);
         GUI.DrawTexture(r, t, ScaleMode.ScaleToFit);
@@ -729,82 +663,61 @@ public static class UIUtil
 
     // ---------------- Düğme ----------------
 
-    private static GUIStyle[] btnStyles;      // tür başına etkileşim stili (zemin dokuları)
-    private static GUIStyle[] btnFocusStyles; // klavye odağında: hover dokusu kalıcı
-    private static GUIStyle[] btnDisabledStyles;
-    private static GUIStyle toolSelectedStyle;
-
-    private static string KindName(ButtonKind k) =>
-        k == ButtonKind.Primary ? "primary" : k == ButtonKind.Secondary ? "secondary" : k == ButtonKind.Danger ? "danger" : "tool";
-
-    private static void EnsureButtonStyles()
+    private static Color ButtonFill(ButtonKind kind, bool hover, bool pressed, bool enabled, bool selected)
     {
-        if (btnStyles != null) return;
-        EnsureTextures();
-        int n = 4;
-        btnStyles = new GUIStyle[n]; btnFocusStyles = new GUIStyle[n]; btnDisabledStyles = new GUIStyle[n];
-        for (int i = 0; i < n; i++)
+        if (!enabled)
+            return kind == ButtonKind.Secondary ? new Color(0.62f, 0.6f, 0.56f, 0.45f) : new Color(0.25f, 0.24f, 0.22f, 0.55f);
+        switch (kind)
         {
-            string k = KindName((ButtonKind)i);
-            Texture2D nrm = UITheme.Tex("Buttons/btn_" + k + "_normal") ?? btnTex;
-            Texture2D hov = UITheme.Tex("Buttons/btn_" + k + "_hover") ?? btnHoverTex;
-            Texture2D prs = UITheme.Tex("Buttons/btn_" + k + "_pressed") ?? btnActiveTex;
-            Texture2D dis = UITheme.Tex("Buttons/btn_" + k + "_disabled") ?? btnTex;
-            RectOffset b = RO(10, 10, 10, 10);
-
-            var s = new GUIStyle { border = b };
-            s.normal.background = nrm; s.hover.background = hov; s.active.background = prs; s.focused.background = nrm;
-            btnStyles[i] = s;
-
-            var f = new GUIStyle { border = b };
-            f.normal.background = hov; f.hover.background = hov; f.active.background = prs; f.focused.background = hov;
-            btnFocusStyles[i] = f;
-
-            var d = new GUIStyle { border = b };
-            d.normal.background = dis; d.hover.background = dis; d.active.background = dis; d.focused.background = dis;
-            btnDisabledStyles[i] = d;
+            case ButtonKind.Primary:
+                return pressed ? UITheme.Hex(0x5E1721) : hover ? UITheme.Hex(0x93303D) : UITheme.Bordeaux;
+            case ButtonKind.Secondary:
+                return pressed ? new Color(0.8f, 0.77f, 0.7f, 1f) : hover ? new Color(0.97f, 0.95f, 0.9f, 1f) : new Color(0.88f, 0.85f, 0.78f, 1f);
+            case ButtonKind.Danger:
+                return pressed ? UITheme.Hex(0x8E2A22) : hover ? UITheme.Danger : new Color(0f, 0f, 0f, 0f);
+            default: // Tool
+                if (selected) return UITheme.Ivory;
+                return pressed ? new Color(0.1f, 0.095f, 0.09f, 0.95f) : hover ? WellHover : Well;
         }
-        toolSelectedStyle = new GUIStyle { border = RO(10, 10, 10, 10) };
-        Texture2D sel = UITheme.Tex("Buttons/btn_tool_selected") ?? btnActiveTex;
-        toolSelectedStyle.normal.background = sel; toolSelectedStyle.hover.background = sel; toolSelectedStyle.active.background = sel;
     }
 
     private static Color ButtonTextColor(ButtonKind kind, bool hover, bool enabled, bool selected)
     {
-        if (!enabled) return kind == ButtonKind.Secondary ? UITheme.WithAlpha(UITheme.Charcoal, 0.45f) : UITheme.WithAlpha(UITheme.IvoryDim, 0.5f);
+        if (!enabled) return kind == ButtonKind.Secondary ? UITheme.WithAlpha(UITheme.Charcoal, 0.5f) : UITheme.WithAlpha(UITheme.IvoryDim, 0.5f);
         switch (kind)
         {
             case ButtonKind.Secondary: return UITheme.Charcoal;
             case ButtonKind.Danger: return hover ? UITheme.Ivory : UITheme.DangerLight;
-            case ButtonKind.Tool: return selected ? UITheme.Charcoal : hover ? UITheme.BrassLight : UITheme.Ivory;
+            case ButtonKind.Tool: return selected ? UITheme.Charcoal : hover ? Color.white : UITheme.Ivory;
             default: return hover ? Color.white : UITheme.Ivory;
         }
     }
 
     /// <summary>
-    /// Tasarım sistemi düğmesi. Durumlar: normal / hover / pressed (yazı 1 px aşağı) / disabled / focus (pirinç halka +
-    /// kalıcı hover; Enter ile tetiklenir) / selected (yalnızca Tool). icon verilirse yazının soluna çizilir
-    /// (Tool türünde yazı boşsa yalnızca simge, ortada). Tıklandıysa true.
+    /// Düz düğme. Durumlar: normal / hover / pressed (yazı 1 px aşağı) / disabled / focus (ince halka; Enter ile tetiklenir)
+    /// / selected (yalnızca Tool). icon verilirse yazının soluna çizilir (Tool türünde yazı boşsa yalnızca simge, ortada).
     /// </summary>
     public static bool Button(Rect r, string text, ButtonKind kind = ButtonKind.Primary, bool enabled = true,
                               bool focused = false, IconId? icon = null, bool selected = false)
     {
-        EnsureButtonStyles();
-        int ki = (int)kind;
         Event e = Event.current;
-        bool hover = enabled && e != null && r.Contains(e.mousePosition);
+        bool hover = enabled && GUI.enabled && e != null && r.Contains(e.mousePosition);
         bool pressed = hover && GUIUtility.hotControl != 0;
-
-        GUIStyle st = !enabled ? btnDisabledStyles[ki]
-                    : (kind == ButtonKind.Tool && selected) ? toolSelectedStyle
-                    : focused ? btnFocusStyles[ki] : btnStyles[ki];
 
         bool wasEnabled = GUI.enabled;
         GUI.enabled = wasEnabled && enabled;
-        bool clicked = GUI.Button(r, GUIContent.none, st);
+        bool clicked = GUI.Button(r, GUIContent.none, GUIStyle.none);
         GUI.enabled = wasEnabled;
 
-        if (focused && enabled && IsRepaint) FocusRing(r);
+        if (IsRepaint)
+        {
+            float rad = Mathf.Min(RadiusSmall, r.height * 0.5f);
+            Color fill = ButtonFill(kind, hover || focused, pressed, enabled, selected);
+            Round(r, fill, rad);
+            if (kind == ButtonKind.Danger && enabled && !(hover || focused || pressed)) RoundLine(r, UITheme.WithAlpha(UITheme.DangerLight, 0.75f), 1.5f, rad);
+            if (kind == ButtonKind.Tool && !selected) RoundLine(r, new Color(1f, 1f, 1f, hover ? 0.18f : 0.08f), 1f, rad);
+            if (focused && enabled) FocusRing(r);
+        }
 
         // İçerik
         Color tc = ButtonTextColor(kind, hover || focused, enabled, selected);
@@ -852,6 +765,45 @@ public static class UIUtil
         return Button(r, text, kind, enabled, focused, icon);
     }
 
+    /// <summary>
+    /// Sekme / parçalı seçici: yan yana eşit düğmeler, seçili olan açık dolgulu. on: hangi yüzeyin üstünde.
+    /// Tıklanan sekmenin indeksini döner (tıklanmadıysa selected).
+    /// </summary>
+    public static int Tabs(Rect r, string[] labels, int selected, PanelKind on = PanelKind.Plaque)
+    {
+        if (labels == null || labels.Length == 0) return selected;
+        bool light = on != PanelKind.Plaque;
+        Round(r, light ? new Color(0f, 0f, 0f, 0.08f) : new Color(1f, 1f, 1f, 0.06f), RadiusSmall + 2f);
+        float pad = 3f, w = (r.width - pad * 2f) / labels.Length;
+        int result = selected;
+        Event e = Event.current;
+        for (int i = 0; i < labels.Length; i++)
+        {
+            Rect t = new Rect(r.x + pad + i * w, r.y + pad, w, r.height - pad * 2f);
+            bool sel = i == selected;
+            bool hover = GUI.enabled && e != null && t.Contains(e.mousePosition);
+            if (sel) Round(t, light ? UITheme.Charcoal : UITheme.Ivory, RadiusSmall);
+            else if (hover) Round(t, light ? new Color(0f, 0f, 0f, 0.07f) : new Color(1f, 1f, 1f, 0.08f), RadiusSmall);
+            Color tc = sel ? (light ? UITheme.Ivory : UITheme.Charcoal) : (light ? UITheme.Graphite : UITheme.IvoryDim);
+            GUIStyle ts = UITheme.Style(TextRole.Button, tc, TextAnchor.MiddleCenter);
+            int old = ts.fontSize;
+            ts.fontSize = Mathf.Min(old, Mathf.RoundToInt(t.height * 0.48f));
+            GUI.Label(t, labels[i], ts);
+            ts.fontSize = old;
+            if (GUI.Button(t, GUIContent.none, GUIStyle.none) && !sel) result = i;
+        }
+        return result;
+    }
+
+    /// <summary>Renk kutucuğu: yuvarlatılmış renk + seçiliyse dış halka. Tıklandıysa true.</summary>
+    public static bool Swatch(Rect r, Color c, bool selected, bool enabled = true, bool onLight = false)
+    {
+        Round(r, enabled ? c : new Color(c.r * 0.35f + 0.1f, c.g * 0.35f + 0.1f, c.b * 0.35f + 0.1f, 1f), RadiusSmall);
+        RoundLine(r, onLight ? new Color(0f, 0f, 0f, 0.25f) : new Color(1f, 1f, 1f, 0.18f), 1f, RadiusSmall);
+        if (selected) RoundLine(new Rect(r.x - 4f, r.y - 4f, r.width + 8f, r.height + 8f), onLight ? UITheme.Charcoal : UITheme.Ivory, 2f, RadiusSmall + 3f);
+        return enabled && GUI.enabled && GUI.Button(r, GUIContent.none, GUIStyle.none);
+    }
+
     // ---------------- Tuş kapağı + istem ----------------
 
     private static GUIStyle keyStyle;
@@ -860,30 +812,29 @@ public static class UIUtil
     {
         if (keyStyle == null) MakeKeyStyle();
         keyStyle.fontSize = Mathf.Clamp(fontSize - 2, 10, 18);
-        return Mathf.Max(keyStyle.CalcSize(new GUIContent(key)).x + 14f, 22f);
+        return Mathf.Max(keyStyle.CalcSize(new GUIContent(key)).x + 12f, 22f);
     }
 
     private static void MakeKeyStyle()
     {
-        keyStyle = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold, clipping = TextClipping.Overflow, padding = new RectOffset(0, 0, 0, 2) };
-        if (UITheme.MonoFont != null) keyStyle.font = UITheme.MonoFont;
-        keyStyle.normal.textColor = UITheme.Charcoal;
+        keyStyle = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold, clipping = TextClipping.Overflow, padding = new RectOffset(0, 0, 0, 0) };
+        if (UITheme.BodyFont != null) keyStyle.font = UITheme.BodyFont;
+        keyStyle.normal.textColor = UITheme.Ivory;
     }
 
-    /// <summary>Tuş kapağı (fildişi, alt dudak, kömür harf).</summary>
+    /// <summary>Tuş kapağı: küçük koyu yuvarlak kutu + açık harf.</summary>
     public static void KeyCap(Rect r, string key, int fontSize = 14)
     {
         if (keyStyle == null) MakeKeyStyle();
         keyStyle.fontSize = Mathf.Clamp(fontSize - 2, 10, 18);
-        Texture2D t = UITheme.Tex("Panels/keycap");
-        if (t != null) DrawSliced(r, t, RO(7, 7, 6, 9), Color.white);
-        else { DrawRect(r, UITheme.Ivory); Outline(r, 1f, UITheme.Charcoal); }
+        Round(r, new Color(0.06f, 0.055f, 0.05f, 0.85f), 4f);
+        RoundLine(r, new Color(1f, 1f, 1f, 0.28f), 1f, 4f);
         GUI.Label(r, key, keyStyle);
     }
 
     /// <summary>
-    /// Yeni istem: koyu plaket şerit, solda tuş kapağı, sağda etiket; hold 0–1 ise şeridin altında pirinç dolum çizgisi.
-    /// center: şeridin üst-orta noktası. Çizilen dikdörtgeni döner.
+    /// İstem: koyu kart şerit, solda tuş kapağı, sağda etiket; hold 0–1 ise şeridin altında dolum çizgisi.
+    /// topCenter: şeridin üst-orta noktası. Çizilen dikdörtgeni döner.
     /// </summary>
     public static Rect Prompt(Vector2 topCenter, string key, string label, Color labelColor, float hold = -1f)
     {
@@ -894,68 +845,56 @@ public static class UIUtil
         float h = Mathf.Round(34f * UITheme.Scale);
         float w = Mathf.Min(Screen.width - 20f, keyW + (keyW > 0f ? 10f : 0f) + labelW + 32f);
         Rect r = new Rect(topCenter.x - w * 0.5f, topCenter.y, w, h);
-        Panel(r, PanelKind.Plaque, 0.92f);
+        HudCard(r, 1.2f);
         float x = r.x + 16f;
-        if (keyW > 0f) { KeyCap(new Rect(x, r.y + 5f, keyW, h - 10f), key, fs); x += keyW + 10f; }
+        if (keyW > 0f) { KeyCap(new Rect(x, r.y + 6f, keyW, h - 12f), key, fs); x += keyW + 10f; }
         GUI.Label(new Rect(x, r.y, r.xMax - x - 10f, h), label, ls);
         if (hold >= 0f)
         {
-            DrawRect(new Rect(r.x + 4f, r.yMax - 3f, (r.width - 8f), 2f), UITheme.WithAlpha(UITheme.CharDeep, 0.9f));
-            DrawRect(new Rect(r.x + 4f, r.yMax - 3f, (r.width - 8f) * Mathf.Clamp01(hold), 2f), UITheme.BrassLight);
+            DrawRect(new Rect(r.x + 6f, r.yMax - 3f, (r.width - 12f), 2f), new Color(0f, 0f, 0f, 0.5f));
+            DrawRect(new Rect(r.x + 6f, r.yMax - 3f, (r.width - 12f) * Mathf.Clamp01(hold), 2f), UITheme.Ivory);
         }
         return r;
     }
 
     // ---------------- İlerleme / yuva / rozet ----------------
 
-    /// <summary>İlerleme çubuğu: oluk + renklendirilmiş dolgu. marker 0–1: hedef çizgisi (ör. %75 eşiği). ticks: çeyrek çentikleri.</summary>
+    /// <summary>İlerleme çubuğu: yuvarlak oluk + dolgu. marker 0–1: hedef çizgisi. ticks: çeyrek çentikleri.</summary>
     public static void ProgressBar(Rect r, float ratio, Color fill, float marker = -1f, bool ticks = false)
     {
         if (!IsRepaint) return;
-        Texture2D track = UITheme.Tex("Panels/prog_track");
-        Texture2D f = UITheme.Tex("Panels/prog_fill");
-        bool sliced = r.height >= 8f && track != null && f != null;
-        if (sliced) DrawSliced(r, track, RO(4, 4, 4, 4), Color.white);
-        else DrawRect(r, new Color(0f, 0f, 0f, 0.42f));
-
+        float rad = r.height * 0.5f;
+        Round(r, new Color(0f, 0f, 0f, 0.32f), rad);
         float w = r.width * Mathf.Clamp01(ratio);
-        if (w > 0.5f)
-        {
-            Rect fr = new Rect(r.x, r.y, w, r.height);
-            if (sliced && w >= 8f) DrawSliced(new Rect(fr.x + 1f, fr.y + 1f, fr.width - 2f, fr.height - 2f), f, RO(4, 4, 3, 3), fill);
-            else DrawRect(fr, fill);
-        }
+        if (w > 0.5f) Round(new Rect(r.x, r.y, Mathf.Max(w, Mathf.Min(r.height, r.width)), r.height), fill, rad);
         if (ticks)
             for (int i = 1; i < 4; i++)
-                DrawRect(new Rect(r.x + r.width * i / 4f, r.y + 1f, 1f, r.height - 2f), UITheme.WithAlpha(UITheme.Graphite, 0.9f));
+                DrawRect(new Rect(r.x + r.width * i / 4f, r.y + 1f, 1f, r.height - 2f), new Color(0f, 0f, 0f, 0.3f));
         if (marker >= 0f && marker <= 1f)
-            DrawRect(new Rect(r.x + r.width * marker - 1f, r.y - 2f, 2f, r.height + 4f), UITheme.BrassLight);
+            DrawRect(new Rect(r.x + r.width * marker - 1f, r.y - 2f, 2f, r.height + 4f), UITheme.WithAlpha(UITheme.Ivory, 0.9f));
     }
 
-    /// <summary>Durumlu yuva: Empty/Filled (kömür + arşiv köşeleri), Hover, Selected (açık pirinç), Disabled (soluk + tarama).</summary>
+    /// <summary>Durumlu yuva: Empty (soluk), Filled, Hover, Selected (açık kenar), Disabled (soluk).</summary>
     public static void Slot(Rect r, SlotState state, float alpha = 1f)
     {
         if (!IsRepaint) return;
-        string name = state == SlotState.Selected ? "slot_selected" : state == SlotState.Hover ? "slot_hover" : "slot";
-        Texture2D t = UITheme.Tex("Panels/" + name);
-        float a = state == SlotState.Disabled ? alpha * 0.45f : state == SlotState.Empty ? alpha * 0.8f : alpha;
-        if (t != null) DrawSliced(r, t, RO(12, 12, 12, 12), new Color(1f, 1f, 1f, a));
-        else Slot(r, state == SlotState.Selected, a);
-        if (state == SlotState.Disabled) Hatch(new Rect(r.x + 2f, r.y + 2f, r.width - 4f, r.height - 4f), UITheme.WithAlpha(UITheme.Graphite, 0.35f * alpha));
+        Color c = state == SlotState.Hover ? WellHover : Well;
+        float a = state == SlotState.Disabled ? 0.45f : state == SlotState.Empty ? 0.7f : 1f;
+        Round(r, UITheme.WithAlpha(c, c.a * a * alpha), RadiusSmall);
+        if (state == SlotState.Selected) RoundLine(r, UITheme.WithAlpha(UITheme.Ivory, 0.9f * alpha), 2f, RadiusSmall);
+        else RoundLine(r, new Color(1f, 1f, 1f, (state == SlotState.Hover ? 0.16f : 0.06f) * alpha), 1f, RadiusSmall);
     }
 
-    /// <summary>Rozet (envanter etiketi biçimi): sol tarafı sivri, delikli. pos: sol-üst. Çizilen dikdörtgeni döner.</summary>
+    /// <summary>Rozet: küçük yuvarlak etiket. pos: sol-üst. Çizilen dikdörtgeni döner.</summary>
     public static Rect Badge(Vector2 pos, string text, Color fill, Color textColor)
     {
         GUIStyle s = UITheme.Style(TextRole.Caption, textColor, TextAnchor.MiddleCenter);
         FontStyle oldFs = s.fontStyle; s.fontStyle = FontStyle.Bold;
         float h = Mathf.Round(20f * UITheme.Scale);
-        float w = s.CalcSize(new GUIContent(text)).x + 20f;
+        float w = s.CalcSize(new GUIContent(text)).x + 16f;
         Rect r = new Rect(pos.x, pos.y, w, h);
-        Texture2D t = UITheme.Tex("Panels/badge");
-        if (t != null) DrawSliced(r, t, RO(8, 4, 4, 4), fill);
-        else DrawRect(r, fill);
-        GUI.Label(new Rect(r.x + 8f, r.y, r.width - 10f, r.height), text, s);
+        Round(r, fill, 4f);
+        GUI.Label(r, text, s);
         s.fontStyle = oldFs;
         return r;
     }
@@ -963,7 +902,7 @@ public static class UIUtil
     // ---------------- Diyalog ----------------
 
     /// <summary>
-    /// Modal onay diyaloğu (katalog sayfası + gölge + perde). Enter = onay, Esc = vazgeç. Her karede çağrılır;
+    /// Modal onay diyaloğu (koyu kart + perde). Enter = onay, Esc = vazgeç. Her karede çağrılır;
     /// seçim yapılana dek None döner. Çağıran, diyalog açıkken arkadaki kontrolleri çizmemeli (ya da GUI.enabled=false).
     /// </summary>
     public static DialogChoice Dialog(string title, string body, string confirm, string cancel, bool danger = false, float width = 460f)
@@ -972,20 +911,19 @@ public static class UIUtil
         width = Mathf.Min(width * sc, Screen.width - 32f);
         float pad = UITheme.S5 * sc;
         float bodyH = string.IsNullOrEmpty(body) ? 0f : MeasureHeight(body, TextRole.Body, width - pad * 2f);
-        float titleH = 38f * sc, btnH = 40f * sc;
-        float h = pad + titleH + 14f + bodyH + pad + btnH + pad;
+        float titleH = 34f * sc, btnH = 40f * sc;
+        float h = pad + titleH + 8f + bodyH + pad + btnH + pad;
         Rect r = new Rect((Screen.width - width) * 0.5f, (Screen.height - h) * 0.5f, width, h);
 
         Scrim(UITheme.Scrim);
         Shadow(r);
-        Panel(r, PanelKind.Catalog);
-        Text(new Rect(r.x + pad, r.y + pad, r.width - pad * 2f, titleH), title, TextRole.Title, UITheme.Charcoal);
-        DrawRect(new Rect(r.x + pad, r.y + pad + titleH + 4f, 48f * sc, 2f), danger ? UITheme.Danger : UITheme.Bordeaux);
+        Panel(r, PanelKind.Plaque);
+        Text(new Rect(r.x + pad, r.y + pad, r.width - pad * 2f, titleH), title, TextRole.Title, UITheme.Ivory);
         if (bodyH > 0f)
         {
-            GUIStyle bs = UITheme.Style(TextRole.Body, UITheme.Graphite, TextAnchor.UpperLeft);
+            GUIStyle bs = UITheme.Style(TextRole.Body, UITheme.IvoryDim, TextAnchor.UpperLeft);
             bs.wordWrap = true;
-            GUI.Label(new Rect(r.x + pad, r.y + pad + titleH + 14f, r.width - pad * 2f, bodyH), body, bs);
+            GUI.Label(new Rect(r.x + pad, r.y + pad + titleH + 8f, r.width - pad * 2f, bodyH), body, bs);
         }
 
         DialogChoice result = DialogChoice.None;
@@ -1049,12 +987,11 @@ public static class UIUtil
             float a = Mathf.Min(inT, outT);
             Color accent = UITheme.ToastColor(t.kind);
             GUIStyle s = UITheme.Style(TextRole.Body, UITheme.WithAlpha(UITheme.Ivory, a), TextAnchor.MiddleLeft);
-            float textX = 16f + (t.icon.HasValue ? 30f * sc : 0f);
-            float h = Mathf.Max(44f * sc, s.CalcHeight(new GUIContent(t.text), w - textX - 14f) + 20f);
+            float textX = 14f + (t.icon.HasValue ? 28f * sc : 0f);
+            float h = Mathf.Max(40f * sc, s.CalcHeight(new GUIContent(t.text), w - textX - 14f) + 18f);
             Rect r = new Rect(x0 + (1f - inT) * 24f, y, w, h);
             Panel(r, PanelKind.Plaque, a);
-            DrawRect(new Rect(r.x + 5f, r.y + 6f, 3f, r.height - 12f), UITheme.WithAlpha(accent, a));
-            if (t.icon.HasValue) Icon(new Rect(r.x + 14f, r.center.y - 11f * sc, 22f * sc, 22f * sc), t.icon.Value, UITheme.WithAlpha(accent, a));
+            if (t.icon.HasValue) Icon(new Rect(r.x + 12f, r.center.y - 10f * sc, 20f * sc, 20f * sc), t.icon.Value, UITheme.WithAlpha(accent, a));
             GUI.Label(new Rect(r.x + textX, r.y, r.width - textX - 14f, r.height), t.text, s);
             y += h + 6f;
         }

@@ -128,7 +128,7 @@ public class TrashBin : MonoBehaviour, IInventoryPanel
         }
         int count = rows.Count;
 
-        float hintH = 24f * sc, btnH = 42f * sc;
+        float hintH = 0f, btnH = 42f * sc;
         Rect hintR = new Rect(c.x, c.yMax - hintH, c.width, hintH);
         Rect allR = new Rect(c.x, hintR.y - 8f - btnH, c.width, btnH);
         Rect view = new Rect(c.x, c.y, c.width, Mathf.Max(60f, allR.y - 8f - c.y));
@@ -180,7 +180,6 @@ public class TrashBin : MonoBehaviour, IInventoryPanel
 
         // Geri alınamaz toplu eylem: Danger
         bool trashAll = UIUtil.Button(allR, Loc.T("trash.all", count), ButtonKind.Danger, count > 0, focus == count && count > 0);
-        EconomyPanelUI.KeyHints(hintR, Loc.T("panel.close"), UITheme.Graphite, false, false);
 
         if (trashIndex >= 0) { inv.RequestTrash(trashIndex, inv.GetSlot(trashIndex)); PeekOpen(); }
         else if (trashAll) { inv.RequestTrashAllForgeries(); PeekOpen(); }

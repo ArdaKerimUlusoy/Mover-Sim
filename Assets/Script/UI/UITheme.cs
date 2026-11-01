@@ -4,7 +4,7 @@ using UnityEngine;
 
 // ============================================================================================
 //  SAHTE ŞAHESER — TASARIM SİSTEMİ (token'lar, türler, yazı rolleri, doku önbelleği)
-//  Görsel kimlik: müze sergisi + sanatçı eskiz defteri + arşiv/katalog + sergi etiketi.
+//  Görsel dil: sade oyun arayüzü — düz yarı saydam koyu kartlar, düz açık kartlar, tek yazı ailesi; süs yok.
 //  Tüm çizim yardımcıları UIUtil'dedir; bu dosya yalnızca "ne" (renk, yazı, doku) bilgisini tutar.
 //  Kurallar: UI_DESIGN.md (proje kökü).
 // ============================================================================================
@@ -80,7 +80,7 @@ public class UITheme : MonoBehaviour
     public static Color MutedOn(PanelKind kind) => kind == PanelKind.Plaque ? IvoryDim : Graphite;
 
     /// <summary>Panel türünün üstündeki bölüm başlığı rengi.</summary>
-    public static Color SectionOn(PanelKind kind) => kind == PanelKind.Plaque ? Brass : Bordeaux;
+    public static Color SectionOn(PanelKind kind) => kind == PanelKind.Plaque ? IvoryDim : Graphite;
 
     public static Color ToastColor(ToastKind k)
     {
@@ -201,7 +201,7 @@ public class UITheme : MonoBehaviour
         switch (role)
         {
             case TextRole.Display: return 54;
-            case TextRole.Title: return 28;
+            case TextRole.Title: return 24;
             case TextRole.Section: return 13;
             case TextRole.Body: return 16;
             case TextRole.BodyStrong: return 16;
@@ -270,14 +270,19 @@ public class UITheme : MonoBehaviour
             switch (role)
             {
                 case TextRole.Display:
-                case TextRole.Title:
+                    // Yalnızca oyunun adı (ana menü) serif
                     if (displayFont != null) s.font = displayFont;
                     s.fontStyle = FontStyle.Bold;
                     break;
+                case TextRole.Title:
                 case TextRole.Numeric:
+                    // Sade arayüz: başlıklar ve sayılar gövde yazı tipinde kalın (daktilo / serif karışımı yok)
+                    if (bodyFont != null) s.font = bodyFont;
+                    s.fontStyle = FontStyle.Bold;
+                    break;
                 case TextRole.Mono:
-                    if (monoFont != null) s.font = monoFont;
-                    s.fontStyle = role == TextRole.Numeric ? FontStyle.Bold : FontStyle.Normal;
+                    if (bodyFont != null) s.font = bodyFont;
+                    s.fontStyle = FontStyle.Normal;
                     break;
                 case TextRole.Section:
                 case TextRole.BodyStrong:
@@ -294,18 +299,11 @@ public class UITheme : MonoBehaviour
         }
     }
 
-    /// <summary>Dile duyarlı BÜYÜK HARF (Türkçe'de i → İ). Bölüm başlıkları ve küçük etiketler için.</summary>
-    public static string Caps(string s)
-    {
-        if (string.IsNullOrEmpty(s)) return s;
-        try
-        {
-            return Loc.Current == Language.Turkish
-                ? s.ToUpper(System.Globalization.CultureInfo.GetCultureInfo("tr-TR"))
-                : s.ToUpperInvariant();
-        }
-        catch (Exception) { return s.ToUpperInvariant(); }
-    }
+    /// <summary>
+    /// Eskiden küçük etiketleri BÜYÜK HARF yapardı; sade arayüzde yazılar olduğu gibi kalır (cümle düzeni).
+    /// İmza korunur: çağıran yerler değişmeden çalışır.
+    /// </summary>
+    public static string Caps(string s) => s;
 
     // ------------------------------------------------------------------ Önyükleme + toast çizimi
     private static UITheme instance;

@@ -81,8 +81,14 @@ public static partial class ArtworkLook
         new Color(0.26f, 0.26f, 0.30f), // bazalt
         new Color(0.42f, 0.70f, 0.52f), // yeşim
         new Color(0.92f, 0.76f, 0.32f), // altın varak
+        new Color(0.62f, 0.60f, 0.57f), // ham alçı: atölyede boyanmamış büst (orijinallerde hiç çıkmaz)
     };
-    public static readonly string[][] BustStoneNames = { N("Marble", "Mermer"), N("Bronze", "Bronz"), N("Terracotta", "Pişmiş toprak"), N("Basalt", "Bazalt"), N("Jade", "Yeşim"), N("Gilded", "Altın varak") };
+    /// <summary>Orijinal büstlerin seçilebileceği taş sayısı (sondaki "ham alçı" yalnızca boyanmamış sahte içindir).</summary>
+    public const int BustStoneChoices = 6;
+    /// <summary>Boyanmamış (ham) heykel / kaide rengi: atölyede boyamaya buradan başlanır. Benzerlikte hiçbir orijinale uymaz.</summary>
+    public static int RawStone => BustStones.Length - 1;
+    public static int RawBase => BustBases.Length - 1;
+    public static readonly string[][] BustStoneNames = { N("Marble", "Mermer"), N("Bronze", "Bronz"), N("Terracotta", "Pişmiş toprak"), N("Basalt", "Bazalt"), N("Jade", "Yeşim"), N("Gilded", "Altın varak"), N("Raw plaster", "Ham alçı") };
 
     public static readonly Color[] BustBases =
     {
@@ -92,8 +98,11 @@ public static partial class ArtworkLook
         new Color(0.20f, 0.42f, 0.32f), // yeşil taş
         new Color(0.58f, 0.18f, 0.18f), // kırmızı mermer
         new Color(0.18f, 0.28f, 0.58f), // lacivert
+        new Color(0.70f, 0.67f, 0.62f), // ham: boyanmamış kaide (orijinallerde hiç çıkmaz)
     };
-    public static readonly string[][] BustBaseNames = { N("Wood", "Ahşap"), N("Black", "Siyah"), N("White", "Beyaz"), N("Green", "Yeşil"), N("Red", "Kırmızı"), N("Navy", "Lacivert") };
+    /// <summary>Orijinal büstlerin seçilebileceği kaide rengi sayısı (sondaki "ham" yalnızca boyanmamış sahte içindir).</summary>
+    public const int BustBaseChoices = 6;
+    public static readonly string[][] BustBaseNames = { N("Wood", "Ahşap"), N("Black", "Siyah"), N("White", "Beyaz"), N("Green", "Yeşil"), N("Red", "Kırmızı"), N("Navy", "Lacivert"), N("Unpainted", "Boyasız") };
 
     public static readonly string[][] BustSliderNames =
     {
@@ -165,8 +174,8 @@ public static partial class ArtworkLook
         var rng = new System.Random(seed ^ Hash("bust:" + key));
         var b = new BustLook { name = BustNames[rng.Next(BustNames.Length)] };
         for (int i = 0; i < BustLook.SliderCount; i++) b.sliders[i] = rng.Next(1, 10) / 10f; // 0.1 .. 0.9
-        b.stone = rng.Next(BustStones.Length);
-        b.baseColor = rng.Next(BustBases.Length);
+        b.stone = rng.Next(BustStoneChoices);      // sabit sayı: "ham" renk eklendi ama orijinallerin rastgele dizisi değişmesin
+        b.baseColor = rng.Next(BustBaseChoices);
         // Detaylar: eser kimliğinden deterministik (eski çizimleri değiştirmesin diye rng'nin en sonunda çekilir)
         for (int i = 0; i < BustLook.DetailCount; i++) b.details[i] = rng.Next(BustLook.DetailOptions[i]);
         bustCache[ck] = b;

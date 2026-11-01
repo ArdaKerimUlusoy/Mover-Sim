@@ -595,38 +595,33 @@ public class MuseumSession : NetworkBehaviour
         bool showTruck = quotaMet || localInside;
 
         float sc = UITheme.Scale;
-        float pad = UITheme.S4 * sc;
-        float rowH = 24f * sc;
-        float w = 340f * sc;
+        float pad = 12f * sc;
+        float rowH = 22f * sc;
+        float w = 300f * sc;
         float innerW = w - pad * 2f;
-        float h = pad * 0.75f + 26f * sc + rowH + 10f * sc + (showTruck ? rowH + 4f * sc : 0f) + pad * 0.75f;
+        float h = pad * 0.8f + 18f * sc + rowH + 8f * sc + (showTruck ? rowH : 0f) + pad * 0.8f;
 
-        // Sol üst köşe: oda kodu kutusunun altı, garaj hazırlık panelinin üstü (çakışmaz)
+        // Sol üst köşe: görev adı (küçük), kota ve ince çubuk — simgesiz, hafif saydam kart
         Rect r = UIUtil.HudRect(UIUtil.HudCorner.TopLeft, UIUtil.HudOrder.Mission, w, h);
-        Color accent = quotaMet ? UITheme.Sage : UITheme.Brass;
-        UIUtil.Panel(r, accent);
+        UIUtil.HudCard(r);
 
-        float x = r.x + pad, y = r.y + pad * 0.75f;
-        // Başlık: görev no, müze, şehir
-        y += UIUtil.SectionHeader(new Rect(x, y, innerW, 0f), Loc.T("mission.title", Level, th.name, th.City));
+        float x = r.x + pad, y = r.y + pad * 0.8f;
+        string title = EconomyPanelUI.Fit(Loc.T("mission.title", Level, th.name, th.City), TextRole.Caption, innerW);
+        UIUtil.Text(new Rect(x, y, innerW, 18f * sc), title, TextRole.Caption, UITheme.IvoryDim);
+        y += 18f * sc;
 
-        // Kota satırı: para simgesi + ekip kazancı, altında kota çubuğu
         int earned = Mathf.Max(0, Earned);
-        float iconS = 20f * sc;
-        UIUtil.Icon(new Rect(x, y + (rowH - iconS) * 0.5f, iconS, iconS), IconId.Money, quotaMet ? UITheme.Sage : UITheme.BrassLight);
-        UIUtil.Text(new Rect(x + iconS + 8f * sc, y, innerW - iconS - 8f * sc, rowH), Loc.T("mission.quota", earned, Quota), TextRole.BodyStrong,
-            quotaMet ? UITheme.Sage : UITheme.Ivory);
-        y += rowH + 4f * sc;
+        UIUtil.Text(new Rect(x, y, innerW, rowH), Loc.T("mission.quota", earned, Quota), TextRole.BodyStrong, quotaMet ? UITheme.Sage : UITheme.Ivory);
+        y += rowH + 2f * sc;
         float ratio = Quota > 0 ? Mathf.Clamp01(earned / (float)Quota) : 0f;
-        UIUtil.ProgressBar(new Rect(x, y, innerW, 8f * sc), ratio, quotaMet ? UITheme.Sage : UITheme.BrassLight);
-        y += 8f * sc + 6f * sc;
+        UIUtil.ProgressBar(new Rect(x, y, innerW, 4f * sc), ratio, quotaMet ? UITheme.Sage : UITheme.Ivory);
+        y += 6f * sc;
 
         if (!showTruck) return;
 
         // Kamyon durumu: kimler kamyonda, kimler hapiste
         TruckZone.Status st = TruckZone.GetStatus();
-        UIUtil.Icon(new Rect(x, y + (rowH - iconS) * 0.5f, iconS, iconS), IconId.Truck, st.jailed > 0 ? UITheme.Ochre : UITheme.IvoryDim);
-        UIUtil.Text(new Rect(x + iconS + 8f * sc, y, innerW - iconS - 8f * sc, rowH), Loc.T("mission.truckinfo", st.inside, st.total, st.jailed),
+        UIUtil.Text(new Rect(x, y, innerW, rowH), Loc.T("mission.truckinfo", st.inside, st.total, st.jailed),
             TextRole.Caption, st.jailed > 0 ? UITheme.Ochre : UITheme.IvoryDim);
 
         // Kota doldu ama yerel oyuncu kamyonun dışında: geri dönmesi gerek (kamyondakilere kapı ipucunu TruckEscapeUI çizer)

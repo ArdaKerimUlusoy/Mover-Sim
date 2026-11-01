@@ -549,6 +549,9 @@ public class PaintBrush : MonoBehaviour
         tipMat = ArtworkLook.MakeLit(new Color(0.78f, 0.15f, 0.38f));
     }
 
+    /// <summary>Fırça modeli (ikon için: gölgesiz). Çanta / hızlı envanter ikonu bu modelden çekilir (ItemIconRenderer).</summary>
+    public static Transform BuildBrushModel(string name) => BuildBrush(name, false);
+
     /// <summary>Fırça modeli: sap (Y ekseni boyunca), metal bilezik, kıllar, boyalı uç. Uç +Y yönündedir.</summary>
     private static Transform BuildBrush(string name, bool shadows)
     {
@@ -701,24 +704,16 @@ public class PaintBrush : MonoBehaviour
         int paint = PlayerInventory.Local.SprayCount;
         float sc = UITheme.Scale;
 
-        // Alt orta: fırça bilgisi (köşe yığını: ses kutusu + hızlı envanterin üstünde, çakışmaz)
-        string hudText = Loc.T("brush.hud", paint), throwText = Loc.T("brush.throw");
-        float swatch = Mathf.Round(16f * sc);
-        float maxW = Mathf.Min(Screen.width - 60f, 760f * sc);
-        Vector2 s1 = PromptHud.HintSize(throwText, maxW), s2 = PromptHud.HintSize(hudText, maxW - swatch - 10f);
-        float bw = Mathf.Max(s1.x, s2.x + swatch + 10f) + 28f;
-        float bh = s1.y + s2.y + 14f;
+        // Alt orta: küçük boya göstergesi — boya rengi + kalan kutu sayısı (tuş ipucu yazılmaz; hızlı envanterin üstünde)
+        string hudText = Loc.T("brush.hud.short", paint);
+        float swatch = Mathf.Round(14f * sc);
+        float tw = UIUtil.Measure(hudText, TextRole.Caption).x;
+        float bw = tw + swatch + 30f, bh = Mathf.Round(26f * sc);
         Rect box = UIUtil.HudRect(UIUtil.HudCorner.BottomCenter, UIUtil.HudOrder.Brush, bw, bh);
-        UIUtil.Panel(box, PanelKind.Plaque, 0.9f);
-        PromptHud.HintDraw(new Rect(box.x + 14f, box.y + 5f, bw - 28f, s1.y), throwText, UITheme.IvoryDim);
-        // Boya rengi (karakter rengi) + fırça durumu
-        float rowY = box.y + 5f + s1.y + 4f;
-        float rowW = s2.x + swatch + 10f;
-        float rx = box.center.x - rowW * 0.5f;
-        Rect sw = new Rect(rx, rowY + (s2.y - swatch) * 0.5f, swatch, swatch);
-        UIUtil.DrawRect(new Rect(sw.x - 1f, sw.y - 1f, sw.width + 2f, sw.height + 2f), UITheme.CharDeep);
-        UIUtil.DrawRect(sw, SprayPaint.ColorOf(SprayPaint.LocalColor));
-        PromptHud.HintDraw(new Rect(rx + swatch + 10f, rowY, s2.x, s2.y), hudText, UITheme.Ivory);
+        UIUtil.HudCard(box);
+        Rect sw = new Rect(box.x + 10f, box.center.y - swatch * 0.5f, swatch, swatch);
+        UIUtil.Round(sw, SprayPaint.ColorOf(SprayPaint.LocalColor), 3f);
+        UIUtil.Text(new Rect(sw.xMax + 8f, box.y, tw + 4f, bh), hudText, TextRole.Caption, paint > 0 ? UITheme.Ivory : UITheme.DangerLight);
 
         // Nişangah: oyunun normal küçük beyaz noktası kalır (fırça için ayrıca pembe halka çizilmez).
         // Sadece boya topu attıktan sonra kısa bekleme süresinde ince, soluk bir halka dolar.

@@ -166,6 +166,8 @@ public class AlarmFeedback : MonoBehaviour
 
     private void DrawHints(PlayerStealth me)
     {
+        // Sade HUD: kalıcı tuş ipucu satırı yok (bozuk para sayısı hızlı envanterin yanında gösterilir)
+        if (Event.current != null) return;
         if (!HintsVisible || Event.current.type != EventType.Repaint) return;
         // "Q: bozuk para (x3) — ..." -> tuş kapağı + etiket
         string text = Loc.T("gadget.hints", me.CoinsLeft, me.BananasLeft);

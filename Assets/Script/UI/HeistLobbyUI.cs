@@ -188,7 +188,8 @@ public class HeistLobbyUI : MonoBehaviour
 
     private void OnGUI()
     {
-        if (!PanelVisible) return;
+        // Tek oyunculuda hazırlık paneli gereksiz (sağ üstteki hedef aynı şeyi söyler): yalnızca ekipte görünür
+        if (!PanelVisible || GameFlow.Solo) return;
         NetworkManager nm = NetworkManager.Singleton;
         if (nm == null || !nm.IsListening) return;
 
@@ -217,7 +218,7 @@ public class HeistLobbyUI : MonoBehaviour
 
         // Sol üst köşe: oda kodu kutusunun altına dizilir (görev paneliyle çakışmaz)
         Rect r = UIUtil.HudRect(UIUtil.HudCorner.TopLeft, UIUtil.HudOrder.Lobby, w, h);
-        UIUtil.Panel(r, PanelKind.Plaque, 0.94f);
+        UIUtil.HudCard(r);
 
         float x = r.x + padX + 3f;
         float y = r.y + padY;
@@ -231,13 +232,12 @@ public class HeistLobbyUI : MonoBehaviour
                 bool isReady = ready.Contains(p.OwnerClientId);
 
                 Rect row = new Rect(x, y, innerW, rowH);
-                if (p.IsOwner) UIUtil.DrawRect(row, UITheme.WithAlpha(UITheme.Brass, 0.12f));
+                if (p.IsOwner) UIUtil.Round(row, new Color(1f, 1f, 1f, 0.06f), 4f);
 
                 // Oyuncu rengi: dolu kare + ince fildişi hat
                 float sw = 14f * sc;
                 Rect swatch = new Rect(row.x + 4f, row.y + (rowH - sw) * 0.5f, sw, sw);
-                UIUtil.DrawRect(swatch, p.PlayerColor);
-                UIUtil.Outline(swatch, 1f, UITheme.WithAlpha(UITheme.Ivory, 0.7f));
+                UIUtil.Round(swatch, p.PlayerColor, 3f);
 
                 // Sağdan sola: durum rozeti, konum; kalan genişlik ad
                 string badgeText = Loc.T(isReady ? "lobby.ready" : "lobby.notready");
@@ -265,7 +265,6 @@ public class HeistLobbyUI : MonoBehaviour
         y += infoH + UITheme.S2 * sc;
 
         // Yapılacak: tuş kapaklı ipucu; herkes hazırsa Sage
-        UIUtil.Divider(x, y - 4f * sc, innerW, UITheme.WithAlpha(UITheme.Brass, 0.35f));
         if (last.IndexOf('[') >= 0) DrawHintLine(new Rect(x, y, innerW, 24f * sc), last, lastCol);
         else UIUtil.Text(new Rect(x, y, innerW, lastH), last, TextRole.Body, lastCol, TextAnchor.UpperLeft);
     }

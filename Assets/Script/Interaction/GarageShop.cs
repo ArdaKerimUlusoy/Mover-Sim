@@ -32,7 +32,7 @@ public class GarageShop : Interactable, IInventoryPanel
     private int focus;      // klavye odağı (satır)
     private Vector2 scroll;
 
-    /// <summary>Geliştirme türüne göre yuva simgesi.</summary>
+    /// <summary>Geliştirme türüne göre yedek simge (oyun içi görüntü hazırlanırken).</summary>
     private static IconId UpgradeIcon(UpgradeType t)
     {
         switch (t)
@@ -46,37 +46,33 @@ public class GarageShop : Interactable, IInventoryPanel
         }
     }
 
+    /// <summary>
+    /// Mağaza: koyu sayfa, üstte bakiyeler, satırlarda ürünün oyun içi görüntüsü (maymuncuk, boya kutusu, pil, çanta, eldiven),
+    /// adı + kısa açıklaması, seviye / adet rozeti, fiyat ve Satın Al. Kapat: sağ üstteki düğme, Tab ya da Esc.
+    /// </summary>
     public void DrawPanel(PlayerInventory inv)
     {
         TeamBank bank = TeamBank.Instance;
         float sc = EconomyPanelUI.Sc;
-        EconomyPanelUI.PageRects pg = EconomyPanelUI.BeginPage(700f, 680f, Loc.T("shop.title"), IconId.Truck, null);
+        EconomyPanelUI.PageRects pg = EconomyPanelUI.BeginPage(720f, 680f, Loc.T("shop.title"), IconId.Truck, null);
         Rect c = pg.content;
 
-        // Bakiye: ekip kasası + kişisel cüzdan, altında ortak yetenek puanı
-        float y = c.y, balH = 30f * sc;
-        if (bank != null) EconomyPanelUI.Balance(new Rect(c.x, y, c.width * 0.5f, balH), IconId.Players, Loc.T("money.team", bank.Money.ToString("N0")), false);
-        EconomyPanelUI.Balance(new Rect(c.x + c.width * 0.5f, y, c.width * 0.5f, balH), IconId.Money, Loc.T("money.personal", inv.PersonalMoney.ToString("N0")), true);
-        y += balH;
-        if (bank != null)
-        {
-            EconomyPanelUI.Balance(new Rect(c.x, y, c.width, balH), IconId.Gear, Loc.T("skill.points", bank.SkillPoints.ToString("N0")), false);
-            y += balH;
-        }
-        y += 2f;
-        UIUtil.DrawRect(new Rect(c.x, y, c.width, 1f), UITheme.WithAlpha(UITheme.Graphite, 0.45f));
-        y += 6f;
+        // Bakiye: ekip kasası, kişisel cüzdan ve ortak yetenek puanı tek satırda
+        float y = c.y, balH = 26f * sc;
+        float third = c.width / 3f;
+        if (bank != null) EconomyPanelUI.Balance(new Rect(c.x, y, third, balH), IconId.Players, Loc.T("money.team", bank.Money.ToString("N0")), false);
+        EconomyPanelUI.Balance(new Rect(c.x + third, y, third, balH), IconId.Money, Loc.T("money.personal", inv.PersonalMoney.ToString("N0")), false);
+        if (bank != null) EconomyPanelUI.Balance(new Rect(c.x + third * 2f, y, third, balH), IconId.Gear, Loc.T("skill.points", bank.SkillPoints.ToString("N0")), true);
+        y += balH + 10f * sc;
 
-        float hintH = 24f * sc;
-        Rect hintR = new Rect(c.x, c.yMax - hintH, c.width, hintH);
-        Rect view = new Rect(c.x, y, c.width, Mathf.Max(60f, hintR.y - 8f - y));
+        Rect view = new Rect(c.x, y, c.width, Mathf.Max(60f, c.yMax - y));
 
         int n = UpgradeCatalog.All.Length;
         focus = Mathf.Clamp(focus, 0, n - 1);
         focus = UIUtil.NavigateVertical(focus, n);
 
         int buy = -1;
-        float rowH = 78f * sc;
+        float rowH = 82f * sc;
         bool overflow = n * rowH > view.height;
         float cw = view.width - (overflow ? 16f : 0f);
         if (Event.current.type == EventType.KeyDown) scroll.y = EconomyPanelUI.EnsureVisible(scroll.y, focus, rowH, view.height);
@@ -100,12 +96,12 @@ public class GarageShop : Interactable, IInventoryPanel
             Rect row = new Rect(0f, i * rowH, cw, rowH);
             EconomyPanelUI.RowBack(row, focus == i);
             Rect slot = EconomyPanelUI.RowSlot(row, !maxed);
-            EconomyPanelUI.SlotIcon(slot, UpgradeIcon(t), maxed ? UITheme.Graphite : UITheme.BrassLight);
+            EconomyPanelUI.SlotTexture(slot, ItemIconRenderer.ForUpgrade(t), UpgradeIcon(t), !maxed);
 
             string lv = UpgradeCatalog.IsConsumable(t) ? Loc.T("shop.count", level, max) : Loc.T("shop.level", level, max); // maymuncuk adetle satılır
-            string sub = Loc.T(UpgradeCatalog.DescKey(t)) + "  •  " +
+            string sub = Loc.T(UpgradeCatalog.DescKey(t)) + "  ·  " +
                          Loc.T(usePts ? "shop.paypoints" : payer == PaidFrom.Team ? "shop.payteam" : "shop.payyou");
-            float priceW = 104f * sc, btnW = 100f * sc;
+            float priceW = 96f * sc, btnW = 104f * sc;
             EconomyPanelUI.RowText(row, slot, Loc.T(UpgradeCatalog.NameKey(t)), sub, priceW + btnW + 22f, lv);
 
             // Fiyat: para ($) ya da yetenek puanı; tükendiyse fiyat yok, düğme "MAKS"
@@ -118,8 +114,6 @@ public class GarageShop : Interactable, IInventoryPanel
             }
         }
         GUI.EndScrollView();
-
-        EconomyPanelUI.KeyHints(hintR, Loc.T("panel.close"), UITheme.Graphite, false, false);
 
         if (buy >= 0) BuyRpc(UpgradeCatalog.All[buy]);
     }

@@ -1,10 +1,10 @@
-﻿﻿using UnityEngine;
+﻿using UnityEngine;
 
 /// <summary>
 /// Sağ üstte o anki HEDEF (aşamaya ve role göre) ve bağlama göre tuş ipuçları.
 /// Mevcut durumları okur: GameFlow.Phase, BodyCam, MuseumSession, SecurityManager, PlayerStealth, WorkbenchUI.
 /// Kendini kurar; sahneye bir şey eklemek gerekmez.
-/// Sunum: koyu plaket, Section başlık + Body hedef; tuş ipuçları yalnızca hedef değiştikten sonra kısa süre görünür.
+/// Sunum: hafif saydam HUD kartı içinde yalnızca hedef cümlesi (başlık ve tuş ipucu yok; tuşlar öğreticide ve Ayarlar > Kontroller'de).
 /// </summary>
 public class ObjectiveHUD : MonoBehaviour
 {
@@ -77,45 +77,28 @@ public class ObjectiveHUD : MonoBehaviour
 
         Evaluate(out string objKey, out object[] args, out string hintKey);
         string obj = args != null ? Loc.T(objKey, args) : Loc.T(objKey);
-        string hint = string.IsNullOrEmpty(hintKey) ? "" : Loc.T(hintKey);
 
-        // Hedef değişince ipuçları kısa süre görünür, sonra HUD sadeleşir
-        if (objKey != lastKey) { lastKey = objKey; keyChangedAt = Time.unscaledTime; }
-        float since = Time.unscaledTime - keyChangedAt;
-        float hintA = hint.Length == 0 ? 0f : Mathf.Clamp01((HintShowSeconds + HintFadeSeconds - since) / HintFadeSeconds);
 
         float sc = UITheme.Scale;
-        float pad = UITheme.S4 * sc;
+        float pad = 12f * sc;
         float w = 300f * sc;
         float innerW = w - pad * 2f;
 
-        float headH = 26f * sc;
-        float bodyH = UIUtil.MeasureHeight(obj, TextRole.BodyStrong, innerW);
-        float hintH = hintA > 0.01f ? HudKit.KeyLine(new Rect(0f, 0f, innerW, 0f), hint, UITheme.IvoryDim, false) : 0f;
-        float h = pad * 0.75f + headH + bodyH + (hintH > 0f ? 6f * sc + hintH : 0f) + pad * 0.75f;
+        // Sade: başlık / tuş ipucu yok — yalnızca şu anki hedef cümlesi (hafif saydam kart üstünde)
+        float bodyH = UIUtil.MeasureHeight(obj, TextRole.Body, innerW);
+        float h = bodyH + pad * 1.4f;
 
-        Color accent = objKey == "obj.alarm" || objKey == "obj.jail" ? UITheme.Danger
-                     : objKey == "obj.close" || objKey == "obj.return" ? UITheme.Sage : UITheme.Brass;
-        Color bodyCol = accent == UITheme.Danger ? UITheme.DangerLight : accent == UITheme.Sage ? UITheme.Sage : UITheme.Ivory;
+        bool danger = objKey == "obj.alarm" || objKey == "obj.jail";
+        bool good = objKey == "obj.close" || objKey == "obj.return";
+        Color bodyCol = danger ? UITheme.DangerLight : good ? UITheme.Sage : UITheme.Ivory;
 
-        // Sağ üst köşe: ping ve para kutularının altına dizilir (çakışmaz)
+        // Sağ üst köşe: para kutusunun altına dizilir (çakışmaz)
         Rect r = UIUtil.HudRect(UIUtil.HudCorner.TopRight, UIUtil.HudOrder.Objective, w, h);
-        UIUtil.Panel(r, accent);
-
-        float x = r.x + pad, y = r.y + pad * 0.75f;
-        y += UIUtil.SectionHeader(new Rect(x, y, innerW, 0f), Loc.T("obj.title"));
-        GUIStyle bs = UITheme.Style(TextRole.BodyStrong, bodyCol, TextAnchor.UpperLeft);
+        UIUtil.HudCard(r);
+        GUIStyle bs = UITheme.Style(TextRole.Body, bodyCol, TextAnchor.UpperLeft);
         bool ww = bs.wordWrap; bs.wordWrap = true;
-        GUI.Label(new Rect(x, y, innerW, bodyH + 2f), obj, bs);
+        GUI.Label(new Rect(r.x + pad, r.y + pad * 0.7f, innerW, bodyH + 2f), obj, bs);
         bs.wordWrap = ww;
-        y += bodyH;
-        if (hintH > 0f)
-        {
-            Color old = GUI.color;
-            GUI.color = new Color(1f, 1f, 1f, hintA);
-            HudKit.KeyLine(new Rect(x, y + 6f * sc, innerW, hintH), hint, UITheme.IvoryDim, true);
-            GUI.color = old;
-        }
     }
 }
 

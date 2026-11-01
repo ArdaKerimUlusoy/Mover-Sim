@@ -115,11 +115,10 @@ public class CanvasPainter
         Rect foot = BenchKit.Footer();
         float topH = BenchKit.Px(44f, 36f);
         titleRect = new Rect(m, m, sw * 0.55f - m, topH);
-        float noteW = Mathf.Min(380f, sw * 0.4f - m);
-        noteRect = new Rect(sw - m - noteW, m, noteW, topH);
-        float rulesH = BenchGuide.RulesHeight(ArtKind.Painting, sw - m * 2f);
-        rulesRect = new Rect(m, m + topH + 4f, sw - m * 2f, rulesH);
-        float y0 = rulesRect.yMax + m * 0.7f;
+        // Sade üst çubuk: yalnızca başlık (kural şeridi ve "arkadaşların" notu kaldırıldı — H ile yardım açılır)
+        noteRect = Rect.zero;
+        rulesRect = Rect.zero;
+        float y0 = titleRect.yMax + m * 0.6f;
         float y1 = foot.y - m * 0.7f;
         float midH = Mathf.Max(160f, y1 - y0);
 
@@ -342,20 +341,16 @@ public class CanvasPainter
         UIUtil.Scrim(UITheme.WithAlpha(UITheme.CharDeep, 0.82f));
         UIUtil.Vignette();
 
-        // Üst çubuk: başlık (sol) + arkadaş notu (sağ), altında kural şeridi
+        // Üst: yalnızca başlık
         BenchKit.FitText(titleRect, title, TextRole.Title, UITheme.Ivory);
-        UIUtil.DrawRect(new Rect(titleRect.x, titleRect.yMax - 2f, 56f, 2f), UITheme.Brass);
-        BenchGuide.DrawOthersNote(noteRect);
-        BenchGuide.DrawRules(ArtKind.Painting, rulesRect);
 
         hoverTip = null;
         DrawToolbar();
 
-        // Tuval: pirinç çerçeve içinde
-        Rect frame = new Rect(canvasRect.x - 10f, canvasRect.y - 10f, canvasRect.width + 20f, canvasRect.height + 20f);
-        UIUtil.DrawRect(frame, UITheme.CharDeep);
+        // Tuval: ince koyu kenar içinde
+        Rect frame = new Rect(canvasRect.x - 6f, canvasRect.y - 6f, canvasRect.width + 12f, canvasRect.height + 12f);
+        UIUtil.Round(frame, UITheme.WithAlpha(UITheme.CharDeep, 0.9f), 6f);
         GUI.DrawTexture(canvasRect, canvas, ScaleMode.StretchToFill, false);
-        UIUtil.BrassFrame(frame);
         if (ShowGuide && guide != null) GUI.DrawTexture(canvasRect, guide, ScaleMode.StretchToFill, true);
 
         // Tuvalin altındaki boşluk: kat planı (BodyCam) — ressam çizerken müzedekini yönetebilsin
@@ -394,7 +389,7 @@ public class CanvasPainter
         if (ToolBtn(x, IconId.Painting, 0, Loc.T("bench.tool.fill"), false, true)) { PushUndo(); FillAll(); }
 
         float sepY = toolY + 1f;
-        UIUtil.DrawRect(new Rect(x + 4f, sepY + 3f, toolBtn - 8f, 1f), UITheme.WithAlpha(UITheme.Brass, 0.6f));
+        UIUtil.DrawRect(new Rect(x + 4f, sepY + 3f, toolBtn - 8f, 1f), new Color(1f, 1f, 1f, 0.1f));
         toolY += 10f;
 
         string[] shapeKeys = { "bench.shape.round", "bench.shape.square", "bench.shape.hline", "bench.shape.vline" };
@@ -430,11 +425,11 @@ public class CanvasPainter
         dirty = true;
     }
 
-    /// <summary>Sağ panel (eskiz kâğıdı): panoya tutturulmuş referans, benzerlik, boya lekeleri, fırça boyutu.</summary>
+    /// <summary>Sağ panel (koyu kart): monitör görüntüsü, benzerlik, renkler, fırça boyutu.</summary>
     void DrawSidePanel()
     {
         Rect p = sideRect;
-        UIUtil.Panel(p, PanelKind.Sketch);
+        UIUtil.Panel(p, PanelKind.Plaque);
         float sc = UITheme.Scale;
         float padX = BenchKit.Px(22f, 18f), padY = BenchKit.Px(20f, 16f);
         var f = new Flow(p.x + padX, p.y + padY, p.width - padX * 2f);
@@ -445,7 +440,7 @@ public class CanvasPainter
         string feedLabel = Loc.T("bench.original");
         bool provider = ReferenceProvider != null;
         if (provider) { feed = ReferenceProvider(out string lbl); feedLabel = lbl ?? ""; }
-        bool showScore = !provider || feed != null; // kamera sinyali yokken benzerlik gizlenir ("--")
+        bool showScore = !provider || feed != null; // kamera sinyali yokken benzerlik %0 görünür
 
         // Alttaki bloklar için gereken yükseklik (referans kalan yere sığar)
         float secH = 26f * sc + 2f;
@@ -460,7 +455,7 @@ public class CanvasPainter
         float rh = Mathf.Clamp(avail, 56f, iw * 0.75f);
         float rwid = Mathf.Min(iw, rh * 4f / 3f);
 
-        f.Section(feedLabel, PanelKind.Sketch);
+        f.Section(feedLabel, PanelKind.Plaque);
         f.Gap(8f);
         Rect row = f.Row(rh);
         Rect rr = new Rect(row.x + (row.width - rwid) * 0.5f, row.y, rwid, rh);
@@ -469,26 +464,23 @@ public class CanvasPainter
         else if (provider) DrawNoSignal(rr);
         else if (UseLiveFeed) LiveFeed.Draw(rr);
         else GUI.DrawTexture(rr, reference, ScaleMode.StretchToFill, false);
-        UIUtil.BrassFrame(new Rect(rr.x - 3f, rr.y - 3f, rr.width + 6f, rr.height + 6f));
-        // Kâğıda tutturan iki klips
-        DrawClip(new Rect(rr.x + 10f, rr.y - 9f, 18f, 12f));
-        DrawClip(new Rect(rr.xMax - 28f, rr.y - 9f, 18f, 12f));
+        UIUtil.BrassFrame(rr);
         f.Gap(12f);
 
-        // Benzerlik: sinyal yokken "--"
-        int pct = showScore ? Mathf.Clamp(Mathf.RoundToInt(Score * 100f), 0, 100) : -1;
+        // Benzerlik: kamera sinyali yokken %0 (yayın açılınca gerçek değer görünür)
+        int pct = showScore ? Mathf.Clamp(Mathf.RoundToInt(Score * 100f), 0, 100) : 0;
         BenchKit.SimilarityBlock(f, pct, -1f, showScore ? Loc.T("bench.regions", RegionsDone, RegionsTotal) : null);
         f.Gap(4f);
 
         // Boya lekeleri
-        f.Section(Loc.T("bench.colors"), PanelKind.Sketch);
+        f.Section(Loc.T("bench.colors"), PanelKind.Plaque);
         int pick = BenchKit.PaletteGrid(f, palette, PaletteIndex, !Eraser, 4);
         if (pick >= 0) { PaletteIndex = pick; Eraser = false; }
         f.Gap(4f);
 
         // Fırça boyutu
-        f.Section(Loc.T("bench.tool.brush"), PanelKind.Sketch);
-        f.Text(Loc.T("bench.brushsize", BrushSize), TextRole.Caption, UITheme.Graphite);
+        f.Section(Loc.T("bench.tool.brush"), PanelKind.Plaque);
+        f.Text(Loc.T("bench.brushsize", BrushSize), TextRole.Caption, UITheme.IvoryDim);
         f.Gap(4f);
         float v = BenchKit.SizeRow(f, BrushSize, 1f, 30f, 1f);
         BrushSize = Mathf.Clamp(Mathf.RoundToInt(v), 1, 30);

@@ -4,8 +4,8 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 
 /// <summary>
-/// İşaretleme (ping): orta fare tuşu veya F → baktığın yere ekip arkadaşlarının da gördüğü bir işaret koyar.
-/// (Önünde itilebilecek biri varsa F itmedir, işaret koymaz — PushSystem.)
+/// İşaretleme (ping): orta fare tuşu → baktığın yere ekip arkadaşlarının da gördüğü bir işaret koyar.
+/// Işın kendi karakterinin (kafa, gövde, elindeki eşya) çarpıştırıcılarından geçer; işaret hep baktığın yere düşer.
 /// Bir eşyaya / esere bakıyorsan işaretin üstünde adı yazar. İşaretler 8 sn sonra kaybolur.
 /// Kurulum: sahnedeki ChatManager objesine eklenir (Test Museum oluşturucu otomatik ekler).
 /// </summary>
@@ -33,15 +33,13 @@ public class PingSystem : NetworkBehaviour
         if (ChatUI.IsTyping || SessionMenuUI.IsPaused || PlayerInventory.IsPanelOpen || PlayerController.InputLocked) return;
         if (Cursor.lockState != CursorLockMode.Locked || Time.unscaledTime < nextLocalPing) return;
 
-        bool pressed = (Mouse.current != null && Mouse.current.middleButton.wasPressedThisFrame && !PlayerAvatar.PreviewActive) ||
-                       (Keyboard.current != null && Keyboard.current.fKey.wasPressedThisFrame && !PushSystem.HasTargetInFront);
+        bool pressed = Mouse.current != null && Mouse.current.middleButton.wasPressedThisFrame && !PlayerAvatar.PreviewActive;
         if (!pressed) return;
 
         Camera cam = Camera.main;
         if (cam == null) return;
 
-        if (!Physics.Raycast(cam.transform.position, cam.transform.forward, out RaycastHit hit, maxDistance, ~0, QueryTriggerInteraction.Ignore))
-            return;
+        if (!RaycastIgnoringSelf(cam.transform.position, cam.transform.forward, out RaycastHit hit)) return;
 
         int itemIndex = -1;
         ItemDatabase db = ItemDatabase.Instance;
@@ -55,6 +53,26 @@ public class PingSystem : NetworkBehaviour
 
         nextLocalPing = Time.unscaledTime + cooldown;
         PingRpc(hit.point + hit.normal * 0.05f, itemIndex);
+    }
+
+    private static readonly RaycastHit[] hitBuffer = new RaycastHit[32];
+
+    /// <summary>Kameradan ileri ışın; yerel oyuncunun kendi parçalarına (kafa, gövde, eldeki eşya) çarpanları atlar, en yakın diğerini döner.</summary>
+    private bool RaycastIgnoringSelf(Vector3 origin, Vector3 dir, out RaycastHit best)
+    {
+        best = default;
+        Transform self = PlayerInventory.Local != null ? PlayerInventory.Local.transform : null;
+        int n = Physics.RaycastNonAlloc(origin, dir, hitBuffer, maxDistance, ~0, QueryTriggerInteraction.Ignore);
+        float bestD = float.MaxValue;
+        bool found = false;
+        for (int i = 0; i < n; i++)
+        {
+            RaycastHit h = hitBuffer[i];
+            if (h.collider == null || h.distance < 0.05f) continue;
+            if (self != null && h.collider.transform.IsChildOf(self)) continue;
+            if (h.distance < bestD) { bestD = h.distance; best = h; found = true; }
+        }
+        return found;
     }
 
     /// <summary>Haritadan işaret (kamyon monitörü — BodyCam): verilen dünya noktasına ekibin gördüğü bir işaret koyar.</summary>

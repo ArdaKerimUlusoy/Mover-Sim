@@ -73,10 +73,13 @@ public class PlayerNetworkSetup : NetworkBehaviour
     public static int OutfitFace(int packed) => Mathf.Min((packed >> 2) & 3, FaceCount - 1);
     public static int OutfitBuild(int packed) => Mathf.Min((packed >> 4) & 3, BuildCount - 1);
 
-    /// <summary>Kayıtlı kıyafet (menüde seçilir, bilgisayara kaydedilir).</summary>
+    /// <summary>
+    /// Kıyafet seçimi kaldırıldı: tek karakter modeli var, oyuncular yalnızca RENKLE ayrılır. Herkes varsayılan kıyafettedir
+    /// (eski kayıtlı seçimler yok sayılır). İmza / ağ verisi korunur.
+    /// </summary>
     public static int SavedOutfit
     {
-        get => PlayerPrefs.GetInt(OutfitPrefKey, 0) & 63;
+        get => 0;
         set
         {
             PlayerPrefs.SetInt(OutfitPrefKey, value & 63);

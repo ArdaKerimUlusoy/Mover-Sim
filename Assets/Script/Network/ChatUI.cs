@@ -126,7 +126,7 @@ public class ChatUI : MonoBehaviour
             count++;
         }
 
-        bool showHint = !IsTyping && !SessionMenuUI.IsPaused && count == 0;
+        bool showHint = false; // sade HUD: boşta "[Enter] Sohbet" ipucu yazılmaz (tuşlar Ayarlar > Kontroller'de)
         float linesH = 0f;
         for (int i = 0; i < count; i++) linesH += heights[i] + gap;
         float blockH = count > 0 ? linesH + padY * 2f - gap : 0f;
@@ -166,7 +166,7 @@ public class ChatUI : MonoBehaviour
             float panelAlpha = 1f;
             if (!IsTyping) panelAlpha = Mathf.Clamp01(fadeAfterSeconds + 1f - (now - measured[0].Time));
             Rect block = new Rect(x, bottom - blockH, W, blockH);
-            UIUtil.Panel(block, PanelKind.Plaque, 0.88f * panelAlpha);
+            UIUtil.HudCard(block, panelAlpha);
 
             float y = block.y + padY;
             for (int i = count - 1; i >= 0; i--)
