@@ -1321,3 +1321,48 @@ Yalnızca **Tek Oyunculu** (ana menü → Tek Oyunculu / Öğretici; `SessionMan
 - **Yakalanıp koşu sıfırlanınca boşlukta doğma:** yeni görev başında ışınlanmadan kısa süre sonra garajda / kamyonda olmayan oyuncu tekrar başlangıç noktasına ışınlanır (`MuseumSession.ServerVerifySpawns`); ayrıca haritanın altına (y < -40) düşen oyuncu başlangıca döner (`PlayerStealth`).
 - **Küçük ganimetler para eder:** karaborsada satınca eserler gibi para verir (ekip / kişisel paylaşılır, kotaya sayılır; çalıntı "sıcak" fiyat) ve üstüne eskisi gibi ortak yetenek puanı. Satış satırında "$X +Y puan".
 - Sahnedeki ganimetler kaldırılırken NGO'nun "in-scene object destroy" uyarısı giderildi (`WorldItem.ServerRemoveSceneItem`).
+
+## Ek 47: Yeni ana karakter — Soygun (tasarımcının animasyonlarıyla)
+
+- Oyuncu karakteri artık **Soygun** (`Assets/Resources/Characters/SoygunChar.fbx`, dokular `Characters/Textures/`). Dosya bulunamazsa eski BitirmeChar (kodla animasyon) devreye girer; BitirmeChar silinmedi (ikonlar da onu kullanıyor).
+- Model 183k → ~46k üçgen (yüz en az sadeleştirildi). Tasarımcının 10 animasyon dosyası tek FBX'e aktarıldı ve tasarımcının kontrol görüntüleriyle karşılaştırıldı: pozlar aynı. Kemikler oyunun adlarına çevrildi (Hips, Spine, Chest, Neck, Head, UpperArm.L, Hand.R, Index_Proximal.L, Foot.L, Toes.L...; taşıma noktaları CarryPainting / CarryBig / Grip.R, gözler Eye.L/R).
+- **Animasyonlar** (`PlayerAvatarClips.cs`, Legacy Animation): Idle, Walk (geri yürürken ters), Run (Shift), Itme (F ile itince, yalnızca üst gövde — herkes görür: `PlayerStealth.PushAnimRpc`), Tasima_Tablo_Idle/Walk (tablo), Tasima_Buyuk_Idle/Walk (vazo, büst...), Tasima_Kucuk_Idle/Walk (yüzük, küçük ganimet, alet — sağ elde). Adım hızı gerçek hıza göre.
+- Animasyonun üstüne: eğilme, zıplama, yana yürüme, fırça kolu ve boyama hareketi, baygınlık (eski düşme pozu).
+- **Kafa / göz bakışı:** biri sesli konuşunca (12 m) kafa hafifçe ona döner, gözler kalan açıyı kapatır (konuşma bitince 2 sn daha); yoksa yakındaki (6 m) oyuncuya göz atar; kimse yoksa oyuncunun baktığı yöne (yukarı / aşağı) eğilir. Ayarlar tasarımcının SoygunBakis.cs'inden (%35, en çok 35°, göz ±5,5° / ±6°, görüş 110°). `VoiceChat.IsSpeaking(clientId)` eklendi.
+- Oyuncu rengi berede (bere ayrı malzeme `G_Bere`). Birinci şahıs kollar da yeni karakterin kolları (`FirstPersonArms`, meta Read/Write açık).
+
+## Ek 48: Soygun karakteri düzeltmeleri (fırça, tutma, birinci şahıs kollar, ayaklar, dış çizgi, yürüyüş)
+
+- **Birinci şahıs kollar görünmüyordu:** kol / ön kol ara kemikleri (UpperArmTwist, LowerArmTwist, UpperLegTwist, LowerLegTwist) yanlış adlanmıştı → kol kesme kodu kolları bulamıyordu. Adlar düzeltildi; kollar (kazak kolu + el) artık görünür.
+- **Animasyon sırası:** klipler artık LateUpdate'te elle örnekleniyor (`PoseNow`); Animation bileşeni kendi kendine poz yazmıyor. Sıra her karede aynı: klip → itme (üst gövde) → baygınlık / fırça kolu → eğilme / zıplama / yana yürüme → eşya tutma → bakış. Fırça / eşya konumunu okuyan scriptler de önce bu pozu kurdurur (bir kare geride kalmaz).
+- **Fırça:** sağ el fırçayı tutar (kol öne kalkar, parmaklar sapı sarar).
+- **Tablo / vazo (üçüncü şahıs):** eşya tasarımcının taşıma noktasında (CarryPainting / CarryBig); taşıma animasyonunun üstüne eller eşyanın iki kenarını kavrar (IK + parmaklar). Yüksek eşya yüzü kapatmasın diye üst kenarı çene hizasında tutulur. Yassı eşyalar (tuval / çerçeve) tablo gibi taşınır.
+- **Ayaklar yerde:** yürüme / koşu kliplerinde ayakkabının en alt noktası her karede yere oturtuldu (Blender'da, Root kemiği); oyunda zemine ışın atılıp karakter yere indirilir (CharacterController'ın deri payı yüzünden havada duruyordu).
+- **Yürüyüş / koşu:** kollar gövdeye yaklaştırıldı (Idle, Walk, Run, Itme: ~50° → ~30° açıklık); yürürken / koşarken üst gövdenin sallanması yarıya indirildi.
+- **Dış siyah çizgi** (güvenlikteki gibi, ters kabuk `G_Kontur`): sadeleştirilmiş kopya, ~14k üçgen. Toplam ~62k üçgen.
+
+## Ek 49: Soygun — tutuş, birinci şahıs kollar, dış çizgi, boy, koşu
+
+- **Tablo tutma (üçüncü şahıs):** bilekler tablonun iki yan kenarında (alt yarıda), parmaklar kenarı arkadan sarar, başparmak önde. Büyük eşyada (vazo, büst) avuçlar yanlardan sarar. Bilekler animasyondaki halinden en çok 70° bükülür (kol ile el arasında boşluk / yırtık kalmaz); fırça tutan bilek en çok 55°.
+- **Birinci şahıs kollar:** dış çizgi kabuğu birinci şahısta çizilmez (kameranın dibinde siyah lekeler / bilekte "boşluk" görünüyordu); eller gerçek boyunda (küçültülünce kol ucuyla el arasında açıklık kalıyordu); kollar biraz küçük çizilir → elde tutulan tablo / vazo orantılı görünür.
+- **Dış çizgi:** omuzlarda / kollarda görünmüyordu (çok sadeleştirilmiş kabuk kabarık kolların içinde kalıyordu). Kabuk daha az sadeleştirildi ve biraz kalınlaştı (~31k üçgen; toplam ~77k).
+- **Boy:** Soygun artık 1,75 m (insanlardan biraz kısa). Kamera / oyun mantığı değişmedi.
+- **Koşu:** yürüyüşün hızlısı gibi durmasın diye ayrı stil: gövde öne eğik (15°), kollar daha geniş savrulur, dirsekler bükük; oynatma hızı düşürüldü.
+
+## Ek 50: Birinci şahıs kolda açıklık (düzeltme)
+
+- Kamera kolun boyunca baktığı için kabarık kazak kolunun ağzından içi görünüyordu; malzeme tek yüzlü olduğundan iç taraf çizilmiyor, kolda delik / açıklık kalıyordu. Birinci şahıs kolların malzemeleri artık çift yüzlü kopyalar (`FirstPersonArms`, `_Cull = Off`); karakterin kendisi değişmedi.
+
+## Ek 51: Birinci şahıs kazak kolunda delik (asıl sebep)
+
+- Soygun'un kazak kolunda bazı köşeler omuz kemiğine (Shoulder.L/R) boyalı; kol kesme kodu "üç köşesi de kolda olan üçgeni al" kuralıyla bu üçgenleri atıyordu → kolun ortasında dikdörtgen delikler. Yeni kural: üç köşesi de kol + omuz bölgesinde ve en az biri kolda olan üçgen alınır (gövde yine gelmez). Blender'da kesilen kol her açıdan çizildi: delik yok.
+
+## Ek 52: Birinci şahıs tutuş eski haline döndü
+
+- Kendi ekranında eşya / fırça tutan kollar yeniden eski karakterin (BitirmeChar) kolları; `FirstPersonArms.cs` Soygun'dan önceki haline birebir geri alındı (aynı ölçek, aynı eldivenli eller, aynı kavrama). Soygun karakteri yalnızca dışarıdan (diğer oyuncular, F5, ayna) görünür; birinci şahıs görüntü eski oyundaki gibi.
+
+## Ek 53: Birinci şahıs kollar yeniden Soygun'un kolları (deliksiz)
+
+- Kendi ekranındaki kollar yine Soygun'un kolları; yerleşim ve kavrama eski oyundaki gibi (omuz noktası, IK, parmak kavrayışı aynı). Ölçek: kol 1.0, el 1.25 (çıplak eller eskisindeki eldivenler kadar dolgun dursun).
+- Kolda delik: sadeleştirmede kazak kolunda omuza kadar uzanan ince üçgenler oluşmuş; kol kesme kuralı bunları atınca delik kalıyordu. Yeni kural (yalnızca Soygun): iki köşesi kolda olan üçgen de alınır, omuzdaki parçalar gelmez. Blender'da birinci şahıs görüntü taklit edilip kontrol edildi: delik yok.
+- Dış çizgi birinci şahısta çizilmez; malzemeler çift yüzlü kopya. Modelde 7 köşenin hatalı (komşularından çok farklı) ağırlığı düzeltildi.

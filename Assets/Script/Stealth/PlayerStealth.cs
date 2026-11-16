@@ -331,6 +331,19 @@ public partial class PlayerStealth : NetworkBehaviour
         if (IsServer) hidden.Value = value;
     }
 
+    /// <summary>Sunucu: bu oyuncu itti → herkes itme animasyonunu görür (Soygun karakteri).</summary>
+    public void ServerPlayPushAnim()
+    {
+        if (IsServer && IsSpawned) PushAnimRpc();
+    }
+
+    [Rpc(SendTo.Everyone)]
+    private void PushAnimRpc()
+    {
+        PlayerAvatar av = GetComponent<PlayerAvatar>();
+        if (av != null) av.PlayPushAnim();
+    }
+
     // ---------------- Sahibe komutlar ----------------
 
     [Rpc(SendTo.Owner)]

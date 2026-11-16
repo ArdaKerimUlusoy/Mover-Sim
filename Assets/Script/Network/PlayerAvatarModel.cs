@@ -26,8 +26,12 @@ using UnityEngine.Rendering;
 /// </summary>
 public partial class PlayerAvatar
 {
-    private const string ModelResource = "Characters/BitirmeChar";
+    // Yeni ana karakter (Soygun: kendi animasyonlarıyla). Bulunamazsa eski BitirmeChar (kodla animasyon) kullanılır.
+    private const string ModelResource = "Characters/SoygunChar";
+    private const string OldModelResource = "Characters/BitirmeChar";
     private const float ModelHeight = 2.0f; // CharacterController boyu (kamera ~1.6 m: karakterin göz hizası)
+    private const float SoygunHeight = 1.75f; // Soygun: insanlardan (güvenlik / ziyaretçi) biraz kısa, sevimli
+    private bool isSoygun;
 
     private class Bone
     {
@@ -73,6 +77,7 @@ public partial class PlayerAvatar
     {
         point = Vector3.zero;
         handGap = 0f;
+        if (animated) return TryGetCarryPoint(out point, out handGap);
         if (model == null || mUpArmL == null || mUpArmR == null || mUpArmL.t == null || mUpArmR.t == null) return false;
         // Eşya göğsün önünde, kollar öne uzanmış: iki omzun ortasından biraz aşağı ve öne (eller onun iki yanını kavrar — IK)
         Vector3 sh = (mUpArmL.t.position + mUpArmR.t.position) * 0.5f;
@@ -92,7 +97,9 @@ public partial class PlayerAvatar
     public bool TryGetBrushGrip(out Vector3 pos, out Vector3 dir)
     {
         pos = Vector3.zero; dir = Vector3.up;
-        if (model == null || mHandR == null || mHandR.t == null || brushSmooth < 0.05f) return false;
+        if (animated) PoseNow(); // Soygun: el bu karenin pozunda
+        float bs = animated && brushHold ? 1f : brushSmooth;
+        if (model == null || mHandR == null || mHandR.t == null || bs < 0.05f) return false;
         Transform h = mHandR.t;
         // Parmakların sardığı nokta ile aynı (CurlFingers'taki avuç merkezi): fırça yumruğun içinden geçsin
         pos = midFingerR != null ? h.position + (midFingerR.position - h.position) * 0.5f - body.right * (0.05f * model.lossyScale.y)
@@ -206,6 +213,12 @@ public partial class PlayerAvatar
         GameObject prefab = null;
         try { prefab = Resources.Load<GameObject>(ModelResource); }
         catch (System.Exception) { prefab = null; }
+        isSoygun = prefab != null;
+        if (prefab == null)
+        {
+            try { prefab = Resources.Load<GameObject>(OldModelResource); }
+            catch (System.Exception) { prefab = null; }
+        }
         if (prefab == null) return; // model yoksa eski gövde
 
         GameObject go = Instantiate(prefab, root, false);
@@ -235,7 +248,7 @@ public partial class PlayerAvatar
         // 2) Boy: dinlenme pozundaki mesh sınırlarından ölç, oyuncu boyuna ölçekle, ayakları yere (kök y=0) oturt
         if (MeasureModel(out float minY, out float maxY) && maxY - minY > 0.01f)
         {
-            float s = ModelHeight / (maxY - minY);
+            float s = (isSoygun ? SoygunHeight : ModelHeight) / (maxY - minY);
             model.localScale = Vector3.one * s;
             if (MeasureModel(out minY, out maxY)) model.localPosition = new Vector3(0f, -minY, 0f);
         }
@@ -263,6 +276,7 @@ public partial class PlayerAvatar
             thighLen = Vector3.Distance(mUpLegL.t.position, mLoLegL.t.position);
             shinLen = Vector3.Distance(mLoLegL.t.position, mFootL.t.position);
         }
+        SetupClips(bones); // Soygun: hazır animasyonlar (Idle, Walk, Run, Itme, Taşıma...) + kafa / göz bakışı
 
         // 4) Yüz ifadeleri (blend shape): göz kırpma, ağız açma
         if (modelSkin != null && modelSkin.sharedMesh != null)
@@ -295,6 +309,7 @@ public partial class PlayerAvatar
         if (modelSkin != null)
         {
             Material[] mats = modelSkin.sharedMaterials;
+            EnsureSoygunTextures(mats); // içe aktarmada doku bağlanmadıysa Resources'tan bağla
             for (int i = 0; i < mats.Length; i++)
             {
                 if (mats[i] == null) continue;
@@ -304,7 +319,8 @@ public partial class PlayerAvatar
                     mats[i] = modelOverallMat;
                     continue;
                 }
-                if (!mats[i].name.StartsWith("MAT_Beret") || mats[i].name.StartsWith("MAT_Beret_Band")) continue;
+                bool beret = mats[i].name.StartsWith("G_Bere") || (mats[i].name.StartsWith("MAT_Beret") && !mats[i].name.StartsWith("MAT_Beret_Band"));
+                if (!beret) continue;
                 modelBeretMat = new Material(mats[i]);
                 mats[i] = modelBeretMat;
             }
@@ -366,12 +382,23 @@ public partial class PlayerAvatar
     private void AnimateModel(float dt)
     {
         if (model == null) return;
+        runSmooth = Mathf.Lerp(runSmooth, Mathf.Clamp01((speedSmooth - 4.8f) / 2f), 1f - Mathf.Exp(-8f * dt)); // Shift ile koşu
+        airSmooth = Mathf.Lerp(airSmooth, wasGroundedGuess ? 0f : 1f, 1f - Mathf.Exp(-12f * dt));      // havada
+        brushSmooth = Mathf.Lerp(brushSmooth, brushHold ? 1f : 0f, 1f - Mathf.Exp(-10f * dt));
+        // Fırça: sağ kol öne kalkar; boyarken (duvar / lens) fırçayla sürme hareketi yapar
+        bool paintingNow = netSetup != null && netSetup.IsSpawned && netSetup.IsOwner ? SprayPaint.IsSpraying
+                         : stealth != null && stealth.IsSpawned && stealth.IsPaintingAnything;
+        paintSmooth = Mathf.Lerp(paintSmooth, paintingNow && brushHold ? 1f : 0f, 1f - Mathf.Exp(-10f * dt));
+        if (animated) { UpdateClips(dt); return; } // Soygun: klipler LateUpdate'te örneklenir (PoseNow)
+        AnimateProcedural(dt);
+    }
 
+    /// <summary>Kodla animasyon (eski karakter; Soygun'da baygınlık ve fırça kolu için karıştırılır).</summary>
+    private void AnimateProcedural(float dt)
+    {
         float knock = Mathf.Clamp01(knockSmooth);
         float notKnock = 1f - knock;
         float move = Mathf.Clamp01(speedSmooth / 4.5f);
-        runSmooth = Mathf.Lerp(runSmooth, Mathf.Clamp01((speedSmooth - 4.8f) / 2f), 1f - Mathf.Exp(-8f * dt)); // Shift ile koşu
-        airSmooth = Mathf.Lerp(airSmooth, wasGroundedGuess ? 0f : 1f, 1f - Mathf.Exp(-12f * dt));      // havada
         float run = runSmooth * notKnock, air = airSmooth * notKnock;
 
         // Gövde: eski gövdenin eğilmesi / sallanması (öne eğilme, eğilince daha çok)
@@ -415,12 +442,7 @@ public partial class PlayerAvatar
         Quaternion airL = Quaternion.Euler(-25f * air * freeArms, 0f, -35f * air * freeArms);
         Quaternion airR = Quaternion.Euler(-25f * air * freeArms, 0f, 35f * air * freeArms);
         Pose(mUpArmL, airL * armL.localRotation * idleL * armFixL);
-        brushSmooth = Mathf.Lerp(brushSmooth, brushHold ? 1f : 0f, 1f - Mathf.Exp(-10f * dt));
         float brushArm = brushSmooth * notKnock;
-        // Fırça: sağ kol öne kalkar; boyarken (duvar / lens) fırçayla sürme hareketi yapar
-        bool paintingNow = netSetup != null && netSetup.IsSpawned && netSetup.IsOwner ? SprayPaint.IsSpraying
-                         : stealth != null && stealth.IsSpawned && stealth.IsPaintingAnything;
-        paintSmooth = Mathf.Lerp(paintSmooth, paintingNow && brushHold ? 1f : 0f, 1f - Mathf.Exp(-10f * dt));
         float pt = Time.time;
         Quaternion brushR = Quaternion.Euler(-60f * brushArm - 18f * paintSmooth + Mathf.Sin(pt * 9f) * 12f * paintSmooth,
                                              -12f * brushArm + Mathf.Cos(pt * 7f) * 14f * paintSmooth, 0f);
@@ -434,7 +456,7 @@ public partial class PlayerAvatar
         Pose(mHandR, Quaternion.Euler(0f, -holdSmooth * 25f * notKnock, 0f));
 
         // Tutma: eller eşyanın iki kenarını kavrar (IK + parmaklar)
-        ApplyHoldIK(holdSmooth * notKnock);
+        ApplyHoldIK(animated ? 0f : holdSmooth * notKnock); // Soygun: taşıma animasyonları elleri kendisi yerleştirir
         // Fırça elde: avuç fırçanın sapına döner, parmaklar sapı sarar
         if (brushSmooth > 0.05f && notKnock > 0.5f && mHandR != null && midFingerR != null)
         {
@@ -514,6 +536,7 @@ public partial class PlayerAvatar
     /// <summary>F5: kendi karakterini arkadan gör (test için). Oyunun kamerasına dokunmaz; üstüne ayrı bir kamera çizer.</summary>
     private void LateUpdate()
     {
+        if (animated && model != null) PoseNow(); // Soygun: klip + üstüne katmanlar (bu karede başkası kurmadıysa)
         if (model == null || netSetup == null || !netSetup.IsSpawned || !netSetup.IsOwner) return;
         UnityEngine.InputSystem.Keyboard kb = UnityEngine.InputSystem.Keyboard.current;
         if (kb != null && kb.f5Key.wasPressedThisFrame && !ChatUI.IsTyping) SetPreview(!previewOn);

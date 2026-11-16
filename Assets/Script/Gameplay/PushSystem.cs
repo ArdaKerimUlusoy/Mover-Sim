@@ -271,6 +271,7 @@ public class PushSystem : MonoBehaviour
 
         PlayerStealth pusher = client.PlayerObject.GetComponent<PlayerStealth>();
         if (pusher == null || pusher.IsJailed || pusher.IsHidden) return;
+        pusher.ServerPlayPushAnim(); // itme animasyonu (herkeste)
 
         dir.y = 0f;
         dir = dir.sqrMagnitude > 0.001f ? dir.normalized : pusher.transform.forward;

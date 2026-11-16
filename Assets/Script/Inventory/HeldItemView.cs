@@ -37,6 +37,10 @@ public class HeldItemView : MonoBehaviour
     public bool IsShowing => visual != null;
     /// <summary>Eşyanın yarı genişliği (m): karakterin elleri bu kadar iki yanından kavrar.</summary>
     public float HalfWidth => visualHalfWidth;
+    /// <summary>Eşyanın yarı yüksekliği (m).</summary>
+    public float HalfHeight => visualHalfHeight;
+    /// <summary>Nasıl taşınır (karakter animasyonu): 1 tablo (iki elle göğüs önünde), 2 büyük eşya (iki elle), 3 küçük eşya (sağ elde).</summary>
+    public int CarryKind { get; private set; } = 2;
 
     [Tooltip("Açık: eşya karakterin elinde (kendi ekranında elinle tutarken). Kapalı: eski R.E.P.O tarzı önde süzülme.")]
     [SerializeField] private bool inHands = true;
@@ -66,12 +70,21 @@ public class HeldItemView : MonoBehaviour
         visual = newVisual;
         mass = def != null ? Mathf.Max(0.1f, def.weightKg) : 1f;
         radius = 0.2f;
+        bool thin = false;
         if (ItemVisuals.TryGetBounds(visual, out Bounds b))
         {
+            float mx = Mathf.Max(b.extents.x, b.extents.y, b.extents.z), mn = Mathf.Min(b.extents.x, b.extents.y, b.extents.z);
+            thin = mx > 0.12f && mn < mx * 0.22f; // tuval / çerçeve gibi yassı
             radius = Mathf.Clamp(Mathf.Max(b.extents.x, b.extents.y, b.extents.z) * 0.6f, 0.08f, 0.3f);
             visualHalfWidth = Mathf.Clamp(Mathf.Max(b.extents.x, b.extents.z), 0.06f, 0.45f);
             visualHalfHeight = Mathf.Clamp(b.extents.y, 0.04f, 0.45f);
         }
+        float maxExt = Mathf.Max(visualHalfWidth, visualHalfHeight);
+        string id = def != null && def.id != null ? def.id : "";
+        if (id.Contains("painting") || id.Contains("tablo") || id.Contains("canvas") || thin) CarryKind = 1;
+        else if (id.Contains("ring") || maxExt < 0.13f ||
+                 (def != null && (def.IsSmallLoot || def.type == ItemType.Tool || def.type == ItemType.Distraction))) CarryKind = 3;
+        else CarryKind = 2;
         ItemVisuals.SetShadows(visual, true);
         snap = true;
         lastRootPos = transform.position;

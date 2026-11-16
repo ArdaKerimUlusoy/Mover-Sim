@@ -334,10 +334,12 @@ public partial class PlayerAvatar : MonoBehaviour
         // Yana / çapraz yürüme (A / D): kalça ve bacaklar gidilen yöne döner (doğal adım atar), göğüs ve kafa öne bakmaya
         // devam eder (PlayerAvatarModel omurgayı ters çevirir). strafeSmooth = kalçanın dönüş açısı (derece).
         float hipYaw = 0f;
+        if (speed <= 0.25f) movingBack = false;
         if (speed > 0.25f)
         {
             Vector3 lv = transform.InverseTransformDirection(new Vector3(delta.x, 0f, delta.z));
             bool backward = lv.z < -0.3f * Mathf.Abs(lv.x);
+            movingBack = backward;
             hipYaw = Mathf.Atan2(lv.x, Mathf.Abs(lv.z)) * Mathf.Rad2Deg * (backward ? -1f : 1f);
             hipYaw = Mathf.Clamp(hipYaw, -70f, 70f);
         }

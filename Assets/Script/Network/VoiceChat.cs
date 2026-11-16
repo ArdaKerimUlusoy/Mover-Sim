@@ -163,6 +163,13 @@ public class VoiceChat : MonoBehaviour
             return false;
         }
     }
+    /// <summary>Bu oyuncu şu an sesli konuşuyor mu? (Karakterlerin kafası konuşana döner — PlayerAvatarClips.)</summary>
+    public bool IsSpeaking(ulong clientId)
+    {
+        NetworkManager nm = NetworkManager.Singleton;
+        if (nm != null && nm.IsListening && clientId == nm.LocalClientId) return Transmitting;
+        return remotes.TryGetValue(clientId, out Remote r) && r.Speaking && r.Audible;
+    }
     private readonly List<ulong> toRemove = new List<ulong>();
     private readonly List<ulong> targets = new List<ulong>();
     private float nextCleanup;

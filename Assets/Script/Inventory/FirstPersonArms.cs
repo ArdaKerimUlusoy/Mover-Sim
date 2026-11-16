@@ -11,13 +11,16 @@ using UnityEngine;
 /// </summary>
 public class FirstPersonArms : MonoBehaviour
 {
-    private const string ModelResource = "Characters/BitirmeChar";
+    // Ana karakter (Soygun) kolları; yoksa eski BitirmeChar. Yerleşim / kavrama eski oyundakiyle aynı, yalnızca ölçek modele göre.
+    private const string ModelResource = "Characters/SoygunChar";
+    private const string OldModelResource = "Characters/BitirmeChar";
     // Oyuncu modeline göre ölçek: kollar karakterin kendi kolu gibi dursun (çok büyük olmasın) ama eşyaya yetişsin
-    private const float ViewScale = 1.35f;
+    private float ViewScale = 1.35f;
+    private static bool soygunArms;
     // Omuzlar ekranın altında (görünmez); sevimli modelin kolları kısa olduğu için biraz önde: eller eşyanın kenarına yetişsin
     private static readonly Vector3 ShoulderLocal = new Vector3(0f, -0.42f, 0.47f);
     private int lastPoseFrame = -10;
-    private const float HandScale = 0.55f;
+    private float HandScale = 0.55f;
 
     private static Mesh armsMesh;
     private static bool meshFailed;
@@ -103,8 +106,11 @@ public class FirstPersonArms : MonoBehaviour
         if (root != null && root.gameObject.activeSelf) root.gameObject.SetActive(false);
     }
 
+    private readonly List<Material> ownedMats = new List<Material>();
+
     private void OnDestroy()
     {
+        foreach (Material m in ownedMats) if (m != null) Destroy(m);
         if (root != null) Destroy(root.gameObject);
     }
 
@@ -113,12 +119,20 @@ public class FirstPersonArms : MonoBehaviour
         built = true;
         GameObject prefab = null;
         try { prefab = Resources.Load<GameObject>(ModelResource); } catch (System.Exception) { }
+        soygunArms = prefab != null;
+        // Soygun: kolları uzun → biraz küçük çizilir; elleri çıplak / küçük → biraz büyütülür (eski eldivenli eller kadar dolgun dursun)
+        if (soygunArms) { ViewScale = 1.0f; HandScale = 1.25f; }
+        else
+        {
+            try { prefab = Resources.Load<GameObject>(OldModelResource); } catch (System.Exception) { }
+        }
         if (prefab == null) return false;
 
         GameObject go = Instantiate(prefab);
         go.name = "FirstPersonArms";
         root = go.transform;
         foreach (Animator a in go.GetComponentsInChildren<Animator>(true)) a.enabled = false;
+        foreach (Animation a in go.GetComponentsInChildren<Animation>(true)) a.enabled = false; // kolları IK yönetir
         foreach (Collider c in go.GetComponentsInChildren<Collider>(true)) Destroy(c);
         SkinnedMeshRenderer smr = go.GetComponentInChildren<SkinnedMeshRenderer>(true);
         if (smr == null || smr.sharedMesh == null) { Destroy(go); root = null; return false; }
@@ -126,6 +140,20 @@ public class FirstPersonArms : MonoBehaviour
         Mesh arms = ArmsOnly(smr);
         if (arms == null) { Destroy(go); root = null; return false; }
         smr.sharedMesh = arms;
+        if (soygunArms)
+        {
+            // Çift yüzlü kopya malzemeler: kesilen kolun kenarından içi görünürse delik gibi durmasın
+            Material[] ms = smr.sharedMaterials;
+            for (int i = 0; i < ms.Length; i++)
+            {
+                if (ms[i] == null) continue;
+                Material c = new Material(ms[i]);
+                if (c.HasProperty("_Cull")) c.SetFloat("_Cull", 0f);
+                ownedMats.Add(c);
+                ms[i] = c;
+            }
+            smr.sharedMaterials = ms;
+        }
         smr.updateWhenOffscreen = true;
         smr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
         smr.receiveShadows = false;
@@ -201,38 +229,59 @@ public class FirstPersonArms : MonoBehaviour
         }
         Transform[] bones = smr.bones;
         var armBone = new bool[bones.Length];
+        var shoulderBone = new bool[bones.Length];
         for (int i = 0; i < bones.Length; i++)
         {
             string n = bones[i] != null ? bones[i].name : "";
+            shoulderBone[i] = n.StartsWith("Shoulder");
             armBone[i] = n.StartsWith("UpperArm") || n.StartsWith("LowerArm") || n.StartsWith("Hand") || n.StartsWith("Grip") ||
                          n.StartsWith("Index") || n.StartsWith("Middle") || n.StartsWith("Ring") || n.StartsWith("Little") || n.StartsWith("Thumb");
         }
         BoneWeight[] w = src.boneWeights;
         if (w == null || w.Length != src.vertexCount) { meshFailed = true; return null; }
-        var keepV = new bool[w.Length];
+        var keepV = new bool[w.Length];   // kol köşesi (kol / el ağırlığı ≥ %50)
+        var nearV = new bool[w.Length];   // kol + omuz ≥ %50
         for (int v = 0; v < w.Length; v++)
         {
             BoneWeight b = w[v];
-            float arm = 0f;
-            if (b.boneIndex0 < armBone.Length && armBone[b.boneIndex0]) arm += b.weight0;
-            if (b.boneIndex1 < armBone.Length && armBone[b.boneIndex1]) arm += b.weight1;
-            if (b.boneIndex2 < armBone.Length && armBone[b.boneIndex2]) arm += b.weight2;
-            if (b.boneIndex3 < armBone.Length && armBone[b.boneIndex3]) arm += b.weight3;
+            float arm = 0f, sh = 0f;
+            Acc(b.boneIndex0, b.weight0, armBone, shoulderBone, ref arm, ref sh);
+            Acc(b.boneIndex1, b.weight1, armBone, shoulderBone, ref arm, ref sh);
+            Acc(b.boneIndex2, b.weight2, armBone, shoulderBone, ref arm, ref sh);
+            Acc(b.boneIndex3, b.weight3, armBone, shoulderBone, ref arm, ref sh);
             keepV[v] = arm >= 0.5f;
+            nearV[v] = arm + sh >= 0.5f;
         }
         Mesh m = Instantiate(src);
         m.name = "BitirmeChar_ArmsOnly";
         m.ClearBlendShapes();
+        Material[] smMats = smr.sharedMaterials;
         for (int sm = 0; sm < src.subMeshCount; sm++)
         {
+            // Dış çizgi kabuğu birinci şahısta çizilmez (kameranın dibinde kalın siyah lekeler olur)
+            if (sm < smMats.Length && smMats[sm] != null && smMats[sm].name.StartsWith("G_Kontur")) { m.SetTriangles(new List<int>(), sm); continue; }
             int[] tris = src.GetTriangles(sm);
             var kept = new List<int>(tris.Length / 4);
             for (int i = 0; i + 2 < tris.Length; i += 3)
-                if (keepV[tris[i]] && keepV[tris[i + 1]] && keepV[tris[i + 2]]) { kept.Add(tris[i]); kept.Add(tris[i + 1]); kept.Add(tris[i + 2]); }
+            {
+                int a = tris[i], b2 = tris[i + 1], c = tris[i + 2];
+                int armCount = (keepV[a] ? 1 : 0) + (keepV[b2] ? 1 : 0) + (keepV[c] ? 1 : 0);
+                // Soygun: kazak kolunda omuza kadar uzanan ince üçgenler var; iki köşesi kolda olan üçgen de alınır (kolda delik kalmaz),
+                // yalnızca omuzdaki parçalar gelmez. Eski karakter: eski kural (üç köşe de kolda).
+                bool keep = soygunArms ? armCount >= 2 && nearV[a] && nearV[b2] && nearV[c] : armCount == 3;
+                if (keep) { kept.Add(a); kept.Add(b2); kept.Add(c); }
+            }
             m.SetTriangles(kept, sm);
         }
         armsMesh = m;
         return m;
+    }
+
+    private static void Acc(int bi, float wt, bool[] armBone, bool[] shoulderBone, ref float arm, ref float sh)
+    {
+        if (bi < 0 || bi >= armBone.Length) return;
+        if (armBone[bi]) arm += wt;
+        else if (shoulderBone[bi]) sh += wt;
     }
 
     private static Vector3 PalmNormal(Transform hand, Transform mid, Transform index, Transform little, float sign, out Vector3 finger)
