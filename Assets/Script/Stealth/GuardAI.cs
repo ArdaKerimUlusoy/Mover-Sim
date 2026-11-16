@@ -163,6 +163,35 @@ public class GuardAI : NetworkBehaviour
         if (look != null) look.PlayDaze(seconds);
     }
 
+    /// <summary>Jop_Vurus animasyonunda jopun inip vurduğu an (sn): bayılma bu anda olur (animasyondan ölçüldü: 30 fps, ~13. kare).</summary>
+    public const float HitImpactSeconds = 0.42f;
+
+    /// <summary>Sunucu: jopla vurmadan önce hedefe döner ve vuruş bitene kadar yerinde durur (arkasından iten oyuncuya döner).</summary>
+    public void ServerFaceForHit(Vector3 target)
+    {
+        if (!IsServer || !Online) return;
+        Vector3 d = target - transform.position; d.y = 0f;
+        if (d.sqrMagnitude > 0.0001f) transform.rotation = Quaternion.LookRotation(d.normalized, Vector3.up);
+        slipUntil = Mathf.Max(slipUntil, Time.time + HitImpactSeconds + 0.35f); // "dur" mekanizması: vuruş boyunca yürümez
+        slipping = true;
+        if (agent.enabled && agent.isOnNavMesh) { agent.isStopped = true; agent.velocity = Vector3.zero; }
+    }
+
+    /// <summary>Sunucu: görsel hareket (1 = jopla vuruş, 2 = itildi) herkeste oynar.</summary>
+    public void ServerPlayAction(byte kind)
+    {
+        if (IsServer && IsSpawned) ActionRpc(kind);
+    }
+
+    [Rpc(SendTo.Everyone)]
+    private void ActionRpc(byte kind)
+    {
+        GuardLook look = GetComponent<GuardLook>();
+        if (look == null) return;
+        if (kind == 1) look.PlayHit();
+        else if (kind == 2) look.PlayPushed();
+    }
+
     [Rpc(SendTo.Everyone)]
     private void SlipRpc(float seconds)
     {
@@ -607,7 +636,7 @@ public class GuardAI : NetworkBehaviour
                 if (Vector3.Distance(transform.position, huntSpot.transform.position) <= 2.1f)
                 {
                     PlaySoundRpc(SoundId.GuardAlert, transform.position);
-                    if (huntSpot.ServerEvict(focus)) focus.ServerCatch();
+                    if (huntSpot.ServerEvict(focus)) { ServerPlayAction(1); focus.ServerCatch(); }
                     huntSpot = null;
                     focus = null;
                 }
@@ -644,6 +673,7 @@ public class GuardAI : NetworkBehaviour
             if (Vector3.Distance(transform.position, focus.transform.position) <= catchDistance)
             {
                 PlaySoundRpc(SoundId.GuardAlert, transform.position);
+                ServerPlayAction(1); // jopla vurur
                 focus.ServerCatch();
                 focus = null;
             }
@@ -705,6 +735,7 @@ public class GuardAI : NetworkBehaviour
         if (hider != null && h.ServerEvict(hider))
         {
             PlaySoundRpc(SoundId.GuardAlert, transform.position);
+            ServerPlayAction(1);
             hider.ServerCatch(); // dolapta saklanırken bulundu
         }
         lookAroundUntil = Time.time + 1.2f;

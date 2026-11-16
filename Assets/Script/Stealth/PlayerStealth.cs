@@ -142,6 +142,14 @@ public partial class PlayerStealth : NetworkBehaviour
     {
         if (!IsSpawned) return;
 
+        // Güvence: haritanın altına düşen (zemini silinmiş) oyuncu başlangıç noktasına döner
+        if (IsOwner && !IsJailed && transform.position.y < -40f)
+        {
+            GarageSpawnPoint gp = GarageSpawnPoint.For(OwnerClientId);
+            Transform t = gp != null ? gp.transform : SpawnPoint.All.Count > 0 ? SpawnPoint.All[(int)(OwnerClientId % (ulong)SpawnPoint.All.Count)].transform : null;
+            if (t != null) LocalTeleport(t.position + Vector3.up, t.eulerAngles.y);
+        }
+
         if (IsOwner && controller != null)
         {
             bool c = controller.IsCrouching;
@@ -373,10 +381,10 @@ public partial class PlayerStealth : NetworkBehaviour
         {
             double left = jailedUntil.Value - NetworkManager.ServerTime.Time;
             HudKit.Banner(Loc.T("jail.banner"), IconId.Jail, UITheme.Danger, UITheme.DangerLight);
-            string jailLine = SoloGame
-                ? Loc.T("jail.wait", Mathf.Max(0, Mathf.CeilToInt((float)left)))
-                : Loc.T("jail.waitmulti"); // çok oyunculu: geri sayım yok, arkadaş kurtarmalı
-            HudKit.Banner(jailLine, IconId.Clock, UITheme.Brass, UITheme.Ivory);
+            // Süreyle çıkış yok: çok oyunculuda arkadaş kurtarır; tek oyunculuda anahtar çizilir (yönerge PaintBrush'ta)
+            // Çok oyunculu: arkadaş kurtarır. Tek oyunculu: geri sayım (anahtar yönergesi PaintBrush'ta)
+            if (!JailCell.KeyEscapeAllowed) HudKit.Banner(Loc.T("jail.waitmulti"), IconId.Players, UITheme.Brass, UITheme.Ivory);
+            else HudKit.Banner(Loc.T("jail.wait.solo", Mathf.Max(0, Mathf.CeilToInt((float)left))), IconId.Clock, UITheme.Brass, UITheme.Ivory);
             return;
         }
 

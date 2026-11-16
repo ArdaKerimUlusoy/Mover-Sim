@@ -136,6 +136,53 @@ public class JailCell : Interactable
         if (SecurityManager.Instance != null) SecurityManager.Instance.ServerTriggerAlarm(transform.position, "alarm.jailbreak", rescuerStealth);
     }
 
+    // ---------------- Anahtar çizerek kaçış ----------------
+
+    /// <summary>Anahtar çizerek kaçış yalnızca TEK OYUNCULU modda (çok oyunculuda hapisten yalnızca arkadaş kurtarır).</summary>
+    public static bool KeyEscapeAllowed
+    {
+        get { SessionManager sm = SessionManager.Instance; return sm != null && sm.IsSinglePlayer; }
+    }
+
+    /// <summary>Sunucu: bu mahkumun anahtar çizip kaçma imkânı var mı (tek oyunculu + fırça + yeterli boya)?</summary>
+    public static bool CanKeyEscape(PlayerStealth p)
+    {
+        if (!KeyEscapeAllowed || p == null) return false;
+        PlayerInventory inv = p.GetComponent<PlayerInventory>();
+        return inv != null && inv.SprayCount >= KeyEscapePaint && PaintBrush.HasBrush(inv);
+    }
+
+    /// <summary>Hapisten anahtar çizerek kaçmanın boya bedeli (kutu).</summary>
+    public const int KeyEscapePaint = 2;
+
+    /// <summary>Hapisteki oyuncu fırçayla duvara ANAHTAR çizdi: sunucudan kaçış ister (PaintBrush çağırır).</summary>
+    public void RequestKeyEscape()
+    {
+        if (IsSpawned) KeyEscapeRpc();
+    }
+
+    [Rpc(SendTo.Server)]
+    private void KeyEscapeRpc(RpcParams rpcParams = default)
+    {
+        if (!NetworkManager.ConnectedClients.TryGetValue(rpcParams.Receive.SenderClientId, out NetworkClient client) || client.PlayerObject == null) return;
+        PlayerStealth p = client.PlayerObject.GetComponent<PlayerStealth>();
+        PlayerInventory inv = client.PlayerObject.GetComponent<PlayerInventory>();
+        if (p == null || inv == null || !p.IsJailed || !KeyEscapeAllowed) return;
+        if (Vector3.Distance(p.transform.position, InsidePos) > 8f) return; // hücrenin içinde olmalı
+        if (inv.SprayCount < KeyEscapePaint) return;
+        for (int i = 0; i < KeyEscapePaint; i++) inv.ServerUseSpray();
+
+        PlayerNetworkSetup ps = client.PlayerObject.GetComponent<PlayerNetworkSetup>();
+        string name = ps != null ? ps.PlayerName : "";
+        // Kaçarken bir güvenlik / kamera görürse alarm çalar ve aranır; görmezse sessiz kaçış (arkadaş kurtarmasıyla aynı kural)
+        bool seen = SeenBySecurity(p);
+        ServerRelease(p);
+        if (ChatManager.Instance != null) ChatManager.Instance.ServerSystemMessage("chat.keyescape", name, "");
+        if (!seen) return;
+        p.ServerMarkOffender();
+        if (SecurityManager.Instance != null) SecurityManager.Instance.ServerTriggerAlarm(transform.position, "alarm.jailescape", p);
+    }
+
     // ---------------- Sunucu ----------------
 
     /// <summary>Sunucu: oyuncuyu hücreye koyar.</summary>
@@ -175,10 +222,11 @@ public class JailCell : Interactable
             if (p != null && p.IsSpawned && p.IsJailed) Instance.ServerRelease(p, false, teleport);
     }
 
+    // Çok oyunculu: süreyle çıkış YOK (yalnızca arkadaş kurtarır; herkes içerideyse koşu biter: MuseumSession.ServerCheckAllCaught).
+    // Tek oyunculu: anahtar çizerek ya da süre (jailSeconds, 30 sn) dolunca çıkılır.
     private void Update()
     {
-        if (!IsServer || !IsSpawned) return;
-        if (!PlayerStealth.SoloGame) return; // çok oyunculu: kendiliğinden çıkış YOK, yalnızca arkadaş kurtarabilir
+        if (!IsServer || !IsSpawned || !KeyEscapeAllowed) return;
         double now = NetworkManager.ServerTime.Time;
         foreach (PlayerStealth p in PlayerStealth.All)
         {

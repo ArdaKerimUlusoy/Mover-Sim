@@ -228,6 +228,21 @@ public class BriefingUI : MonoBehaviour
         UIUtil.ProgressBar(new Rect(x, y, w, 4f * sc), ratio, UITheme.Sage);
         y += 4f * sc + 22f * sc;
 
+        // Çantaya sığmayan hedef varsa (ör. büst) göreve çıkmadan önce net uyarı
+        ArtworkDisplay heavy = BagWarning.HeaviestTooHeavy(out float heavyKg);
+        if (heavy != null)
+        {
+            string wt = BagWarning.Message(heavy, heavyKg);
+            float iconS = 20f * sc, bp = 10f * sc;
+            float wh = Mathf.Ceil(UIUtil.MeasureHeight(wt, TextRole.Body, w - iconS - bp * 3f));
+            Rect warn = new Rect(x, y - 10f * sc, w, wh + bp * 2f);
+            UIUtil.Round(warn, UITheme.WithAlpha(UITheme.Ochre, 0.14f), UIUtil.RadiusSmall);
+            UIUtil.DrawRect(new Rect(warn.x, warn.y + 4f, 3f, warn.height - 8f), UITheme.Ochre);
+            UIUtil.Icon(new Rect(warn.x + bp, warn.y + bp, iconS, iconS), IconId.Bag, UITheme.Ochre);
+            UIUtil.Text(new Rect(warn.x + bp * 2f + iconS, warn.y + bp, w - iconS - bp * 3f, wh), wt, TextRole.Body, UITheme.Ivory, TextAnchor.UpperLeft);
+            y = warn.yMax + 14f * sc;
+        }
+
         UIUtil.Text(new Rect(x, y, w, 20f * sc), Loc.T("brief.goals.title", CountTargets()), TextRole.Section, UITheme.IvoryDim);
         y += 26f * sc;
 
@@ -272,7 +287,7 @@ public class BriefingUI : MonoBehaviour
         return n;
     }
 
-    private static float RowHeight(ArtworkDisplay d, float sc) => (d.IsSwapped || d.IsStaffOnlyPiece) ? 74f * sc : 56f * sc;
+    private static float RowHeight(ArtworkDisplay d, float sc) => (d.IsSwapped || d.IsStaffOnlyPiece || BagWarning.TooHeavy(d)) ? 74f * sc : 56f * sc;
 
     // Tek hedef: hafif zeminli satır — ad (kalın), altında tür · ağırlık · yapım yöntemi; sağda değer; varsa durum satırı
     private void DrawTargetRow(Rect r, MuseumSession ms, ArtworkDisplay d, float sc)
@@ -294,6 +309,8 @@ public class BriefingUI : MonoBehaviour
         float ey = r.y + 50f * sc;
         if (d.IsSwapped)
             UIUtil.Text(new Rect(r.x + px, ey, r.width - px * 2f, 18f * sc), Loc.T("brief.swapped", d.LeftSimilarity), TextRole.Caption, UITheme.Sage);
+        else if (BagWarning.TooHeavy(d)) // çantaya sığmıyor: ne alınacağı yazılır
+            UIUtil.Text(new Rect(r.x + px, ey, r.width - px * 2f, 18f * sc), Loc.T("bagwarn.row", BagWarning.LocalCapacity.ToString("0.#"), Loc.T("upg.biggerbag.name")), TextRole.Caption, UITheme.Ochre);
         else if (d.IsStaffOnlyPiece) // özel hedef
             UIUtil.Text(new Rect(r.x + px, ey, r.width - px * 2f, 18f * sc), Loc.T("brief.staff"), TextRole.Caption, UITheme.Ochre);
     }

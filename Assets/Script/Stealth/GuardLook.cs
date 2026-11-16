@@ -44,8 +44,216 @@ public class GuardLook : MonoBehaviour
         Transform oldHat = transform.Find("Hat");
         if (oldHat != null) Destroy(oldHat.gameObject);
 
-        Build();
+        if (!TryBuildModel()) Build(); // yeni güvenlik modeli (Resources/Characters/GuardChar) yoksa eski parça parça bekçi
         lastPos = transform.position;
+    }
+
+    // =====================================================================
+    //  YENİ MODEL: secur_ty_boyali.blend (tasarımcının Rigify iskeleti + animasyonları) → GuardChar.fbx (Legacy animasyonlu)
+    //  Animasyonlar: Idle, Idle_Kizgin, Walk, Run, Jop_Vurus, Pushed. Yüz: Kizgin / Saskin blend shape.
+    // =====================================================================
+    private const string ModelResource = "Characters/GuardChar";
+    private const float ModelTargetHeight = 2.05f;   // şapka tepesi (eski bekçiyle aynı boy)
+    private const float BlendHeadY = 1.68f, BlendTotalH = 2.4f; // Blender'daki baş kemiği yüksekliği ve toplam boy (secur_ty_boyali.blend)
+    private Transform model, headBone;
+    private Animation anim;
+    private SkinnedMeshRenderer skin;
+    private int kizginShape = -1, saskinShape = -1;
+    private float kizginW, saskinW;
+    private string clipIdle, clipAngry, clipWalk, clipRun, clipHit, clipPushed;
+    private string curLoop;
+    private float actionUntil = -1f;
+    private float angryUntil = -1f, surprisedUntil = -1f;
+
+    private bool TryBuildModel()
+    {
+        GameObject prefab = null;
+        try { prefab = Resources.Load<GameObject>(ModelResource); } catch (System.Exception) { prefab = null; }
+        if (prefab == null) return false;
+
+        UnityEngine.AI.NavMeshAgent agent = GetComponent<UnityEngine.AI.NavMeshAgent>();
+        float baseOffset = agent != null ? agent.baseOffset : 1f;
+        Vector3 ls = transform.lossyScale;
+        root = new GameObject("GuardAvatar").transform;
+        root.SetParent(transform, false);
+        root.localPosition = new Vector3(0f, -baseOffset, 0f);
+        root.localScale = new Vector3(SafeInv(ls.x), SafeInv(ls.y), SafeInv(ls.z));
+
+        GameObject go = Instantiate(prefab, root, false);
+        go.name = "GuardModel";
+        model = go.transform;
+        model.localPosition = Vector3.zero;
+        model.localRotation = Quaternion.identity;
+        foreach (Collider c in go.GetComponentsInChildren<Collider>(true)) Destroy(c); // görüş ışınları / itme etkilenmesin
+
+        var bones = new Dictionary<string, Transform>();
+        foreach (Transform t in go.GetComponentsInChildren<Transform>(true)) if (!bones.ContainsKey(t.name)) bones[t.name] = t;
+        bones.TryGetValue("Head", out headBone);
+        bones.TryGetValue("Foot.L", out Transform foot);
+        bones.TryGetValue("Toes.L", out Transform toes);
+
+        // Yön: ayak parmağı ayağın önünde → modelin önü güvenliğin önüne (+Z)
+        if (foot != null && toes != null)
+        {
+            Vector3 f = root.InverseTransformDirection(toes.position - foot.position); f.y = 0f;
+            if (f.sqrMagnitude > 1e-6f) model.localRotation = Quaternion.FromToRotation(f.normalized, Vector3.forward);
+        }
+        // Boy: baş kemiğinin dinlenme yüksekliğinden ölçek (içe aktarma birimi ne olursa olsun)
+        if (headBone != null)
+        {
+            float hy = root.InverseTransformPoint(headBone.position).y;
+            if (hy > 0.01f) model.localScale = Vector3.one * (ModelTargetHeight / (BlendTotalH * hy / BlendHeadY));
+        }
+
+        skin = go.GetComponentInChildren<SkinnedMeshRenderer>(true);
+        if (skin != null)
+        {
+            skin.shadowCastingMode = ShadowCastingMode.On;
+            skin.updateWhenOffscreen = false;
+            if (skin.sharedMesh != null)
+            {
+                kizginShape = skin.sharedMesh.GetBlendShapeIndex("Kizgin");
+                saskinShape = skin.sharedMesh.GetBlendShapeIndex("Saskin");
+            }
+            // Her güvenliğe (adına göre) farklı ten rengi: yalnızca bu güvenliğin malzeme kopyası
+            int h = ArtworkLook.Hash(name) & 0x7fffffff;
+            Color tone = SkinTones[h % SkinTones.Length];
+            Material[] ms = skin.sharedMaterials;
+            for (int i = 0; i < ms.Length; i++)
+            {
+                if (ms[i] == null || !ms[i].name.StartsWith("MAT_Skin")) continue;
+                Material m = new Material(ms[i]);
+                if (m.HasProperty("_BaseColor")) m.SetColor("_BaseColor", tone);
+                m.color = tone;
+                mats.Add(m);
+                ms[i] = m;
+            }
+            skin.sharedMaterials = ms;
+        }
+
+        anim = go.GetComponentInChildren<Animation>(true);
+        if (anim != null)
+        {
+            anim.cullingType = AnimationCullingType.BasedOnRenderers; // görünmeyen güvenlik animasyon hesaplamaz
+            foreach (AnimationState s in anim)
+            {
+                string n = s.name; int bar = n.LastIndexOf('|'); string k = bar >= 0 ? n.Substring(bar + 1) : n;
+                bool loop = true;
+                switch (k)
+                {
+                    case "Idle": clipIdle = n; break;
+                    case "Idle_Kizgin": clipAngry = n; break;
+                    case "Walk": clipWalk = n; break;
+                    case "Run": clipRun = n; break;
+                    case "Jop_Vurus": clipHit = n; loop = false; break;
+                    case "Pushed": clipPushed = n; loop = false; break;
+                }
+                s.wrapMode = loop ? WrapMode.Loop : WrapMode.Once;
+                s.layer = loop ? 0 : 1;
+            }
+            if (clipAngry == null) clipAngry = clipIdle;
+            if (clipRun == null) clipRun = clipWalk;
+            if (clipIdle != null) { anim.Play(clipIdle); curLoop = clipIdle; }
+        }
+        head = headBone;
+        body = model;
+        return true;
+    }
+
+    /// <summary>Jopla vuruş (oyuncuyu yakaladı / itene vurdu).</summary>
+    public void PlayHit()
+    {
+        angryUntil = Time.time + 4f;
+        PlayAction(clipHit);
+    }
+
+    /// <summary>İtildi: dengesini kaybedip toparlanır, şaşırır.</summary>
+    public void PlayPushed()
+    {
+        surprisedUntil = Time.time + 1.6f;
+        angryUntil = Time.time + 5f;
+        PlayAction(clipPushed);
+    }
+
+    private void PlayAction(string clip)
+    {
+        if (anim == null || clip == null) return;
+        AnimationState s = anim[clip];
+        if (s == null) return;
+        anim.Stop(clip);
+        s.time = 0f;
+        s.speed = 1f;
+        anim.CrossFade(clip, 0.08f);
+        actionUntil = Time.time + s.length;
+    }
+
+    private void UpdateModel(float dt)
+    {
+        // Kayma: model arkasına devrilir, sonra kalkar
+        slipT = Mathf.MoveTowards(slipT, Time.time < slipUntil ? 1f : 0f, dt * 5f);
+        root.localRotation = Quaternion.Euler(-80f * slipT, 0f, 0f);
+
+        Vector3 delta = transform.position - lastPos;
+        lastPos = transform.position;
+        float speed = new Vector3(delta.x, 0f, delta.z).magnitude / dt;
+        if (speed > 25f) speed = 0f; // ışınlanma
+        speedSmooth = Mathf.Lerp(speedSmooth, speed, 1f - Mathf.Exp(-8f * dt));
+
+        GuardAI.State st = ai != null ? ai.CurrentState : GuardAI.State.Patrol;
+        bool chase = st == GuardAI.State.Chase;
+        bool curious = st == GuardAI.State.Suspicious || st == GuardAI.State.Investigate;
+        SecurityManager sec = SecurityManager.Instance;
+        bool angry = chase || Time.time < angryUntil || (sec != null && sec.AlarmActive);
+
+        if (anim == null) return;
+        if (Time.time < actionUntil && slipT < 0.01f) return; // vuruş / itilme oynuyor
+
+        string want;
+        float spd = 1f;
+        if (Time.time < dazeUntil || slipT > 0.01f) { want = clipIdle; }
+        else if (speedSmooth > 3.2f) { want = clipRun; spd = Mathf.Clamp(speedSmooth / 5.2f, 0.8f, 1.4f); }
+        else if (speedSmooth > 0.25f) { want = clipWalk; spd = Mathf.Clamp(speedSmooth / 1.9f, 0.6f, 1.5f); }
+        else want = angry ? clipAngry : clipIdle;
+        if (want == null) return;
+        AnimationState s = anim[want];
+        if (s != null) s.speed = spd;
+        if (want != curLoop || !anim.IsPlaying(want))
+        {
+            anim.CrossFade(want, 0.22f);
+            curLoop = want;
+        }
+    }
+
+    private void LateUpdate()
+    {
+        if (model == null) return;
+        float dt = Mathf.Max(Time.deltaTime, 0.0001f);
+        GuardAI.State st = ai != null ? ai.CurrentState : GuardAI.State.Patrol;
+        SecurityManager sec = SecurityManager.Instance;
+        bool angry = st == GuardAI.State.Chase || Time.time < angryUntil || (sec != null && sec.AlarmActive);
+        bool surprised = Time.time < surprisedUntil || Time.time < dazeUntil || st == GuardAI.State.Suspicious || st == GuardAI.State.Investigate;
+        if (surprised && Time.time < surprisedUntil) angry = false; // itildiği an önce şaşırır
+        kizginW = Mathf.MoveTowards(kizginW, angry && !surprised ? 100f : 0f, dt * 400f);
+        saskinW = Mathf.MoveTowards(saskinW, surprised ? 100f : 0f, dt * 400f);
+        // Animasyon blend shape'leri de sıfırlayabilir: ağırlıklar animasyondan SONRA (LateUpdate) yazılır
+        if (skin != null)
+        {
+            if (kizginShape >= 0) skin.SetBlendShapeWeight(kizginShape, kizginW);
+            if (saskinShape >= 0) skin.SetBlendShapeWeight(saskinShape, saskinW);
+        }
+
+        // Sersemleme: kafa animasyonun üstüne sallanır, yıldızlar kafanın üstünde döner
+        if (headBone != null && Time.time < dazeUntil)
+            headBone.localRotation = headBone.localRotation * Quaternion.Euler(Mathf.Sin(Time.time * 7f) * 8f, Mathf.Sin(Time.time * 3.1f) * 14f, Mathf.Sin(Time.time * 5.3f) * 12f);
+        if (dazeStars != null && dazeStars.gameObject.activeSelf)
+        {
+            if (Time.time >= dazeUntil) dazeStars.gameObject.SetActive(false);
+            else if (headBone != null)
+            {
+                dazeStars.position = headBone.position + Vector3.up * 0.55f;
+                dazeStars.rotation = Quaternion.Euler(0f, Time.time * 320f, 0f);
+            }
+        }
     }
 
     private void Build()
@@ -245,6 +453,7 @@ public class GuardLook : MonoBehaviour
     {
         if (body == null) return;
         float dt = Mathf.Max(Time.deltaTime, 0.0001f);
+        if (model != null) { UpdateModel(dt); return; } // yeni iskeletli model
 
         // Kayma: kapsül arkasına devrilir, sonra kalkar
         slipT = Mathf.MoveTowards(slipT, Time.time < slipUntil ? 1f : 0f, dt * 5f);

@@ -1252,3 +1252,72 @@ Arkadaşın commit'i aynı fikirleri (kayıt kamerası + kamyon ekranı, boya / 
 - **Duvar yazısı:** "[Sol tık basılı] Duvara kapı çiz…" uzun tuş ifadesi tuş kapağına sığmadığı için soluk düz metin + boş "basılı tut" çubuğu olarak çiziliyordu. Artık tuş kapağı ("Sol tık basılı") ve açık metin ayrı verilir (`brush.wall.key` / `brush.wall.label`).
 - **Aynada fırça:** kendi elindeki üçüncü şahıs fırça da kurulur ama kendi ekranında yalnızca gölge olarak çizilir; boy aynası çizerken görünür yapar → aynada fırça elinde, el boş görünmez. (`PaintBrush.LocalHandBrush`)
 - **Kapı tanıma daha affedici:** en / boy oranı 1.05–4.5 (eskiden 1.6–3.2), en 0.3–2.6 m, boy ≥ 0.6 m; kenar kapsaması %60 (eskiden %70) ve noktalara ±9 cm tolerans; yanların alt %12'si sayılmaz (iki yan aynı yerde bitmek zorunda değil); alt kenarı da çizilmiş (kapalı dikdörtgen) kapılar artık "içi karalanmış" sayılıp reddedilmez.
+
+## Ek 38: Playtest düzeltmeleri (16.11)
+
+- **Öğreticide Esc:** öğretici açıkken Esc'yi basılı tutmak öğreticiyi atlar; ayarlar/menü artık basınca değil, Esc kısa basılıp BIRAKILINCA (0,3 sn'den kısa) açılır. Menü, çanta, kat planı açıkken Esc eskisi gibi onları kapatır. (`SessionMenuUI`, `TutorialUI`)
+- **Küçük ganimetler (kökten yeniden yazıldı):** artık sahnedeki eşyalar yakınlıkla "yakalanmıyor". Ganimet listesi ItemDatabase'den (`loot_` eşyaları) alınır; HER görevde (ilki dahil) müze yerleşimi kurulduktan sonra eski masa ganimetleri silinir ve her `LootTable_` masasının üst yüzeyine 2 yeni eşya doğar. Masadaki eşyalar sabitlenir (kinematik): yere düşmez/kaymaz. Oyuncunun yere bıraktığı ganimetlere dokunulmaz. (`MuseumSession`, `WorldItem.SetPinned`)
+- **Kayıt kapalıyken referans yok:** takım oyununda müzedeki bir arkadaş kayıtta (H) değilken atölyede ne canlı görüntü ne de "son kayıt" karesi görünür; tek başına oyunda son kayıt kalır (canlı yayın imkânsız). Kayıt seçim listesindeki son kayıtlar da yalnızca kayıt açıkken seçilebilir. (`BodyCam.ReferenceAllowed`)
+- **Benzerlik yüzdesi:** kayıt kapalıyken hiç gösterilmez; yerine "Gizli — arkadaşın kayıt açınca görünür" bloğu çıkar (tablo, vazo, büst, yüzük). (`BenchKit.SimilarityOff`)
+- **Yüzükte kamera ekranı:** atölyedeki kamera görüntüsü artık atölye panelinin ÜSTÜNDE çizilir (altında kalıp kaybolmaz) ve küçük eserler için **Yakınlaştır 1x/2x/3x** düğmesi var (yalnızca senin ekranın; büst/vazo/yüzükte).
+- **Büst / ağır hedef uyarısı:** çantaya sığmayan hedef varsa (4. seviyede 12 kg Mermer Büst, başlangıç çantası 10 kg) garajda ve kamyonda sol üstte uyarı kartı, seviye başında bildirim, brifingde uyarı bandı ve satırda "önce Büyük Çanta al" notu. (`UI/BagWarning.cs` — yeni)
+- **Cepten para çalmak için eğilme:** ziyaretçinin arkasında **eğilmiş** (Ctrl / C) olmadan cep soyulamaz; ayaktayken "arkasında eğil" ipucu çıkar. (`PlayerInteractor`)
+- **Hapiste anahtar çizerek kaçış:** hapisteyken fırçayı al [B], hücre duvarına ANAHTAR çiz (yuvarlak baş + uzun ince gövde + diş; yön serbest) → **2 boya kutusu** harcanır ve hücrenin önüne çıkarsın. Kaçarken güvenlik/kamera görürse alarm çalar ve aranırsın (arkadaş kurtarmasıyla aynı kural). Hapiste ekranda nasıl kaçılacağı yazar (boya / fırça yoksa o da). Kapı, düz çizgi, tek halka, "B" anahtar sayılmaz. (`PaintBrush.LooksLikeKey`, `JailCell.KeyEscapeRpc`)
+
+## Ek 39: Tek oyunculu mod — fotoğraf makinesi + sınırlı film
+
+Yalnızca **Tek Oyunculu** (ana menü → Tek Oyunculu / Öğretici; `SessionManager.IsSinglePlayer`) oyunda çalışır. Çok oyunculu oyun hiç değişmedi (H kaydı, monitör, kayıt seçimi aynen).
+
+- **[H]** fotoğraf makinesini kaldırır / indirir (vizör: kenarlar kararır, köşe çerçeveleri, odak işareti). **[Sol tık]** çeker. Bakılan eser bulunursa makine ona **otomatik odaklanır** (kadraj eseri doldurur — yüzük gibi küçük eserler de net çıkar). Odakta eser yoksa uyarı verir (o kare sahte için işe yaramaz).
+- **Film sınırlı:** görev başına 6 kare; garajdaki **Kamera Pili** her seviyede +2 film (tek oyunculuda açıklaması da öyle yazar). Yeni görevde film ve fotoğraflar yenilenir.
+- **Fotoğraf yasak odalar:** vizörde kırmızı uyarı; çekerken güvenlik / kamera görürse şüphe artar (alarm doğrudan çalmaz).
+- **Atölye:** çizim o eserin fotoğrafına bakarak yapılır. Fotoğraf yoksa görüntü yok ve benzerlik gizli. Büst / vazo / yüzükte sağ üstteki panelin altında **Fotoğraflar** albümü: küçük resme tıklayınca o fotoğraf referans olur (yeşil yazı = bu eserin fotoğrafı). Tabloda o eserin son fotoğrafı kullanılır.
+- **Kamyon monitörü:** son çekilen fotoğrafı gösterir. Sol altta kayıt pili kartı yerine "Fotoğraf makinesi [H] · Film x/y" kartı. Çekince ekran kısa flaş + sağda polaroid önizleme.
+- Hedef paneli, ipuçları ve öğretici (Kayıt al → Fotoğraf çek) tek oyunculuda fotoğraf metinleriyle gösterilir (`SoloPhotoCamera.K`: anahtarın `.photo` sürümü).
+- Dosyalar: `Gameplay/SoloPhotoCamera.cs` (yeni), `BodyCam` (tek oyunculuda H kaydı kapalı, referans = fotoğraf, monitör = son fotoğraf), `ArtworkDisplay.Visual` (odak için), `PaintBrush` (vizör açıkken fırça çizmez), `ObjectiveHUD`, `TutorialUI`, `UpgradeCatalog`, `CanvasPainter`, `Loc`.
+
+## Ek 40: Vazo boyama, harita ekranı, menü müzesi
+
+- **Vazo:** şekil eşiğine (çizgi) ulaşmadan da boyamaya geçilebilir: sol panelde **"Boyamaya geç (SPACE)"** düğmesi; eşiğin altındayken "şekil düşük, sahte zayıf olur" notu. Boyarken **"Şekle geri dön (SPACE)"** ile tekrar şekillendirilir (boya korunur). Boyadıktan sonra Vazgeç onay ister, Bitir düğmesi kalır.
+- **Kamyon harita ekranı:** müze GİRİŞİ (yeşil kapı + ok + "GİRİŞ") artık monitördeki, büyük ekrandaki ve atölyedeki planda görünür. Harita ekranına bakıp **E** büyük ekranı açar (eskiden yalnızca soldaki monitörde çalışıyordu; ekran yazısı "Ekrana bakıp [E]: büyük ekran").
+- **Ana menü arka planı:** sahnedeki eski sabit test müzesi yerine oyunun gerçek müze düzeni (rastgele tohum + tema: odalar, cephe, ışık) kurulur; menüde iç tavanlar gizlenir (yukarıdan görünüm). Oyundan menüye dönünce son oynanan müze görünür. (`SessionMenuUI.EnsureMenuMuseum`)
+
+## Ek 41: Yeni güvenlik modeli + animasyonlar, harita ekranında E
+
+- **Güvenlik modeli:** `securıty_modelıngkop.blend` → `Assets/Resources/Characters/GuardChar.fbx`. Blend dosyasında iskelet, animasyon, blend shape ve malzeme YOKTU (yalnızca statik model); hepsi eklendi:
+  - İskelet (19 kemik: Hips, Spine, Chest, Neck, Head, kollar, bacaklar, ayak/parmak), ağırlıklar bölgeye göre verildi; elinde jop (yeni parça).
+  - Animasyonlar (Legacy, FBX içinde): **Idle, Idle_Kizgin** (eller belde, öne eğik, ayak vurur), **Walk, Run, Jop_Vurus** (jopu kaldırıp vurur), **Pushed** (geriye savrulur, toparlanır). Blender'da kare kare çizilip kontrol edildi.
+  - Yüz: **Kizgin** (kaşlar çatılır) ve **Saskin** (kaşlar kalkar, gözler büyür) blend shape'leri.
+  - Renkler: açık mavi gömlek, lacivert kravat/pantolon/şapka, altın arma ve toka, siyah ayakkabı/kemer; ten rengi her güvenlikte farklı. ~33k üçgen.
+- **Oyunda (`GuardLook`):** model varsa eski parça parça bekçi yerine kullanılır (yoksa eskisi çalışır). Hıza göre Idle / Walk / Run; kovalarken, alarmda ya da vurduktan / itildikten sonra Idle_Kizgin + kızgın yüz; şüphelenince şaşkın yüz. Yakalayınca ve itene sabrı taşınca **Jop_Vurus**, itilince **Pushed** (sunucu `GuardAI.ServerPlayAction` → herkeste oynar). Muz kabuğu kayması ve sersemleme (yıldızlar + kafa sallanması) modelde de çalışır. Görünmeyen güvenlik animasyon hesaplamaz.
+- **Harita ekranında E:** bakış artık ekranın dikdörtgeniyle matematiksel olarak kontrol edilir (önünde çarpıştırıcı olsa da çalışır).
+
+## Ek 42: Güvenlik modeli — tasarımcının dosyası (secur_ty_boyali.blend)
+
+- Ek 41'deki model yanlış (boyasız, iskeletsiz) dosyadandı; yerine **secur_ty_boyali.blend** kullanıldı: tasarımcının Rigify iskeleti, animasyonları (Idle, Idle_Kizgin, Walk, Run, Jop_Vurus, Pushed), Kizgin / Saskin yüz ifadeleri, boyaları (SG_*) ve siyah konturu (SG_Kontur).
+- Rigify'ın kontrol kemikleri oyuna gerekmediği için animasyonlar yalnızca deform kemiklerinden oluşan temiz bir iskelete kare kare aktarıldı (44 kemik; Head, Hips, Foot.L/Toes.L adlandırıldı). Orijinal ve oyun sürümü yan yana çizilip karşılaştırıldı: aynı.
+- Poligon 165k → ~37k üçgen (kaş ve gözler — ifadeli kısım — olduğu gibi, gerisi sadeleştirildi). 30 fps.
+- Kod tarafı değişmedi (GuardLook aynı animasyon / ifade adlarını kullanıyor); yalnızca boy ölçüsü yeni dosyaya göre.
+
+## Ek 43: Jop vuruşu ile bayılma aynı anda
+
+- Güvenliği 2. kez itince bayılma artık jopun İNDİĞİ anda olur (`GuardAI.HitImpactSeconds` = 0,42 sn; Jop_Vurus animasyonundan ölçüldü, 30 fps ~13. kare). Eskiden bayılma hemen oluyor, animasyon arkadan geliyordu.
+- Vurmadan önce güvenlik iten oyuncuya döner ve vuruş boyunca yerinde durur (`GuardAI.ServerFaceForHit`).
+
+## Ek 44: Küçük ganimetler doğmuyordu (düzeltme)
+
+- Sebep: ganimet masaları müze kökünün doğrudan altında değil, `TestMuseum/Museum/LootTable_*` altında. Ek 38'deki yeni sistem yalnızca kökün ilk seviyesine bakıyordu → hiç masa bulamıyor, hiçbir şey doğmuyordu. Artık tüm alt hiyerarşide aranır.
+- Masa ya da ganimet tanımı bulunamazsa Console'a `[Loot]` uyarısı düşer (sorun hemen görünsün).
+
+## Ek 45: Hapisten çıkış kuralları (süre kaldırıldı)
+
+- **Çok oyunculu:** hapisten YALNIZCA arkadaş kapıda [E basılı] kurtarır. Anahtar çizme kapalı. Herkes içerideyse koşu biter (artık odada tek kişi kalsa da).
+- **Tek oyunculu:** süreyle çıkış YOK; fırçayla hücre duvarına ANAHTAR çizilir (2 boya). Fırça ya da 2 boya yoksa kaçış imkânı kalmaz → ~4 sn sonra koşu biter (sonsuza kadar hapiste kalınmaz).
+- `JailCell.KeyEscapeAllowed` (= `SessionManager.IsSinglePlayer`), `JailCell.CanKeyEscape`; `JailCell.Update`'teki süre sayacı kaldırıldı; `MuseumSession.ServerCheckAllCaught` yeni kurala göre. Hedef paneli / öğretici / hapis yazıları moda göre.
+
+## Ek 46: Tek oyunculu hapis süresi, yeniden doğma güvencesi, küçük ganimet parası
+
+- **Tek oyunculu hapis:** anahtar çizmenin YANINDA 30 sn sonra kendiliğinden çıkış geri geldi (ekranda geri sayım + "ya da anahtar çizip hemen kaç"). Fırça / boya yoksa da süre dolunca çıkılır; koşu bitmez. **Çok oyunculu değişmedi** (yalnızca arkadaş kurtarır, herkes içerideyse koşu biter).
+- **Yakalanıp koşu sıfırlanınca boşlukta doğma:** yeni görev başında ışınlanmadan kısa süre sonra garajda / kamyonda olmayan oyuncu tekrar başlangıç noktasına ışınlanır (`MuseumSession.ServerVerifySpawns`); ayrıca haritanın altına (y < -40) düşen oyuncu başlangıca döner (`PlayerStealth`).
+- **Küçük ganimetler para eder:** karaborsada satınca eserler gibi para verir (ekip / kişisel paylaşılır, kotaya sayılır; çalıntı "sıcak" fiyat) ve üstüne eskisi gibi ortak yetenek puanı. Satış satırında "$X +Y puan".
+- Sahnedeki ganimetler kaldırılırken NGO'nun "in-scene object destroy" uyarısı giderildi (`WorldItem.ServerRemoveSceneItem`).

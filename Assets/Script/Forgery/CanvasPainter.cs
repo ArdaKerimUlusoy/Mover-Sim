@@ -467,9 +467,13 @@ public class CanvasPainter
         UIUtil.BrassFrame(rr);
         f.Gap(12f);
 
-        // Benzerlik: kamera sinyali yokken %0 (yayın açılınca gerçek değer görünür)
-        int pct = showScore ? Mathf.Clamp(Mathf.RoundToInt(Score * 100f), 0, 100) : 0;
-        BenchKit.SimilarityBlock(f, pct, -1f, showScore ? Loc.T("bench.regions", RegionsDone, RegionsTotal) : null);
+        // Benzerlik: kayıt kapalıyken yüzde hiç gösterilmez (yayın açılınca gerçek değer görünür)
+        if (showScore)
+        {
+            int pct = Mathf.Clamp(Mathf.RoundToInt(Score * 100f), 0, 100);
+            BenchKit.SimilarityBlock(f, pct, -1f, Loc.T("bench.regions", RegionsDone, RegionsTotal));
+        }
+        else BenchKit.SimilarityOff(f);
         f.Gap(4f);
 
         // Boya lekeleri
@@ -490,7 +494,7 @@ public class CanvasPainter
     void DrawNoSignal(Rect r)
     {
         UIUtil.Hatch(r, UITheme.WithAlpha(UITheme.Graphite, 0.45f));
-        string full = Loc.T("cam.nosignal.help");
+        string full = Loc.T(SoloPhotoCamera.K("cam.nosignal.help"));
         int nl = full.IndexOf('\n');
         string head = nl > 0 ? full.Substring(0, nl) : full;
         string rest = nl > 0 ? full.Substring(nl + 1) : "";

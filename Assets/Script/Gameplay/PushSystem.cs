@@ -310,11 +310,14 @@ public class PushSystem : MonoBehaviour
                 guard.ServerInvestigate(from, false); // itilen güvenlik dönüp seni süzer
                 if (CountGuardPush(guard.NetworkObjectId, senderClient))
                 {
-                    // Sabrı taştı: jopla vurur
-                    ServerKnockOut(nm, client, pusher, guard);
+                    guard.ServerFaceForHit(pusher.transform.position); // itene döner, vuruş boyunca durur
+                    guard.ServerPlayAction(1); // sabrı taştı: jop animasyonu
+                    // Sabrı taştı: jopla vurur — bayılma jopun İNDİĞİ anda (animasyonun vuruş karesi), basıldığı anda değil
+                    StartCoroutine(KnockAtImpact(nm, senderClient, pusher, guard));
                     serverCooldown[senderClient] = Time.time;
                     return;
                 }
+                guard.ServerPlayAction(2); // itildi: dengesini kaybedip toparlanır
                 break;
             }
 
@@ -367,6 +370,14 @@ public class PushSystem : MonoBehaviour
         }
         guardPushes[key] = pc;
         return false;
+    }
+
+    private System.Collections.IEnumerator KnockAtImpact(NetworkManager nm, ulong clientId, PlayerStealth victim, GuardAI guard)
+    {
+        yield return new WaitForSeconds(GuardAI.HitImpactSeconds);
+        if (nm == null || !nm.IsListening || victim == null || guard == null) yield break;
+        if (!nm.ConnectedClients.TryGetValue(clientId, out NetworkClient c) || c.PlayerObject == null) yield break;
+        ServerKnockOut(nm, c, victim, guard);
     }
 
     /// <summary>Sunucu: güvenlik oyuncuya jopla vurur → oyuncu birkaç saniye baygın.</summary>

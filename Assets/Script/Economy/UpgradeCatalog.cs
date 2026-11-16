@@ -104,5 +104,5 @@ public static class UpgradeCatalog
     public static PaidFrom Payer(UpgradeType t) => t == UpgradeType.TeamBackpacks ? PaidFrom.Team : PaidFrom.Personal;
 
     public static string NameKey(UpgradeType t) => "upg." + t.ToString().ToLowerInvariant() + ".name";
-    public static string DescKey(UpgradeType t) => "upg." + t.ToString().ToLowerInvariant() + ".desc";
+    public static string DescKey(UpgradeType t) => SoloPhotoCamera.K("upg." + t.ToString().ToLowerInvariant() + ".desc"); // tek oyunculu: pil = film
 }

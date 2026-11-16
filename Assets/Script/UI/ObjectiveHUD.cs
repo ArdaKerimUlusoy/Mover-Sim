@@ -76,6 +76,7 @@ public class ObjectiveHUD : MonoBehaviour
         if (Event.current.type != EventType.Repaint) return;
 
         Evaluate(out string objKey, out object[] args, out string hintKey);
+        objKey = SoloPhotoCamera.K(objKey); hintKey = SoloPhotoCamera.K(hintKey); // tek oyunculu: fotoğraf makinesi metinleri
         string obj = args != null ? Loc.T(objKey, args) : Loc.T(objKey);
 
 

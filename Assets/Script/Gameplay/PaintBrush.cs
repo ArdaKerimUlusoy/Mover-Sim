@@ -111,6 +111,9 @@ public class PaintBrush : MonoBehaviour
         return inv.GetSlot(inv.HeldSlot).ItemIndex == brushIndex;
     }
 
+    /// <summary>Bu çantada fırça var mı (sunucu da kullanır: hapiste kaçış imkânı)?</summary>
+    public static bool HasBrush(PlayerInventory inv) => FindBrushSlot(inv) >= 0;
+
     private static int FindBrushSlot(PlayerInventory inv)
     {
         if (inv == null || BrushDef == null) return -1;
@@ -183,10 +186,14 @@ public class PaintBrush : MonoBehaviour
         PlayerStealth me = PlayerStealth.Local;
         Keyboard kb = Keyboard.current;
         Mouse mouse = Mouse.current;
-        bool canAct = inv != null && me != null && me.IsSpawned && !me.IsJailed && me.CurrentHidingSpot == null &&
+        // Hapisteyken de fırça kullanılabilir: hücre duvarına ANAHTAR çizip kaçmak için (kapı / boya topu yok)
+        bool jailed = me != null && me.IsJailed;
+        if (jailed && !JailCell.KeyEscapeAllowed) jailed = false; // çok oyunculu: anahtar yok, yalnızca arkadaş kurtarır
+        inJail = jailed;
+        bool canAct = inv != null && me != null && me.IsSpawned && me.CurrentHidingSpot == null &&
                       !ChatUI.IsTyping && !SessionMenuUI.IsPaused && !PlayerInventory.IsPanelOpen && !WorkbenchUI.IsOpen &&
                       !BodyCam.PanelOpen && !PlayerController.InputLocked && Cursor.lockState == CursorLockMode.Locked &&
-                      !PushSystem.LocalKnockedOut;
+                      !PushSystem.LocalKnockedOut && !SoloPhotoCamera.Aiming; // fotoğraf vizörü açıkken sol tık deklanşördür
 
         // B: fırçayı ele al / kaldır
         if (canAct && kb != null && kb.bKey.wasPressedThisFrame)
@@ -224,14 +231,14 @@ public class PaintBrush : MonoBehaviour
         if (mouse != null && mouse.rightButton.wasPressedThisFrame)
         {
             bool sketching = hasPlane && (current != null || (strokes.Count > 0 && Time.time - lastDrawTime < 3f));
-            if (sketching) ClearSketch();
+            if (sketching || jailed) ClearSketch();
             else TryThrow(inv, cam, me);
         }
 
         // Duvar (kapı çizme)
         if (SprayPaint.WallCandidate(eye, fwd, WallReach, me, out aimHit, out aimBase, out aimNormal))
         {
-            aimWall = !SprayPaint.NearExistingDoor(aimBase) || hasPlane;
+            aimWall = jailed || !SprayPaint.NearExistingDoor(aimBase) || hasPlane;
             if (aimWall && lmb && submitAt < 0f)
             {
                 if (!hasPlane) StartPlane(aimBase, aimNormal);
@@ -247,7 +254,12 @@ public class PaintBrush : MonoBehaviour
         }
         else EndStroke();
 
-        if (mouse != null && mouse.leftButton.wasReleasedThisFrame) { EndStroke(); Evaluate(); TrySubmit(inv); }
+        if (mouse != null && mouse.leftButton.wasReleasedThisFrame)
+        {
+            EndStroke();
+            if (jailed) TryKeyEscape(inv);
+            else { Evaluate(); TrySubmit(inv); }
+        }
         if (submitAt > 0f && Time.unscaledTime >= submitAt) { submitAt = -1f; ClearSketch(); }
         // Kapı olmayan çizim: son çizgiden 10 sn sonra duvardan silinir
         if (hasPlane && current == null && pts.Count > 0 && Time.time - lastDrawTime > DoodleSeconds) AbandonSketch();
@@ -452,6 +464,91 @@ public class PaintBrush : MonoBehaviour
     }
 
     private bool DoorComplete => sizeOk && edgeL >= SideNeed && edgeR >= SideNeed && edgeTop >= EdgeNeed;
+
+    // ---------------- Hapiste: anahtar çizimi ----------------
+    private bool inJail;
+
+    /// <summary>
+    /// Çizim bir ANAHTARA benziyor mu? Uzun bir şekil (uzunluk / genişlik ≥ 1.7, 30 cm – 2.4 m), bir ucunda geniş, içi boş baş
+    /// (gövdenin iki yanına da taşan halka), ortasında ince ve kesintisiz gövde; diğer uçta diş olabilir (gerekmez).
+    /// Yön serbest (yatay, dikey, eğik). Kapı (iki geniş yan), düz çizgi, tek halka, "B" kabul edilmez.
+    /// </summary>
+    private bool LooksLikeKey()
+    {
+        int n = pts.Count;
+        if (n < 12) return false;
+        float mx = 0f, my = 0f;
+        foreach (Vector2 p in pts) { mx += p.x; my += p.y; }
+        mx /= n; my /= n;
+        float sxx = 0f, syy = 0f, sxy = 0f;
+        foreach (Vector2 p in pts) { float dx = p.x - mx, dy = p.y - my; sxx += dx * dx; syy += dy * dy; sxy += dx * dy; }
+        float ang = 0.5f * Mathf.Atan2(2f * sxy, sxx - syy); // ana eksen (PCA)
+        Vector2 a = new Vector2(Mathf.Cos(ang), Mathf.Sin(ang)), b = new Vector2(-a.y, a.x);
+        float tmin = float.MaxValue, tmax = float.MinValue, smin = float.MaxValue, smax = float.MinValue;
+        foreach (Vector2 p in pts)
+        {
+            Vector2 d = new Vector2(p.x - mx, p.y - my);
+            float t = Vector2.Dot(d, a), s = Vector2.Dot(d, b);
+            tmin = Mathf.Min(tmin, t); tmax = Mathf.Max(tmax, t); smin = Mathf.Min(smin, s); smax = Mathf.Max(smax, s);
+        }
+        float L = tmax - tmin, W = smax - smin;
+        if (L < 0.3f || L > 2.4f || W < 0.001f || L / W < 1.7f) return false;
+
+        const int B = 10;
+        var lo = new float[B]; var hi = new float[B]; var cnt = new int[B];
+        for (int i = 0; i < B; i++) { lo[i] = float.MaxValue; hi[i] = float.MinValue; }
+        foreach (Vector2 p in pts)
+        {
+            Vector2 d = new Vector2(p.x - mx, p.y - my);
+            int k = Mathf.Min(B - 1, (int)((Vector2.Dot(d, a) - tmin) / L * B));
+            float s = Vector2.Dot(d, b);
+            cnt[k]++; lo[k] = Mathf.Min(lo[k], s); hi[k] = Mathf.Max(hi[k], s);
+        }
+        float Wd(int k) => cnt[k] > 0 ? hi[k] - lo[k] : 0f;
+        float ea = Mathf.Max(Wd(0), Mathf.Max(Wd(1), Wd(2))), eb = Mathf.Max(Wd(7), Mathf.Max(Wd(8), Wd(9)));
+        bool bowA = ea >= eb;
+        float bow = Mathf.Max(ea, eb);
+        int m0 = bowA ? 4 : 3, m1 = bowA ? 6 : 5; // gövde: başın hemen yanındaki orta dilimler
+        float mw = 0f;
+        for (int k = m0; k <= m1; k++) { if (cnt[k] == 0) return false; mw = Mathf.Max(mw, Wd(k)); }
+        if (mw > 0.45f * bow || mw > 0.2f * L) return false;      // gövde ince olmalı
+        if (bow < 0.18f * L || bow < 0.12f) return false;        // baş belirgin olmalı
+
+        // Baş halka mı: gövde çizgisinin iki yanına da taşmalı (tek yana kıvrılan çizgi değil)
+        var mid = new List<float>();
+        foreach (Vector2 p in pts)
+        {
+            Vector2 d = new Vector2(p.x - mx, p.y - my);
+            int k = Mathf.Min(B - 1, (int)((Vector2.Dot(d, a) - tmin) / L * B));
+            if (k >= m0 && k <= m1) mid.Add(Vector2.Dot(d, b));
+        }
+        if (mid.Count == 0) return false;
+        mid.Sort();
+        float sc = mid[mid.Count / 2];
+        int up = 0, dn = 0;
+        foreach (Vector2 p in pts)
+        {
+            Vector2 d = new Vector2(p.x - mx, p.y - my);
+            int k = Mathf.Min(B - 1, (int)((Vector2.Dot(d, a) - tmin) / L * B));
+            if (bowA ? k > 2 : k < 7) continue;
+            float s = Vector2.Dot(d, b);
+            if (s > sc + bow * 0.25f) up++;
+            if (s < sc - bow * 0.25f) dn++;
+        }
+        return up >= 2 && dn >= 2;
+    }
+
+    /// <summary>Hapiste fare bırakıldı: anahtar tamamsa ve yeterli boya varsa kaçış istenir (bedeli sunucu düşer).</summary>
+    private void TryKeyEscape(PlayerInventory inv)
+    {
+        if (!hasPlane || !LooksLikeKey()) return;
+        int need = JailCell.KeyEscapePaint;
+        if (inv.SprayCount < need) { inv.ShowLocalToast(Loc.T("jail.key.nopaint", need, inv.SprayCount)); return; }
+        if (JailCell.Instance == null) return;
+        JailCell.Instance.RequestKeyEscape();
+        GameAudio.Play2D(SoundId.Ping, 0.6f);
+        ClearSketch();
+    }
 
     private void TrySubmit(PlayerInventory inv)
     {
@@ -696,6 +793,16 @@ public class PaintBrush : MonoBehaviour
     {
         if (Event.current.type != EventType.Repaint) return;
         if (PlayerInventory.Local == null || SessionMenuUI.IsPaused || WorkbenchUI.IsOpen || BodyCam.PanelOpen) return;
+        // Hapiste: nasıl kaçılacağını söyleyen satır (fırça elde değilken de)
+        if (inJail && JailCell.KeyEscapeAllowed && PlayerStealth.Local != null && PlayerStealth.Local.IsJailed)
+        {
+            PlayerInventory li = PlayerInventory.Local;
+            int need = JailCell.KeyEscapePaint;
+            string hint = FindBrushSlot(li) < 0 ? Loc.T("jail.key.nobrush")
+                : li.SprayCount < need ? Loc.T("jail.key.nopaint", need, li.SprayCount)
+                : Loc.T("jail.key.hint", need);
+            HudKit.Banner(hint, IconId.Brush, li.SprayCount >= need && FindBrushSlot(li) >= 0 ? UITheme.Sage : UITheme.Graphite, UITheme.Ivory);
+        }
         if (!holding) return;
         if (PlayerStealth.Local != null && PlayerStealth.Local.CurrentHidingSpot != null) return; // saklanırken fırça yazısı yok
         // Mağaza / çanta / karaborsa gibi bir panel açıkken (imleç serbest) fırça kutusu ve nişangah panelin üstüne çizilmesin
@@ -724,7 +831,7 @@ public class PaintBrush : MonoBehaviour
         if (wallTip)
         {
             // Uzun "[Sol tık basılı]" ifadesi tuş kapağına sığmayıp düz (soluk, basılı-tut çubuklu) metne dönüşüyordu: tuş ve metin ayrı verilir
-            PromptHud.Show(Loc.T("brush.wall.key"), Loc.T("brush.wall.label"), PromptTone.Normal, -1f, false, 4); // kendi kanalı (maymuncuk 2'de)
+            PromptHud.Show(Loc.T("brush.wall.key"), Loc.T(inJail ? "brush.key.label" : "brush.wall.label"), PromptTone.Normal, -1f, false, 4); // kendi kanalı (maymuncuk 2'de)
             // (Sol / sağ / üst kenar yüzdesi gösteren ilerleme satırı kaldırıldı: kapı tamamlanınca kendiliğinden belirir)
         }
         else PromptHud.Idle(4);

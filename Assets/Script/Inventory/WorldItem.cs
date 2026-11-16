@@ -57,6 +57,27 @@ public class WorldItem : NetworkBehaviour
         pendingLookKey = look;
     }
 
+    /// <summary>Oyuncu tarafından atıldı / bırakıldı mı (sahne ya da masa eşyası değil)?</summary>
+    public bool WasThrown => thrown;
+
+    /// <summary>Masaya sabitlenmiş (kinematik) mi? Masa ganimetleri fizikle kaymasın / yere düşmesin diye sabitlenir.</summary>
+    public bool Pinned { get; private set; }
+
+    /// <summary>Sunucu: eşyayı yerinde sabitler (kinematik, yerçekimi yok). Spawn'dan ÖNCE çağrılabilir.</summary>
+    public void SetPinned(bool value)
+    {
+        Pinned = value;
+        Rigidbody rb = GetComponent<Rigidbody>();
+        if (rb == null) return;
+        if (value)
+        {
+            if (!rb.isKinematic) { rb.linearVelocity = Vector3.zero; rb.angularVelocity = Vector3.zero; }
+            rb.isKinematic = true;
+            rb.useGravity = false;
+        }
+        else if (IsSpawned && IsServer) ServerEnsurePhysics();
+    }
+
     /// <summary>Sunucu: atıldı/bırakıldı olarak işaretle (ilk çarpmada hemen ses çıkarsın).</summary>
     public void MarkThrown()
     {
@@ -107,6 +128,7 @@ public class WorldItem : NetworkBehaviour
     {
         Rigidbody rb = GetComponent<Rigidbody>();
         if (rb == null || !physicsByDesign) return;
+        if (Pinned) { rb.isKinematic = true; rb.useGravity = false; return; } // masa ganimeti: sabit kalır
         rb.isKinematic = false;
         rb.useGravity = true;
         rb.detectCollisions = true;
@@ -210,6 +232,7 @@ public class WorldItem : NetworkBehaviour
         {
             nextWake = Time.time + 1f;
             Rigidbody rb = GetComponent<Rigidbody>();
+            if (rb != null && Pinned && !rb.isKinematic) { rb.isKinematic = true; rb.useGravity = false; } // ağ bileşeni fiziği geri açtıysa
             if (rb != null && !rb.isKinematic && rb.IsSleeping()) rb.WakeUp();
         }
 
@@ -259,6 +282,16 @@ public class WorldItem : NetworkBehaviour
     }
 
     /// <summary>Sunucu: eşya çantaya alındı, sahneden kaldır.</summary>
+    /// <summary>Sunucu: sahneye elle konmuş eşyayı yok etmeden kaldırır (NGO uyarısı: in-scene nesne Destroy edilmemeli).</summary>
+    public void ServerRemoveSceneItem()
+    {
+        if (!IsServer || IsConsumed) return;
+        if (NetworkObject.IsSceneObject != true) { ServerConsume(); return; }
+        IsConsumed = true;
+        NetworkObject.Despawn(false);
+        gameObject.SetActive(false);
+    }
+
     public void ServerConsume()
     {
         if (!IsServer || IsConsumed) return;

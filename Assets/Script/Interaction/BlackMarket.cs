@@ -53,9 +53,9 @@ public class BlackMarket : Interactable, IInventoryPanel
             InventorySlot s = inv.GetSlot(i);
             ItemDefinition def = db != null ? db.Get(s.ItemIndex) : null;
             if (def == null || def.type != ItemType.Original) continue;
-            bool small = def.IsSmallLoot; // küçük ganimet: para değil yetenek puanı
-            int price = small ? PriceRules.SkillPointsFor(def, s) : PriceRules.SalePrice(def, s);
-            if (small) totalPts += price * s.Count; else total += price;
+            bool small = def.IsSmallLoot; // küçük ganimet: para + (bonus) ortak yetenek puanı
+            total += PriceRules.SalePrice(def, s) * s.Count;
+            if (small) totalPts += PriceRules.SkillPointsFor(def, s) * s.Count;
             rows.Add(i);
         }
         int count = rows.Count;
@@ -101,7 +101,8 @@ public class BlackMarket : Interactable, IInventoryPanel
                 InventorySlot s = inv.GetSlot(i);
                 ItemDefinition def = db.Get(s.ItemIndex);
                 bool small = def.IsSmallLoot;
-                int price = small ? PriceRules.SkillPointsFor(def, s) : PriceRules.SalePrice(def, s);
+                int price = PriceRules.SalePrice(def, s) * s.Count;
+                int pts = small ? PriceRules.SkillPointsFor(def, s) * s.Count : 0;
 
                 Rect row = new Rect(0f, k * rowH, cw, rowH);
                 EconomyPanelUI.RowBack(row, focus == k);
@@ -115,7 +116,7 @@ public class BlackMarket : Interactable, IInventoryPanel
                 float priceW = 104f * sc, btnW = 92f * sc;
                 EconomyPanelUI.RowText(row, slot, name, quality, priceW + btnW + 22f, null);
 
-                string priceText = small ? Loc.T("market.sellpts", price.ToString("N0")) : "$" + price.ToString("N0");
+                string priceText = small ? "$" + price.ToString("N0") + " " + Loc.T("market.sellpts", pts.ToString("N0")) : "$" + price.ToString("N0");
                 if (EconomyPanelUI.PriceButton(row, priceText, EconomyPanelUI.Tx("ui.sell", "Sell"), ButtonKind.Secondary, true, focus == k, priceW, btnW))
                 {
                     focus = k;
@@ -147,10 +148,11 @@ public class BlackMarket : Interactable, IInventoryPanel
         if (inv == null || slotIndex < 0 || slotIndex >= inv.SlotCount) return;
         if (!inv.GetSlot(slotIndex).SameItem(expected)) return; // bu arada çanta değişmiş
 
-        int price = ServerSellSlot(inv, slotIndex, out ItemDefinition def, out bool isPts);
+        int price = ServerSellSlot(inv, slotIndex, out ItemDefinition def, out int pts);
         if (price <= 0) return;
 
-        inv.ServerNotify(isPts ? "market.soldpts" : "market.sold", price.ToString("N0"), def);
+        inv.ServerNotify("market.sold", price.ToString("N0"), def);
+        if (pts > 0) inv.ServerNotify("market.soldpts", pts.ToString("N0"), def);
         inv.ServerPlaySound(SoundId.Sell, transform.position);
     }
 
@@ -165,9 +167,10 @@ public class BlackMarket : Interactable, IInventoryPanel
         // Sondan başa: satır silindikçe indeksler kaymasın
         for (int i = inv.SlotCount - 1; i >= 0; i--)
         {
-            int price = ServerSellSlot(inv, i, out _, out bool isPts);
+            int price = ServerSellSlot(inv, i, out _, out int pts);
             if (price <= 0) continue;
-            if (isPts) totalPts += price; else total += price;
+            total += price;
+            totalPts += pts;
             sold++;
         }
 
@@ -178,23 +181,18 @@ public class BlackMarket : Interactable, IInventoryPanel
     }
 
     /// <summary>Bir satırdaki orijinal eserlerin hepsini satar, kazancı paylaştırır. Satılmadıysa 0.</summary>
-    private static int ServerSellSlot(PlayerInventory inv, int slotIndex, out ItemDefinition def, out bool isPts)
+    private static int ServerSellSlot(PlayerInventory inv, int slotIndex, out ItemDefinition def, out int pts)
     {
-        isPts = false;
+        pts = 0;
         InventorySlot s = inv.GetSlot(slotIndex);
         def = ItemDatabase.Instance != null ? ItemDatabase.Instance.Get(s.ItemIndex) : null;
         if (def == null || def.type != ItemType.Original) return 0;
 
-        // Küçük ganimet: para/kota değil, yalnızca ortak yetenek puanı (kasa yoksa satılamaz)
+        // Küçük ganimet: artık PARA eder (eserler gibi ekip / kişisel paylaşılır, kotaya sayılır) + bonus ortak yetenek puanı
         if (def.IsSmallLoot)
         {
-            TeamBank pb = TeamBank.Instance;
-            if (pb == null) return 0;
-            int pts = PriceRules.SkillPointsFor(def, s) * s.Count;
-            inv.ServerRemoveAt(slotIndex, s.Count);
-            pb.ServerAddSkillPoints(pts);
-            isPts = true;
-            return pts;
+            pts = PriceRules.SkillPointsFor(def, s) * s.Count;
+            if (TeamBank.Instance != null && pts > 0) TeamBank.Instance.ServerAddSkillPoints(pts);
         }
 
         int price = PriceRules.SalePrice(def, s) * s.Count;

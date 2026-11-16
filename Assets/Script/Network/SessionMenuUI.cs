@@ -113,6 +113,22 @@ public class SessionMenuUI : MonoBehaviour
         if (ChatUI.IsTyping || ChatUI.ClosedRecently) return; // Esc sohbeti kapatıyor, menüyü açmasın
         if (WorkbenchUI.IsOpen || BriefingUI.IsOpen) return;  // Esc atölyeyi / brifingi kapatıyor
 
+        // Öğretici açıkken Esc'yi BASILI TUTMAK öğreticiyi atlar: menü basınca değil, kısa basıp BIRAKINCA açılır
+        // (basılı tutarken ayarlar açılmasın). Menü zaten açıksa Esc her zamanki gibi basınca çalışır.
+        if (TutorialUI.Active && !IsPaused && !PlayerInventory.IsPanelOpen)
+        {
+            // Kat planı / monitör paneli açıkken Esc onları kapatır: menü açılmasın
+            if (Keyboard.current.escapeKey.wasPressedThisFrame) escDownAt = FloorPlanUI.IsOpen || BodyCam.PanelOpen ? -1f : Time.unscaledTime;
+            if (Keyboard.current.escapeKey.wasReleasedThisFrame && escDownAt >= 0f)
+            {
+                bool shortTap = Time.unscaledTime - escDownAt < TutorialUI.EscTapMax;
+                escDownAt = -1f;
+                if (shortTap && TutorialUI.Active) SetPaused(true);
+            }
+            return;
+        }
+        escDownAt = -1f;
+
         if (Keyboard.current.escapeKey.wasPressedThisFrame)
         {
             // Çanta açıksa Esc önce çantayı kapatır.
@@ -127,6 +143,8 @@ public class SessionMenuUI : MonoBehaviour
         }
     }
 
+    private float escDownAt = -1f;
+
     private void SetPaused(bool paused)
     {
         IsPaused = paused;
@@ -138,9 +156,43 @@ public class SessionMenuUI : MonoBehaviour
 
     private void SetMenuCamera(bool active)
     {
+        if (active) EnsureMenuMuseum();
+        SetCeilingsVisible(!active); // menüde yukarıdan bakılır: iç tavanlar gizli (oyunda geri açılır)
         if (menuCamera == null) return;
         if (!active && menuCamBaseSet) menuCamera.transform.localRotation = menuCamBase;
         menuCamera.SetActive(active);
+    }
+
+    /// <summary>
+    /// Menünün arkasındaki müze: sahnedeki ESKİ sabit test müzesi yerine, oyunda gerçekten kurulan yeni düzen (odalar, cephe, ışık)
+    /// rastgele bir tohum + temayla bir kez kurulur. Oyun başlayınca görev kendi tohumuyla yeniden kurar; oyundan menüye dönünce
+    /// son oynanan müze kalır. Hata olursa menü etkilenmesin diye yutulur.
+    /// </summary>
+    private static void EnsureMenuMuseum()
+    {
+        try
+        {
+            MuseumLayout l = MuseumLayout.Instance;
+            if (l != null && l.AppliedSeed != int.MinValue) return; // zaten bir düzen kurulu
+            MuseumSession ms = FindFirstObjectByType<MuseumSession>(FindObjectsInactive.Include);
+            GameObject root = GameObject.Find(ms != null ? ms.MuseumRootName : "TestMuseum");
+            if (root == null) return;
+            int themes = Mathf.Max(1, ArtworkLook.Themes.Length);
+            MuseumLayout.Apply(root, Random.Range(1, int.MaxValue), Random.Range(0, themes));
+        }
+        catch (System.Exception e) { Debug.LogWarning("[Menu] Menü müzesi kurulamadı: " + e.Message); }
+    }
+
+    /// <summary>Kurulan müzenin iç tavanlarını (ve tavan lambalarını) göster / gizle. Sadece görüntü; çarpışma değişmez.</summary>
+    private static void SetCeilingsVisible(bool visible)
+    {
+        MuseumLayout l = MuseumLayout.Instance;
+        if (l == null) return;
+        foreach (Renderer r in l.GetComponentsInChildren<Renderer>(true))
+        {
+            string n = r.gameObject.name;
+            if (n.StartsWith("Ceiling_R") || n == "CeilingLamp") r.enabled = visible;
+        }
     }
 
     /// <summary>Menüdeyken arka plandaki gerçek sahne çok yavaş salınır (yalnızca menü kamerasının dönüşü).</summary>

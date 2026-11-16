@@ -338,6 +338,7 @@ public class WorkbenchUI : MonoBehaviour
         }
 
         phase = Phase.Sculpt;
+        paintedOnce = false;
         shapeScore = clay.ShapeScore(vase);
         scoreTimer = 0f;
     }
@@ -363,8 +364,8 @@ public class WorkbenchUI : MonoBehaviour
 
         if (kb.escapeKey.wasPressedThisFrame)
         {
-            // Şekil bitmeden ESC = vazgeç (boyanmamış kil çantaya girmesin)
-            Close(phase != Phase.Choose && phase != Phase.Sculpt);
+            // Şekil bitmeden ESC = vazgeç (boyanmamış kil çantaya girmesin); boyadıktan sonra şekle dönüldüyse ESC = bitir
+            Close(phase != Phase.Choose && (phase != Phase.Sculpt || paintedOnce));
             return;
         }
 
@@ -381,17 +382,12 @@ public class WorkbenchUI : MonoBehaviour
             case Phase.Sculpt:
                 scoreTimer -= Time.deltaTime;
                 if (scoreTimer <= 0f) { scoreTimer = 0.15f; shapeScore = clay.ShapeScore(vase); }
-                if (shapeScore >= ShapeThreshold && kb.spaceKey.wasPressedThisFrame)
-                {
-                    phase = Phase.Paint;
-                    clay.mode = ClaySculptor.Mode.Paint;
-                    if (ghost != null) ghost.SetActive(false);
-                    SelectColor(0);
-                    paintScore = clay.PaintScore(vase.pattern);
-                }
+                // Boyamaya her zaman geçilebilir (şekil eşiği yalnızca öneri: düşük şekil benzerliği sahteyi zayıflatır)
+                if (kb.spaceKey.wasPressedThisFrame) GoPaint();
                 break;
 
             case Phase.Paint:
+                if (kb.spaceKey.wasPressedThisFrame) { GoSculpt(); break; } // şekle geri dön (boya korunur)
                 for (int i = 0; i < palette.Length && i < 9; i++)
                     if (kb[Key.Digit1 + i].wasPressedThisFrame) SelectColor(i);
                 scoreTimer -= Time.deltaTime;
@@ -579,6 +575,7 @@ public class WorkbenchUI : MonoBehaviour
         {
             case Phase.Canvas: return painter != null ? painter.ToData() : null;
             case Phase.Paint: return clay != null ? clay.Bake(palette) : null;
+            case Phase.Sculpt: return paintedOnce && clay != null ? clay.Bake(palette) : null; // boyayıp şekle geri dönüldüyse
             case Phase.Bust: return BustData();
             case Phase.Jewel: return JewelData();
             default: return null;
@@ -727,7 +724,9 @@ public class WorkbenchUI : MonoBehaviour
     private void DrawSimBlock(Flow f)
     {
         if (f == null) return;
-        int s = HasSignal ? Mathf.Clamp(Mathf.RoundToInt(Similarity * 100f), 0, 100) : 0;
+        // Kayıt kapalıyken benzerlik yüzdesi hiç gösterilmez (kapalı bloğu): ressam neye göre çizdiğini görmeden puanı da görmez
+        if (!HasSignal) { BenchKit.SimilarityOff(f); return; }
+        int s = Mathf.Clamp(Mathf.RoundToInt(Similarity * 100f), 0, 100);
         BenchKit.SimilarityBlock(f, s, -1f, null);
     }
 
@@ -749,7 +748,32 @@ public class WorkbenchUI : MonoBehaviour
         DrawVase();
         DrawSideFeed();
         DrawBenchHints(ArtKind.Vase);
-        DrawFooter(phase == Phase.Paint, ArtKind.Vase);
+        DrawFooter(phase == Phase.Paint || paintedOnce, ArtKind.Vase);
+    }
+
+    private bool paintedOnce;
+
+    /// <summary>Vazo: şekillendirmeden boyamaya geç (eşik beklenmez).</summary>
+    private void GoPaint()
+    {
+        if (clay == null || phase != Phase.Sculpt) return;
+        phase = Phase.Paint;
+        clay.mode = ClaySculptor.Mode.Paint;
+        if (ghost != null) ghost.SetActive(false);
+        if (!paintedOnce) { SelectColor(0); paintedOnce = true; }
+        else SelectColor(paletteIndex);
+        paintScore = clay.PaintScore(vase.pattern);
+        GameAudio.Play2D(SoundId.UiClick, 0.5f);
+    }
+
+    /// <summary>Vazo: boyamadan şekillendirmeye geri dön.</summary>
+    private void GoSculpt()
+    {
+        if (clay == null || phase != Phase.Paint) return;
+        phase = Phase.Sculpt;
+        clay.mode = ClaySculptor.Mode.Sculpt;
+        shapeScore = clay.ShapeScore(vase);
+        GameAudio.Play2D(SoundId.UiClick, 0.5f);
     }
 
     /// <summary>Vazo: sol eskiz notu — şekil adımı (kil) ve boya adımı (palet, fırça boyutu).</summary>
@@ -767,7 +791,11 @@ public class WorkbenchUI : MonoBehaviour
             f.Text(Loc.T("bench.sculpthelp"), TextRole.Body, UITheme.IvoryDim);
             f.Gap(10f);
             BenchKit.Meter(f, Loc.T("bench.shape"), shapeScore, ShapeThreshold);
-            if (shapeScore >= ShapeThreshold) f.Text(Loc.T("bench.toPaint"), TextRole.BodyStrong, UITheme.Sage);
+            f.Gap(8f);
+            bool ready = shapeScore >= ShapeThreshold;
+            f.Text(Loc.T(ready ? "bench.toPaint" : "bench.toPaint.early"), ready ? TextRole.BodyStrong : TextRole.Caption, ready ? UITheme.Sage : UITheme.IvoryDim);
+            f.Gap(6f);
+            if (UIUtil.Button(f.Row(BenchKit.Px(34f, 30f)), Loc.T("bench.btn.paint"), ready ? ButtonKind.Primary : ButtonKind.Secondary)) GoPaint();
         }
         else
         {
@@ -788,6 +816,8 @@ public class WorkbenchUI : MonoBehaviour
             }
             BenchKit.Meter(f, Loc.T("bench.shape"), shapeScore, -1f);
             BenchKit.Meter(f, Loc.T("bench.paintscore"), paintScore, -1f);
+            f.Gap(8f);
+            if (UIUtil.Button(f.Row(BenchKit.Px(34f, 30f)), Loc.T("bench.btn.sculpt"), ButtonKind.Secondary)) GoSculpt();
         }
         GUI.EndScrollView();
         leftContentH = f.Y + 8f;
@@ -1351,7 +1381,7 @@ public class WorkbenchUI : MonoBehaviour
         x -= cw;
         if (UIUtil.Button(new Rect(x, by, cw, bh), ct, ButtonKind.Secondary))
         {
-            if (phase == Phase.Sculpt) Close(false); else confirmCancel = true;
+            if (phase == Phase.Sculpt && !paintedOnce) Close(false); else confirmCancel = true;
         }
     }
 }
@@ -1458,6 +1488,19 @@ internal static class BenchKit
         Color tone = pct >= 85 ? UITheme.Sage : pct >= 60 ? UITheme.Ochre : UITheme.Danger;
         UIUtil.ProgressBar(bar, r, tone, marker);
         if (!string.IsNullOrEmpty(extra)) { f.Gap(4f); f.Text(extra, TextRole.Caption, UITheme.IvoryDim); }
+        f.Gap(6f);
+    }
+
+    /// <summary>Kayıt kapalıyken benzerlik bloğunun yerine: yüzde yok, "kayıt açılınca görünür" notu (aynı yükseklik).</summary>
+    public static void SimilarityOff(Flow f)
+    {
+        f.Section(Loc.T("bench.simtitle"), PanelKind.Sketch);
+        Rect row = f.Row(Px(30f, 26f));
+        float iw = row.height * 0.62f;
+        UIUtil.Icon(new Rect(row.x, row.y + (row.height - iw) * 0.5f, iw, iw), IconId.Camera, UITheme.IvoryDim);
+        UIUtil.Text(new Rect(row.x + iw + 8f, row.y, row.width - iw - 8f, row.height), Loc.T("bench.sim.off"), TextRole.Caption, UITheme.IvoryDim);
+        Rect bar = f.Row(Px(6f, 6f));
+        UIUtil.DrawRect(bar, new Color(1f, 1f, 1f, 0.06f));
         f.Gap(6f);
     }
 

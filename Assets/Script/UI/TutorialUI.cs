@@ -13,6 +13,8 @@ public class TutorialUI : MonoBehaviour
     public const Key NextKey = Key.F;
     private const string DonePref = "MoverSim_TutorialDone";
     private const float SkipHoldSeconds = 1.4f;
+    /// <summary>Esc bundan kısa basılıp bırakılırsa menü açılır; daha uzun basılı tutulursa öğretici atlanır.</summary>
+    public const float EscTapMax = 0.3f;
 
     private static TutorialUI instance;
 
@@ -123,7 +125,7 @@ public class TutorialUI : MonoBehaviour
             case "truck": return GameFlow.Phase == GamePhase.Truck;
             case "plan": latch |= FloorPlanUI.IsOpen; return latch && !FloorPlanUI.IsOpen;
             case "museum": return GameFlow.Phase == GamePhase.Museum;
-            case "record": latch |= BodyCam.LocalRecording; return latch;
+            case "record": latch |= BodyCam.LocalRecording || SoloPhotoCamera.PhotoCount > 0; return latch; // tek oyunculu: bir fotoğraf çekildi
             case "back": return GameFlow.Phase == GamePhase.Truck;
             case "draw": latch |= WorkbenchUI.IsOpen; return latch;
             case "drawdone": return !WorkbenchUI.IsOpen;
@@ -157,7 +159,9 @@ public class TutorialUI : MonoBehaviour
         if (kb != null)
         {
             // Esc'yi basılı tut: atla
-            if (kb.escapeKey.isPressed) escHeld += Time.unscaledDeltaTime; else escHeld = 0f;
+            // (menü açıkken basılı tutmak atlamaz: Esc orada menüyü kapatır)
+            if (kb.escapeKey.isPressed && !SessionMenuUI.IsPaused && !PlayerInventory.IsPanelOpen && !ChatUI.IsTyping) escHeld += Time.unscaledDeltaTime;
+            else escHeld = 0f;
             if (escHeld >= SkipHoldSeconds) { escHeld = 0f; Skip(); return; }
 
             bool typing = ChatUI.IsTyping;
@@ -200,8 +204,8 @@ public class TutorialUI : MonoBehaviour
         float w = Mathf.Min(Screen.width - 24f, 560f * sc);
         float padX = 20f * sc, top = 14f * sc;
         float innerW = w - padX * 2f;
-        string title = Loc.T("tut." + s.id + ".t");
-        string body = Loc.T("tut." + s.id + ".b", NextKey.ToString());
+        string title = Loc.T(SoloPhotoCamera.K("tut." + s.id + ".t"));
+        string body = Loc.T(SoloPhotoCamera.K("tut." + s.id + ".b"), NextKey.ToString());
         string count = pos + " / " + total;
         float countW = UIUtil.Measure(count, TextRole.Caption).x + 8f;
         float titleH = Mathf.Max(Mathf.Ceil(UIUtil.MeasureHeight(title, TextRole.BodyStrong, innerW - countW - 24f * sc)), 22f * sc);

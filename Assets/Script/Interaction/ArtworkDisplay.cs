@@ -60,6 +60,8 @@ public class ArtworkDisplay : Interactable
         return null;
     }
     public bool IsSwapped => swapped.Value;
+    /// <summary>Kaidede görünen eser görseli (yoksa null). Tek oyunculu fotoğraf makinesi odaklanmak için kullanır.</summary>
+    public GameObject Visual => visual;
     /// <summary>Kaideye bırakılan sahtenin benzerliği (güvenlik yapay zekası kullanacak).</summary>
     public byte LeftSimilarity => leftSimilarity.Value;
 

@@ -45,6 +45,8 @@ public class BodyCam : MonoBehaviour
     private const float ReadDistance = 1.4f;
     private const float FeedForward = 0.12f;        // kayıt kamerası gözün bu kadar önünde (kafanın içinden çekmesin)
     private const ulong Nobody = ulong.MaxValue;
+    private const float BaseFov = 70f;
+    private static int feedZoom = 1; // atölyedeki kamera görüntüsünün yakınlaştırması (1x–3x, bu bilgisayara özel)
 
     // ---------------- Herkeste: ortak durum ----------------
     public const int MaxRecorders = 4;
@@ -310,7 +312,8 @@ public class BodyCam : MonoBehaviour
         // H: kayıt aç / kapa
         Keyboard kb = Keyboard.current;
         bool canAct = kb != null && !ChatUI.IsTyping && !SessionMenuUI.IsPaused && !WorkbenchUI.IsOpen && me != null && !me.IsJailed;
-        if (canAct && kb.hKey.wasPressedThisFrame)
+        // Tek oyunculu oyunda H fotoğraf makinesidir (SoloPhotoCamera): canlı kayıt açılmaz
+        if (canAct && !SoloPhotoCamera.Active && kb.hKey.wasPressedThisFrame)
         {
             if (rec) SendRequest(nm, false);
             else if (battery < 1f) { if (PlayerInventory.Local != null) PlayerInventory.Local.ShowLocalToast(Loc.T("cam.empty")); }
@@ -751,6 +754,7 @@ public class BodyCam : MonoBehaviour
         if (stillFor != Nobody && RecorderEye(stillFor, out Vector3 sp, out Quaternion sr, out _))
         {
             EnsureFeed();
+            feedCam.fieldOfView = BaseFov; // son kayıt kareleri hep normal açıyla
             feedCam.transform.SetPositionAndRotation(sp + sr * Vector3.forward * FeedForward, sr);
             renderFor = stillFor;
             render = true;
@@ -774,6 +778,7 @@ public class BodyCam : MonoBehaviour
             {
                 nextLiveRender = Time.unscaledTime + 1f / fps;
                 feedCam.transform.SetPositionAndRotation(pos + rot * Vector3.forward * FeedForward, rot); // göz önüne biraz ileri
+                feedCam.fieldOfView = WorkbenchUI.IsCrafting3D ? BaseFov / Mathf.Max(1, feedZoom) : BaseFov; // atölyede yakınlaştırma (yerel)
                 renderFor = watched;
                 target = liveRT;
                 render = true;
@@ -795,6 +800,21 @@ public class BodyCam : MonoBehaviour
         ApplyMonitorTexture();
     }
 
+    /// <summary>Takım arkadaşlarımdan biri şu an kayıtta mı (kendim hariç)?</summary>
+    public static bool TeammateRecording
+    {
+        get
+        {
+            NetworkManager nm = NetworkManager.Singleton;
+            ulong me = nm != null ? nm.LocalClientId : Nobody;
+            foreach (ulong id in recorders) if (id != me) return true;
+            return false;
+        }
+    }
+
+    /// <summary>Atölyede referans görüntü (canlı ya da son kayıt) gösterilebilir mi? Takımda: yalnızca bir arkadaş kayıttayken.</summary>
+    public static bool ReferenceAllowed => GameFlow.Solo || TeammateRecording;
+
     /// <summary>Canlı doku gösterilebilir mi: kayıt var, doku var ve en az bir kare çizilmiş.</summary>
     private bool LiveShown => Live && liveRT != null && liveHasFrame;
 
@@ -808,6 +828,7 @@ public class BodyCam : MonoBehaviour
         if (monitorMat == null) return;
         RenderTexture sel = SelectedStill;
         Texture tex = sel != null ? sel : LiveShown ? (Texture)liveRT : noSignal; // monitörde de benim seçtiğim kayıt
+        if (SoloPhotoCamera.Active) tex = SoloPhotoCamera.Latest != null ? SoloPhotoCamera.Latest : noSignal; // tek oyunculu: son fotoğraf
         if (monitorMat.mainTexture == tex) return;
         if (monitorMat.HasProperty("_BaseMap")) monitorMat.SetTexture("_BaseMap", tex);
         monitorMat.mainTexture = tex;
@@ -883,6 +904,15 @@ public class BodyCam : MonoBehaviour
     /// <summary>Atölye (tablo): orijinal yerine gösterilecek görüntü. Canlı yayın varsa o, yoksa bu eserin son kaydı.</summary>
     private Texture PaintingReference(out string label)
     {
+        // Tek oyunculu: referans, o eserin çekilmiş fotoğrafı (SoloPhotoCamera)
+        if (SoloPhotoCamera.Active) return SoloPhotoCamera.ReferenceFor(WorkbenchUI.CurrentTarget, out label);
+        // TAKIM OYUNU: kayıt KAPALIYKEN atölyede hiçbir görüntü (son kayıt karesi dahil) gösterilmez; çizen kişi
+        // ancak müzedeki arkadaşı kayıt açıkken bakarak çalışır. (Tek başına oyunda canlı yayın imkânsız: son kayıt kalır.)
+        if (!ReferenceAllowed)
+        {
+            label = Loc.T("cam.nosignal");
+            return null;
+        }
         ArtworkDisplay target = WorkbenchUI.CurrentTarget;
         RenderTexture sel = SelectedStill; // bu bilgisayarda seçilen kayıt (arkadaşın başka kaydı seçebilir)
         if (sel != null)
@@ -1107,14 +1137,33 @@ public class BodyCam : MonoBehaviour
     {
         Camera cam = Camera.main;
         if (monitor == null || cam == null) return false;
-        if (!Physics.Raycast(cam.transform.position, cam.transform.forward, out RaycastHit hit, 3f, ~0, QueryTriggerInteraction.Ignore)) return false;
+        // Monitör ya da yanındaki HARİTA ekranı: bakış ışını ekran dikdörtgeninin içinden geçiyor mu (fizik çarpıştırıcısına
+        // bağlı değil — önünde tezgah / kamyon parçası olsa da çalışır). Bakıp E → büyük ekran
+        Ray ray = new Ray(cam.transform.position, cam.transform.forward);
+        if (LooksAtQuad(ray, screenRenderer)) return true;
+        if (LooksAtQuad(ray, mapRenderer)) return true;
+        if (!Physics.Raycast(ray, out RaycastHit hit, 4.5f, ~0, QueryTriggerInteraction.Ignore)) return false;
         return hit.collider.transform.IsChildOf(monitor);
+    }
+
+    /// <summary>Işın, 1x1 Quad ekranın (ölçekli) yüzeyinden 4,5 m içinde geçiyor mu?</summary>
+    private static bool LooksAtQuad(Ray ray, Renderer quad)
+    {
+        if (quad == null) return false;
+        Transform t = quad.transform;
+        Plane p = new Plane(t.forward, t.position);
+        if (!p.Raycast(ray, out float d) || d > 4.5f || d < 0.1f) return false;
+        Vector3 local = t.InverseTransformPoint(ray.GetPoint(d)); // Quad: yerel -0.5..0.5
+        return Mathf.Abs(local.x) <= 0.55f && Mathf.Abs(local.y) <= 0.6f;
     }
 
     private bool NearMonitor()
     {
         PlayerStealth me = PlayerStealth.Local;
-        return monitor != null && me != null && Vector3.Distance(me.transform.position, monitor.position) < 4f;
+        if (monitor == null || me == null) return false;
+        if (Vector3.Distance(me.transform.position, monitor.position) < 4f) return true;
+        // Harita ekranı monitörün 1,4 m yanında: onun önünde duran da "yakında" sayılır
+        return mapRenderer != null && Vector3.Distance(me.transform.position, mapRenderer.transform.position) < 4f;
     }
 
     private void OpenPanel()
@@ -1270,9 +1319,12 @@ public class BodyCam : MonoBehaviour
         if (panelOpen) { DrawPanel(); return; }
         if (WorkbenchUI.IsOpen)
         {
+            // Atölye paneli GUI.depth -20 ile çiziliyor: kamera görüntüsü onun ALTINDA kalıp kaybolmasın diye daha önde çizilir
+            GUI.depth = -25;
             if (WorkbenchUI.IsCrafting3D) DrawWorkbenchFeed(); // Repaint + MouseDown (kayıt seçimi tıklanabilir)
             return;
         }
+        GUI.depth = 0;
         if (et != EventType.Repaint) return;
         PhotoSign.DrawAll();
         DrawHud();
@@ -1284,6 +1336,7 @@ public class BodyCam : MonoBehaviour
     /// <summary>Sol alt: kamera pili ve kayıt durumu (plaket; kayıtta solda Danger şerit + nabızlı Camera ikonu).</summary>
     private void DrawHud()
     {
+        if (SoloPhotoCamera.Active) return; // tek oyunculu: sol altta kayıt pili yerine fotoğraf makinesi kartı (SoloPhotoCamera)
         float max = MaxBattery();
         bool rec = LocalRecording;
         // Sol alt köşe: ipucu satırının üstü, sohbetin altı (köşe yığını: çakışmaz)
@@ -1319,15 +1372,33 @@ public class BodyCam : MonoBehaviour
         float w = Mathf.Min(420f, Screen.width * 0.32f), h = w * 9f / 16f;
         Rect r = new Rect(Screen.width - w - 16f, 16f, w, h + 28f);
         UIUtil.Panel(r, PanelKind.Plaque, 0.95f);
-        DrawHeaderLine(new Rect(r.x + 10f, r.y + 4f, w - 20f, 20f), IconId.Camera, label, null, UITheme.BrassLight, 13);
+        // Sağ üstte yakınlaştırma düğmesi (küçük eserler — yüzük — uzaktan seçilmiyor): yalnızca canlı yayında, yereldir
+        bool liveTex = tex != null && tex == (Texture)liveRT;
+        float zbw = 0f;
+        if (liveTex)
+        {
+            string zt = Loc.T("cam.zoom", feedZoom);
+            zbw = TxtW(zt, TextRole.BodyStrong, 12) + 18f;
+            Rect zb = new Rect(r.xMax - zbw - 8f, r.y + 4f, zbw, 20f);
+            if (SourceButtonRect(zb, zt, feedZoom > 1, UITheme.Ivory)) feedZoom = feedZoom >= 3 ? 1 : feedZoom + 1;
+        }
+        DrawHeaderLine(new Rect(r.x + 10f, r.y + 4f, w - 20f - (zbw > 0f ? zbw + 8f : 0f), 20f), IconId.Camera, label, null, UITheme.BrassLight, 13);
         Rect img = new Rect(r.x + 6f, r.y + 28f, w - 12f, h - 6f);
         UIUtil.DrawRect(img, UITheme.CharDeep);
         if (tex != null) GUI.DrawTexture(img, tex, ScaleMode.ScaleToFit, false);
         else DrawNoSignal(img);
         UIUtil.BrassFrame(img);
 
-        // Altında kayıt seçimi + müze haritası
-        float sh = DrawSourceSelector(new Rect(r.x, r.yMax + 6f, w, 60f));
+        // Altında kayıt seçimi (tek oyunculuda fotoğraf albümü) + müze haritası
+        float sh;
+        if (SoloPhotoCamera.Active)
+        {
+            Rect pa = new Rect(r.x, r.yMax + 6f, w, photoPickerH + 16f);
+            if (Event.current.type == EventType.Repaint) UIUtil.Panel(pa, PanelKind.Plaque, 0.95f);
+            photoPickerH = SoloPhotoCamera.DrawPicker(new Rect(pa.x + 8f, pa.y + 8f, pa.width - 16f, 400f), WorkbenchUI.CurrentTarget);
+            sh = photoPickerH + 16f;
+        }
+        else sh = DrawSourceSelector(new Rect(r.x, r.yMax + 6f, w, 60f));
         float mh = Mathf.Min(w * 0.75f, Screen.height - r.yMax - 26f - sh);
         if (mh > 80f) DrawPlan(new Rect(r.x, r.yMax + 12f + sh, w, mh), false, true);
     }
@@ -1407,6 +1478,7 @@ public class BodyCam : MonoBehaviour
         }
         foreach (string n in stillOrder)
         {
+            if (WorkbenchUI.IsOpen && !ReferenceAllowed) break; // takımda kayıt kapalıyken son kayıtlar atölyede kullanılamaz
             bool sel = watchStill == n;
             if (SourceButton(ref x, ref y, area, bh, gap, StillName(n), sel, UITheme.Ivory)) WatchStill(sel ? null : n);
             shown++;
@@ -1414,7 +1486,7 @@ public class BodyCam : MonoBehaviour
         if (shown == 0 && et == EventType.Repaint)
         {
             // Boş durum: sığmazsa alt satıra geçip sarılır
-            string none = Loc.T("cam.src.none");
+            string none = Loc.T(SoloPhotoCamera.K("cam.src.none"));
             float avail = area.xMax - x;
             if (avail < 140f) { x = area.x; y += bh + 2f; avail = area.width; }
             float nh = Mathf.Max(bh, TxtH(none, TextRole.Caption, 11, avail));
@@ -1426,8 +1498,16 @@ public class BodyCam : MonoBehaviour
     }
 
     private float LastSelectorHeight = 24f;
+    private float photoPickerH = 60f;
 
     /// <summary>Seçim düğmesi (kendi çizimi: OnGUI düzen olaylarına bağlı değil). Tıklandıysa true.</summary>
+    /// <summary>Sabit dikdörtgende seçim düğmesi (yakınlaştırma gibi). Tıklandıysa true.</summary>
+    private bool SourceButtonRect(Rect b, string text, bool selected, Color textColor)
+    {
+        float x = b.x, y = b.y;
+        return SourceButton(ref x, ref y, new Rect(b.x, b.y, b.width, b.height), b.height, 0f, text, selected, textColor);
+    }
+
     private bool SourceButton(ref float x, ref float y, Rect area, float bh, float gap, string text, bool selected, Color textColor)
     {
         const int px = 12;
@@ -1527,7 +1607,7 @@ public class BodyCam : MonoBehaviour
         UIUtil.DrawRect(r, UITheme.WithAlpha(UITheme.CharDeep, 0.6f));
         UIUtil.Hatch(r, UITheme.WithAlpha(UITheme.Graphite, 0.5f));
 
-        string[] parts = Loc.T("cam.nosignal.help").Replace("[", "").Replace("]", "").Split('\n');
+        string[] parts = Loc.T(SoloPhotoCamera.K("cam.nosignal.help")).Replace("[", "").Replace("]", "").Split('\n');
         int headPx = Mathf.Clamp(Mathf.RoundToInt(r.height * 0.075f), 12, 20);
         int subPx = Mathf.Clamp(Mathf.RoundToInt(r.height * 0.052f), 10, 14);
         float iconS = Mathf.Clamp(r.height * 0.13f, 18f, 30f);
@@ -1584,7 +1664,20 @@ public class BodyCam : MonoBehaviour
         UIUtil.DrawRect(feed, UITheme.CharDeep);
         RenderTexture selStill = SelectedStill;
         int labPx = P(13);
-        if (selStill != null)
+        if (SoloPhotoCamera.Active)
+        {
+            // Tek oyunculu: monitörde son çekilen fotoğraf
+            Texture lp = SoloPhotoCamera.Latest;
+            if (lp != null)
+            {
+                GUI.DrawTexture(feed, lp, ScaleMode.ScaleToFit, false);
+                Rect strip = new Rect(feed.x, feed.y, feed.width, 26f * sc);
+                UIUtil.DrawRect(strip, UITheme.WithAlpha(UITheme.CharDeep, 0.72f));
+                TxtPx(new Rect(strip.x + 10f, strip.y, strip.width - 20f, strip.height), Loc.T("photo.monitor"), TextRole.BodyStrong, UITheme.Ivory, TextAnchor.MiddleLeft, labPx);
+            }
+            else DrawNoSignal(feed);
+        }
+        else if (selStill != null)
         {
             GUI.DrawTexture(feed, selStill, ScaleMode.ScaleToFit, false);
             Rect strip = new Rect(feed.x, feed.y, feed.width, 26f * sc);
@@ -1669,6 +1762,24 @@ public class BodyCam : MonoBehaviour
         {
             Vector2 s = ToScreen(d);
             UIUtil.DrawRect(new Rect(s.x - 4f, s.y - 4f, 8f, 8f), UITheme.Forest);
+        }
+
+        // Müze girişi (sokaktan giriş kapısı): yeşil kapı + ok + "GİRİŞ"
+        {
+            Vector2 en = ToScreen(l.PlanEntrance);
+            float dl = Mathf.Max(8f, 2f * scale), dt = 5f;
+            UIUtil.DrawRect(new Rect(en.x - dt, en.y - dl, dt * 2f, dl * 2f), UITheme.Sage);
+            // Dışarıdan içeri bakan ok (giriş batı duvarında: soldan sağa)
+            float ax = en.x - dt - 4f;
+            UIUtil.DrawRect(new Rect(ax - 14f, en.y - 1.5f, 14f, 3f), UITheme.Sage);
+            UIUtil.DrawRect(new Rect(ax - 5f, en.y - 5f, 3f, 3f), UITheme.Sage);
+            UIUtil.DrawRect(new Rect(ax - 5f, en.y + 2f, 3f, 3f), UITheme.Sage);
+            int ep = compact ? 9 : 12;
+            string et = UITheme.Caps(Loc.T("plan.entrance"));
+            float ew = TxtW(et, TextRole.BodyStrong, ep) + 10f;
+            Rect er = new Rect(en.x - ew * 0.5f, en.y + dl + 2f, ew, ep + 6f);
+            UIUtil.DrawRect(er, UITheme.WithAlpha(UITheme.CharDeep, 0.8f));
+            TxtPx(er, et, TextRole.BodyStrong, UITheme.Sage, TextAnchor.MiddleCenter, ep);
         }
 
         // Eserler: pirinç baklava + Caption ad

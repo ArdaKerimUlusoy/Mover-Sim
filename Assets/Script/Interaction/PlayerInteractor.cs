@@ -96,7 +96,8 @@ public class PlayerInteractor : MonoBehaviour
         switch (kind)
         {
             case TargetKind.Visitor:
-                if (!targetVisitorBehind || stealth == null) { CancelHold(); break; }
+                // Cepten para çalmak için ziyaretçinin arkasında EĞİLMİŞ olmalısın (Ctrl / C basılı)
+                if (!targetVisitorBehind || stealth == null || !Crouched) { CancelHold(); break; }
                 if (holdTarget == this && holdVisitorId != targetVisitorId) CancelHold(); // başka ziyaretçiye geçti
                 holdVisitorId = targetVisitorId;
                 if (UpdateHold(kb, this, pickpocketHoldDuration))
@@ -219,6 +220,17 @@ public class PlayerInteractor : MonoBehaviour
         targetInteractable = null;
         targetPlayer = null;
         targetTrash = null;
+    }
+
+    private PlayerController pc;
+    /// <summary>Yerel oyuncu eğilmiş mi (Ctrl / C)? Cep soymak için gerekir.</summary>
+    private bool Crouched
+    {
+        get
+        {
+            if (pc == null) pc = GetComponent<PlayerController>();
+            return pc != null && pc.IsCrouching;
+        }
     }
 
     private void FindTarget()
@@ -344,6 +356,10 @@ public class PlayerInteractor : MonoBehaviour
                 if (!targetVisitorBehind)
                 {
                     PromptHud.Show(Loc.T("pick.getbehind"), PromptTone.Dim);
+                }
+                else if (!Crouched)
+                {
+                    PromptHud.Show("Ctrl", Loc.T("pick.crouch"), PromptTone.Normal, -1f, false);
                 }
                 else
                 {
