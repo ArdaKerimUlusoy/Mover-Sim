@@ -62,7 +62,12 @@ public class HeldItemView : MonoBehaviour
     public float RingRadius { get; private set; } = 0.03f;
     private Quaternion ringFix = Quaternion.identity;
     /// <summary>Ek öne-arkaya eğim (derece): vazo ağzı sana doğru hafif eğik tutulur (içi görünsün).</summary>
-    public float ExtraTilt { get; private set; }
+    /// <summary>Eşyanın ek öne-arkaya eğimi (derece). Tablo: yalnızca KENDİ ekranında belirgin eğik (aşağı bakınca resmi
+    /// görürsün); diğer oyuncuların ekranında neredeyse dik tutulur (dışarıdan yatık / yatay görünmesin). Her bilgisayar
+    /// kendi hesabını yaptığı için iki görüntü de kendi içinde tutarlı (eller tablonun kenarında).</summary>
+    public float ExtraTilt => CarryKind == 1 ? (IsOwnerView && !PlayerAvatar.PreviewActive ? PaintingTiltOwner : PaintingTiltOthers) : baseTilt;
+    private float baseTilt;
+    private const float PaintingTiltOwner = 20f, PaintingTiltOthers = 2f;
     /// <summary>Yazı-tura ilerlemesi 0..1 (atış yoksa −1): başparmak fiskesi buna göre.</summary>
     public float CoinFlipProgress => coinFlipT >= 0f ? Mathf.Clamp01(coinFlipT) : -1f;
     private FirstPersonArms fpArms;
@@ -169,7 +174,7 @@ public class HeldItemView : MonoBehaviour
             RingRadius = axis == Vector3.right ? Mathf.Max(bh.y, bh.z) : axis == Vector3.up ? Mathf.Max(bh.x, bh.z) : Mathf.Max(bh.x, bh.y);
         }
         // Vazo ağzı hafif, tablo yüzü belirgin sana doğru eğik (resmi görürsün); fazla eğik vazo ağzı yakında oval görünüyordu
-        ExtraTilt = CarryKind == 2 && def != null && ArtworkLook.KindOf(def) == ArtKind.Vase ? -6f : CarryKind == 1 ? 20f : 0f; // tablo: üst kenar senden uzağa → sana bakan yüz yukarı döner
+        baseTilt = CarryKind == 2 && def != null && ArtworkLook.KindOf(def) == ArtKind.Vase ? -6f : 0f; // tablo eğimi: ExtraTilt
         snap = true;
         lastRootPos = transform.position;
         lastRootYaw = transform.eulerAngles.y;
@@ -373,7 +378,14 @@ public class HeldItemView : MonoBehaviour
             targetRot = Quaternion.Euler(0f, transform.eulerAngles.y, 0f);
         }
         // Yüzük: dik (deliği sana bakar), işaret ile başparmak arasında
-        if (IsRing) targetRot = Quaternion.Euler(0f, transform.eulerAngles.y, 0f) * ringFix; // dik, deliği sana bakar; [R] döndürmez
+        if (IsRing)
+        {
+            // Yüzüğün deliği tutanın gözüne bakar (birinci şahısta halka tam daire görünür; dışarıdan "yüzüğe bakıyor");
+            // [R] döndürmez
+            Vector3 toRing = avatar != null ? target - avatar.EyeWorldPoint() : transform.forward;
+            if (toRing.sqrMagnitude < 1e-6f) toRing = transform.forward;
+            targetRot = Quaternion.LookRotation(toRing.normalized, Vector3.up) * ringFix;
+        }
         if (turning > 0.001f || isCoin) rot = targetRot; // çevirme animasyonu shownYaw ile yapılır
         // Herkeste gecikmesiz: parmaklar eşyanın bu karedeki yerine / dönüşüne oturur (eller zaten yumuşak hareket eder)
         if (snap || owner || inHands || (target - pos).sqrMagnitude > 4f) { snap = false; pos = target; rot = targetRot; }

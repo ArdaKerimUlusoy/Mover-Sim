@@ -152,8 +152,12 @@ public class PlayerController : MonoBehaviour
     /// <summary>Ayarlardaki görüş alanı (oyuncu seçtiyse) kendi kamerana uygulanır.</summary>
     private void ApplyFieldOfView()
     {
-        if (playerCamera == null || !GameSettings.HasCustomFov) return;
+        if (playerCamera == null) return;
         if (fovCam == null || fovCam.transform != playerCamera) fovCam = playerCamera.GetComponent<Camera>();
+        // Elde tutulan vazo / tablo kameranın ~15-30 cm önünde durur: varsayılan yakın kesme düzlemi (0,3 m) aşağı bakınca
+        // eşyanın yakın kısmını kesiyordu (vazonun ağzı yarım görünüyordu). Kafa sahibinde zaten yalnızca gölge.
+        if (fovCam != null && fovCam.nearClipPlane > 0.051f) fovCam.nearClipPlane = 0.05f;
+        if (!GameSettings.HasCustomFov) return;
         if (fovCam != null && !Mathf.Approximately(fovCam.fieldOfView, GameSettings.FieldOfView)) fovCam.fieldOfView = GameSettings.FieldOfView;
     }
 

@@ -129,6 +129,10 @@ public class PushSystem : MonoBehaviour
     }
 
     /// <summary>Sol tık şu an başka bir işe mi gidiyor (fırçayla boyama, fotoğraf çekme, fizik objesini fırlatma)?</summary>
+    /// <summary>F şu an itme mi? (İtme sol tıkla; F yalnızca sol tık başka işe giderken — fırça, vizör, fizik objesi —
+    /// ve önünde itilebilecek biri varken iter.) Öğretici F'yi buna göre ilerletir.</summary>
+    public static bool FPushesNow => HasTargetInFront && ClickBusy();
+
     private static bool ClickBusy()
     {
         PlayerInventory inv = PlayerInventory.Local;

@@ -222,7 +222,6 @@ public class BodyCam : MonoBehaviour
             readPlaques.Clear();
             plaqueVersion++;
             ClosePanel();
-            UpdateRecLight();
             ClearFeed(); // oturum bitti: monitör / önizleme temizlenir, feed kamerası kapanır
             wasLive = false;
             return;
@@ -266,7 +265,6 @@ public class BodyCam : MonoBehaviour
 
         if (nm.IsServer) ServerTick(nm);
         LocalTick(nm);
-        UpdateRecLight();
         EnsureMonitor();
         UpdateFeed();
     }
@@ -605,7 +603,7 @@ public class BodyCam : MonoBehaviour
     private void EnsureFeed()
     {
         if (feedCam != null) return;
-        liveRT = new RenderTexture(640, 360, 16) { name = "BodyCamLive" };
+        liveRT = new RenderTexture(640, 360, 24) { name = "BodyCamLive" };
         liveRT.Create();
         GameObject go = new GameObject("BodyCamFeedCamera");
         go.transform.SetParent(transform, false);
@@ -763,7 +761,7 @@ public class BodyCam : MonoBehaviour
             else
             {
                 // İzlenmeyen kayıt yapan: tek kare ayrı dokuya (canlı yayın bu kare atlanır, sonraki karede devam eder)
-                if (captureRT == null) { captureRT = new RenderTexture(640, 360, 16) { name = "BodyCamCapture" }; captureRT.Create(); }
+                if (captureRT == null) { captureRT = new RenderTexture(640, 360, 24) { name = "BodyCamCapture" }; captureRT.Create(); }
                 target = captureRT;
             }
             pendingStill = stillName;
@@ -972,8 +970,15 @@ public class BodyCam : MonoBehaviour
     // =====================================================================
 
     private readonly List<ulong> recLightRemove = new List<ulong>();
+    private readonly Dictionary<GameObject, Renderer[]> camParts = new Dictionary<GameObject, Renderer[]>();
+    private readonly Dictionary<GameObject, Renderer> camLeds = new Dictionary<GameObject, Renderer>();
 
-    /// <summary>Her kayıt yapanın göğsünde yanıp sönen kırmızı ışık (havuzdan; kayıt bitince geri döner).</summary>
+    /// <summary>El kamerası karakterin pozundan SONRA yerleştirilir (LateUpdate): poz bu karenin girdileriyle kurulur,
+    /// kamera elde gecikmesiz durur. (Update'te çağrılınca poz karenin başında kuruluyordu.)</summary>
+    private void LateUpdate() => UpdateRecLight();
+
+    /// <summary>Her kayıt yapanın SOL ELİNDE küçük el kamerası (üstünde yanıp sönen küçük kırmızı REC ışığı). İki elle
+    /// eşya taşırken kamera göğüste durur. Havuzdan; kayıt bitince geri döner. (Eskiden göğüste kocaman kırmızı küre.)</summary>
     private void UpdateRecLight()
     {
         // Artık kayıtta olmayanların ışığı havuza
@@ -1010,25 +1015,54 @@ public class BodyCam : MonoBehaviour
                 light.transform.SetParent(who.transform, false);
                 light.transform.localPosition = new Vector3(0.14f, 0.35f, 0.33f); // göğüs cebinde (eski karakter)
             }
-            // Soygun karakteri: sol göğüste, gövdeyle birlikte hareket eder (eski sabit yer büyük kafanın içinde kalıyordu)
+            // Soygun karakteri: sol elde (ya da göğüste), gövdeyle birlikte hareket eder
             PlayerAvatar av = who.GetComponent<PlayerAvatar>();
-            if (av != null && av.TryGetRecLightPoint(out Vector3 lp)) light.transform.position = lp;
+            bool placed = false;
+            if (av != null && av.TryGetCamcorderPose(out Vector3 cp, out Quaternion cr, out float handW))
+            {
+                light.transform.SetPositionAndRotation(cp, cr);
+                light.transform.localScale = Vector3.one * Mathf.Lerp(0.6f, 1f, handW);
+                placed = true;
+            }
             if (!light.activeSelf) light.SetActive(true);
-            Renderer r = light.GetComponent<Renderer>();
-            if (r != null) r.enabled = blink && !(who.IsOwner && !WorkbenchUI.IsOpen && Camera.main != null);
+            // Kendi ekranında: Soygun'da elindeki kamerayı görürsün (kaydın açık olduğunu belli eder; F5'te de); eski karakterde gizli
+            bool ownerHide = who.IsOwner && Camera.main != null &&
+                             (!placed || !(PlayerAvatar.LocalBodyVisible || PlayerAvatar.PreviewActive) || WorkbenchUI.IsOpen);
+            bool hiddenPlayer = who.TryGetComponent(out PlayerStealth ws) && ws.IsSpawned && ws.IsHidden; // dolapta / boyalı kapıda
+            if (!camParts.TryGetValue(light, out Renderer[] parts))
+            {
+                parts = light.GetComponentsInChildren<Renderer>(true);
+                camParts[light] = parts;
+                foreach (Renderer pr in parts) if (pr.gameObject.name == "RecLED") camLeds[light] = pr;
+            }
+            camLeds.TryGetValue(light, out Renderer led);
+            foreach (Renderer r in parts)
+                if (r != null) r.enabled = !ownerHide && !hiddenPlayer && (r != led || blink);
         }
     }
 
-    private Material recLightMat;
+    private Material recLightMat, camBodyMat, camLensMat;
+
+    private static void CamPart(Transform parent, PrimitiveType type, string name, Vector3 pos, Quaternion rot, Vector3 scale, Material m, bool shadows)
+    {
+        GameObject go = GameObject.CreatePrimitive(type);
+        go.name = name;
+        Collider c = go.GetComponent<Collider>();
+        if (c != null) Destroy(c);
+        go.transform.SetParent(parent, false);
+        go.transform.localPosition = pos;
+        go.transform.localRotation = rot;
+        go.transform.localScale = scale;
+        Renderer r = go.GetComponent<Renderer>();
+        r.sharedMaterial = m;
+        r.shadowCastingMode = shadows ? UnityEngine.Rendering.ShadowCastingMode.On : UnityEngine.Rendering.ShadowCastingMode.Off;
+    }
 
     /// <summary>Kayıt ışığı nesnesi. Gerçek ışık kaynağı YOK: ilk kayıtta sahnedeki bütün shader'lar
     /// yeni ışık için yeniden derlenmesin (donma buydu); parlak kırmızı küre yeterince görünür.</summary>
     private GameObject MakeRecLight()
     {
-        GameObject g = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-        g.name = "BodyCamRecLight";
-        Destroy(g.GetComponent<Collider>());
-        Renderer r = g.GetComponent<Renderer>();
+        GameObject g = new GameObject("BodyCamCamcorder");
         if (recLightMat == null)
         {
             // Işıktan bağımsız parlak kırmızı (monitörle aynı Unlit shader: yeni shader derlenmez)
@@ -1036,9 +1070,13 @@ public class BodyCam : MonoBehaviour
             recLightMat = unlit != null ? new Material(unlit) : ArtworkLook.MakeLit(new Color(1f, 0.08f, 0.05f));
             if (unlit != null && recLightMat.HasProperty("_BaseColor")) recLightMat.SetColor("_BaseColor", new Color(1f, 0.1f, 0.06f));
         }
-        r.sharedMaterial = recLightMat;
-        r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-        g.transform.localScale = Vector3.one * 0.09f;
+        if (camBodyMat == null) camBodyMat = ArtworkLook.MakeLit(new Color(0.13f, 0.13f, 0.14f));
+        if (camLensMat == null) camLensMat = ArtworkLook.MakeLit(new Color(0.04f, 0.04f, 0.05f));
+        // Küçük el kamerası (z = ileri): gövde, öne bakan lens, üstte vizör, üst-önde küçük kırmızı REC ışığı
+        CamPart(g.transform, PrimitiveType.Cube, "Body", new Vector3(0f, 0f, 0f), Quaternion.identity, new Vector3(0.07f, 0.085f, 0.14f), camBodyMat, true);
+        CamPart(g.transform, PrimitiveType.Cylinder, "Lens", new Vector3(0f, 0f, 0.085f), Quaternion.Euler(90f, 0f, 0f), new Vector3(0.044f, 0.0175f, 0.044f), camLensMat, true);
+        CamPart(g.transform, PrimitiveType.Cube, "Viewfinder", new Vector3(0f, 0.052f, -0.03f), Quaternion.identity, new Vector3(0.03f, 0.025f, 0.05f), camBodyMat, true);
+        CamPart(g.transform, PrimitiveType.Sphere, "RecLED", new Vector3(0.02f, 0.045f, 0.05f), Quaternion.identity, Vector3.one * 0.013f, recLightMat, false);
         g.SetActive(false);
         g.transform.SetParent(transform, false); // kayıt yokken BodyCam altında bekler
         return g;

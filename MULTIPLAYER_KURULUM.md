@@ -1535,3 +1535,20 @@ Yalnızca **Tek Oyunculu** (ana menü → Tek Oyunculu / Öğretici; `SessionMan
 
 - Vazo / büstün üst kenarı çenenin altında (eskiden gözün 17 cm altı → iri kafada burnun / yüzün önüne giriyordu, birinci şahısta kameraya çok yakındı). Kollar daha çok uzanır (%92): eşya gövdeden olabildiğince önde, eller iki yanından.
 - Değişen: `PlayerAvatarClips.cs`.
+
+## Ek 77: Karakter / tutuş düzeltmeleri, siluet çizgisi, el kamerası, F3 ile birlikte çıkış, ayna
+
+- **Elde eşya elden kayıyordu (bozuk para, yüzük, tablo):** yanında oyuncu varken gövde (omurga / göğüs) ona doğru dönüyordu ama bu dönüş el IK'sından ve eşyanın yeri hesaplandıktan SONRA yapılıyordu → başını çevirince eller eşyadan ayrılıyordu. Bakış ikiye bölündü: `LookBody` (gövde, IK'dan önce) ve `LookHead` (kafa / göz, en sonda).
+- **Kafalar yüze değil havaya bakıyordu:** hedef "kök + 1,4 m" idi (kök kapsülün ortasında → kafanın ~1 m üstü). Artık hedef karakterin gözleri (`PlayerAvatar.EyeWorldPoint`).
+- **Gözler koşarken oynuyordu:** kimseye bakmıyorken gözler her kare dinlenme pozunda tutulur (kliplerdeki göz hareketi görünmez), göz açısı yumuşatılır; koşarken yakındakine göz atma yok (yalnızca konuşana bakar).
+- **Tablo dışarıdan çok yatıktı:** ek eğim yalnızca kendi ekranında 16° (aşağı bakınca resmi görürsün), diğerlerinin ekranında 2°; diğerlerinin ekranında tablo biraz daha aşağıda (yüz açık). Her bilgisayar kendi hesabını yapar, eller iki görüntüde de tablonun kenarında.
+- **Fırça dışarıdan:** boyamıyorken kol öne dümdüz uzanmaz; dirsek bükük, el göğsün sağ önünde, fırça yumruktan öne-yukarı (`BrushRelaxPose`). Boyarken eski öne uzanan Blender pozu. Kendi birinci şahıs görüntün değişmedi.
+- **Yüzük bozuk paradan ayrı (`RingPose`):** el göğsün sağ önünde, parmaklar öne-yukarı, yüzük işaret ile başparmağın uçları arasında alt bandından tutulur, diğer üç parmak avuca kıvrık; yüzüğün deliği tutanın gözüne bakar (birinci şahısta tam daire). Bozuk para tutuşu (yazı-tura) aynen.
+- **Vazo / büst parmakları:** avuçlar yanların biraz arkasında, parmaklar yüzey boyunca öne doğru sarar (`El_Kavra`'ya doğru kapanır); eskiden parmaklar havaya öne uzanıyordu.
+- **Birinci şahısta vazonun ağzı kesiliyordu:** oyuncu kamerasının yakın kesme düzlemi 0,3 → 0,03 m (`PlayerController.ApplyFieldOfView`).
+- **Dış çizgi yalnızca siluette (`SilhouetteOutline.cs`, `Resources/Shaders/SilhouetteMask|SilhouetteOutline.shader`):** karakterin gövdesi stencil'e numarasını yazar, ters kabuk yalnızca o numaranın olmadığı yere çizilir → burun, göz, kulak, bere, çanta içindeki çizgiler kalkar; dış kenar (çanta ve şapka dahil) kalır. Güvenlikte de. FBX'te Read/Write açık olmalı (Soygun'da açık); kapalıysa eski çizgi kalır. Ayna / kayıt dokularının derinliği 16 → 24 bit (stencil için).
+- **Kayıt (H):** göğüsteki kırmızı küre kalktı. Kayıtta karakter SOL ELİNDE küçük bir el kamerası tutar (üstünde yanıp sönen küçük REC ışığı); iki elle eşya taşırken kamera göğüste durur. Kendi ekranında da elinde görürsün.
+- **Garaj aynası uzakta donuyordu:** 12 m'den uzakta çizim tamamen duruyordu. Artık 60 m'ye kadar çizilir (12 m'den sonra 2 karede bir), uzak düzlem yansıyan kameraya göre.
+- **F3 = herkes hazır olunca birlikte kamyona:** garajdaki herkes F3'e basınca sunucu 3 sn ortak geri sayım başlatır, herkes aynı anda ışınlanır. Biri F3'e tekrar basarsa / yeni oyuncu gelirse iptal. Garajda tek kişi kaldıysa (ör. sonradan gelen) kendi F3'ü yeter. Hazır olunca neden gidemeyeceği (elde eşya, hapis…) hemen söylenir. Tek oyunculu değişmedi. (`HeistLobbyUI`, `GarageTravel.LocalBlockReason`, `GarageSceneLink`, `ObjectiveHUD`, Loc)
+- Pozlar Blender'da (SoygunChar.fbx) aynı IK hesabıyla birinci / üçüncü şahıstan çizilip kontrol edildi; kod Unity'nin kendi DLL'leriyle derlendi. Unity'de oynanarak denenmedi.
+- Değişen: `PlayerAvatarClips.cs`, `PlayerAvatarModel.cs`, `HeldItemView.cs`, `PlayerController.cs`, `BodyCam.cs`, `GarageMirror.cs`, `GuardLook.cs`, `HeistLobbyUI.cs`, `GarageTravel.cs`, `GarageSceneLink.cs`, `ObjectiveHUD.cs`, `Loc.cs`; yeni: `SilhouetteOutline.cs`, iki shader.

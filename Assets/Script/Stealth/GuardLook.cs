@@ -129,6 +129,7 @@ public class GuardLook : MonoBehaviour
                 ms[i] = m;
             }
             skin.sharedMaterials = ms;
+            SilhouetteOutline.Apply(go, "SG_Kontur"); // dış çizgi yalnızca siluette
         }
 
         anim = go.GetComponentInChildren<Animation>(true);

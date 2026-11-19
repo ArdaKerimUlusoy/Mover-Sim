@@ -51,7 +51,7 @@ public class ObjectiveHUD : MonoBehaviour
         switch (phase)
         {
             case GamePhase.Garage:
-                objKey = "obj.garage"; hintKey = "hint.garage";
+                objKey = solo ? "obj.garage" : "obj.garage.team"; hintKey = solo ? "hint.garage" : "hint.garage.team";
                 break;
             case GamePhase.Truck:
                 if (WorkbenchUI.IsOpen) { objKey = "obj.draw"; hintKey = "hint.workbench"; }

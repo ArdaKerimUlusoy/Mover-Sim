@@ -18,7 +18,11 @@ public class GarageMirror : MonoBehaviour
     [SerializeField, Min(0.3f)] private float width = 1.0f;
     [SerializeField, Min(0.5f)] private float height = 2.0f;
 
-    private const float RenderRange = 12f;
+    // Aynanın çizildiği en uzak mesafe (garajın her yerinden görünsün diye geniş). 12 m'den uzakta görüntü
+    // her 2 karede bir yenilenir (uzaktan fark edilmez, maliyet yarıya iner). Eskiden 12 m'de çizim tamamen
+    // duruyordu → ayna son karede donup kalıyordu.
+    private const float RenderRange = 60f;
+    private const float NearRange = 12f;
     private const int RtHeight = 768; // genişlik aynanın en / boy oranına göre
     private static readonly Plane[] Planes = new Plane[6];
 
@@ -116,7 +120,7 @@ public class GarageMirror : MonoBehaviour
     {
         if (mirrorCam != null) return;
         int rtw = Mathf.Clamp(Mathf.RoundToInt(RtHeight * width / Mathf.Max(0.1f, height)), 256, 1536);
-        rt = new RenderTexture(rtw, RtHeight, 16) { name = "GarageMirrorRT", wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear };
+        rt = new RenderTexture(rtw, RtHeight, 24) { name = "GarageMirrorRT", wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear };
         rt.Create();
         GameObject go = new GameObject("GarageMirrorCamera");
         go.transform.SetParent(transform, false);
@@ -169,7 +173,8 @@ public class GarageMirror : MonoBehaviour
         }
         EnsureCamera();
         PlaceCamera(main);
-        mirrorCam.enabled = true;
+        float dist = Vector3.Distance(main.transform.position, transform.position);
+        mirrorCam.enabled = dist <= NearRange || (Time.frameCount & 1) == 0;
     }
 
     private bool ShouldRender(Camera main)
@@ -198,6 +203,8 @@ public class GarageMirror : MonoBehaviour
         Vector3 a = t.InverseTransformPoint(c - right - up);
         Vector3 b = t.InverseTransformPoint(c + right + up);
         float near = Mathf.Max(0.02f, d);
+        // Uzak düzlem yansıyan kameradan ölçülür: göz aynadan uzaklaştıkça kamera da geri gider, görüş derinliği sabit kalsın
+        mirrorCam.farClipPlane = near + 30f;
         float l = Mathf.Min(a.x, b.x), r = Mathf.Max(a.x, b.x);
         float bo = Mathf.Min(a.y, b.y), tp = Mathf.Max(a.y, b.y);
         float scale = near / Mathf.Max(0.0001f, (a.z + b.z) * 0.5f);

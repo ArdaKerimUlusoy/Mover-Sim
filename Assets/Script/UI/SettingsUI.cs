@@ -155,8 +155,8 @@ public static class SettingsUI
         {
             { "W A S D", "keys.move" }, { "Shift", "keys.run" }, { "Ctrl / C", "keys.crouch" }, { "Space", "keys.jump" },
             { "E", "keys.interact" }, { "Tab", "keys.bag" }, { "1 2 3", "keys.quick" }, { "Q", "keys.coin" },
-            { "Mouse 1", "keys.push" }, { "H", "keys.record" }, { "B", "keys.brush" }, { "M", "keys.plan" },
-            { "K", "keys.truck" }, { "V", "keys.voice" }, { "Mouse 3", "keys.ping" }, { "Enter", "keys.chat" },
+            { "@brush.wall.key", "keys.push" }, { "H", "keys.record" }, { "B", "keys.brush" }, { "M", "keys.plan" },
+            { "K", "keys.truck" }, { "V", "keys.voice" }, { "@keys.mmb", "keys.ping" }, { "Enter", "keys.chat" },
             { "F5", "keys.preview" }, { "Esc", "keys.menu" },
         };
         float sc = UITheme.Scale;
@@ -167,6 +167,7 @@ public static class SettingsUI
             if (i % 2 == 0) UIUtil.Round(row, new Color(1f, 1f, 1f, 0.03f), 4f);
             UIUtil.Text(new Rect(row.x + 10f, row.y, w * 0.6f, rh), Loc.T(keys[i, 1]), TextRole.Body, UITheme.Ivory);
             string k = keys[i, 0];
+            if (k.StartsWith("@")) k = Loc.T(k.Substring(1)); // fare tuşları dile göre (Sol tık / LMB)
             float kw = UIUtil.KeyCapWidth(k, 13);
             UIUtil.KeyCap(new Rect(row.xMax - kw - 10f, row.y + 5f, kw, rh - 10f), k, 13);
             y += rh;

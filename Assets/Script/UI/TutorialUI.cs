@@ -165,7 +165,7 @@ public class TutorialUI : MonoBehaviour
             if (escHeld >= SkipHoldSeconds) { escHeld = 0f; Skip(); return; }
 
             bool typing = ChatUI.IsTyping;
-            if (!typing && kb[NextKey].wasPressedThisFrame && !SessionMenuUI.IsPaused && !PushSystem.HasTargetInFront) { AdvanceStep(); return; }
+            if (!typing && kb[NextKey].wasPressedThisFrame && !SessionMenuUI.IsPaused && !PushSystem.FPushesNow) { AdvanceStep(); return; }
         }
 
         if (index < 0 || index >= Steps.Length) return;

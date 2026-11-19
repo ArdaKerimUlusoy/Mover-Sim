@@ -368,6 +368,7 @@ public partial class PlayerAvatar
             }
             sk.sharedMaterials = mats;
         }
+        SilhouetteOutline.Apply(go); // dış çizgi yalnızca siluette (burun / kulak / siperlik içi çizgisi yok)
         ownerVisApplied = false;
         if (hasPendingColor) TintModel(pendingColor);
     }

@@ -86,6 +86,7 @@ public class GarageSceneLink : MonoBehaviour
     public static bool ServerSendEveryoneToGarage()
     {
         if (GarageSpawnPoint.All.Count == 0) return false;
+        HeistLobbyUI.ServerResetReady(); // garaja dönüşte herkes yeniden [F3] ile hazır olur
         foreach (PlayerStealth p in PlayerStealth.All)
         {
             if (p == null || !p.IsSpawned) continue;

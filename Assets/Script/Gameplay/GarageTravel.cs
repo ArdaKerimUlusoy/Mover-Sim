@@ -4,6 +4,7 @@ using UnityEngine.InputSystem;
 /// <summary>
 /// Garaj (ayrı sahne) ile kamyon arasındaki geçiş kapısı. Kamyona geçiş artık E ile DEĞİL: garajda [F3] (hazır) basınca
 /// oyuncu kısa bir geri sayımdan sonra kendiliğinden kamyona ışınlanır (HeistLobbyUI → GarageTravel.TryTravelLocal).
+/// Ekipte garajdaki herkes [F3] basınca sunucu ortak geri sayım başlatır; bitince herkes aynı anda ışınlanır.
 /// Kapıya bakınca yalnızca bilgi istemi çıkar.
 ///  - ToTruck : garajın kapısı → kamyonun içindeki doğma noktaları (soyguna çıkış)
 ///  - ToGarage: (kullanılmıyor) görev ortasında garaja dönüş yok; garaja görev bitince dönülür
@@ -79,16 +80,25 @@ public class GarageTravel : MonoBehaviour
     /// <summary>Yerel oyuncuyu kamyona ışınla ([F3] hazır). Engel varsa nedenini (çeviri metni) döndürür, geçtiyse null.</summary>
     public static string TryTravelLocal()
     {
-        PlayerStealth me = PlayerStealth.Local;
-        if (me == null || !me.IsSpawned || me.IsJailed) return Loc.T("garage.travel.none");
-        GarageTravel door = null;
-        foreach (GarageTravel g in FindObjectsByType<GarageTravel>(FindObjectsSortMode.None))
-            if (g != null && g.destination == Destination.ToTruck) { door = g; break; }
-        if (door == null) return Loc.T("garage.travel.none");
-        string why = door.BlockReason(me);
+        string why = LocalBlockReason(out PlayerStealth me, out GarageTravel door);
         if (why != null) return why;
         door.Travel(me);
         return null;
+    }
+
+    /// <summary>Yerel oyuncu şu an kamyona geçebilir mi? Engel varsa nedeni (çeviri metni), yoksa null.
+    /// Ekipte [F3] hazır olmadan önce ve hazırken denetlenir (HeistLobbyUI): ortak çıkış anında takılan olmasın.</summary>
+    public static string LocalBlockReason() => LocalBlockReason(out _, out _);
+
+    private static string LocalBlockReason(out PlayerStealth me, out GarageTravel door)
+    {
+        me = PlayerStealth.Local;
+        door = null;
+        if (me == null || !me.IsSpawned || me.IsJailed) return Loc.T("garage.travel.none");
+        foreach (GarageTravel g in FindObjectsByType<GarageTravel>(FindObjectsSortMode.None))
+            if (g != null && g.destination == Destination.ToTruck) { door = g; break; }
+        if (door == null) return Loc.T("garage.travel.none");
+        return door.BlockReason(me);
     }
 
     /// <summary>Geçiş şu an yasaksa nedeni (çeviri metni), serbestse null.</summary>
@@ -118,7 +128,12 @@ public class GarageTravel : MonoBehaviour
         }
         else
         {
-            SpawnPoint sp = SpawnPoint.All[(int)(me.OwnerClientId % (ulong)SpawnPoint.All.Count)];
+            // Herkes aynı anda geldiği için çakışmasın: kimlik değil oyuncunun sırası (All kimliğe göre sıralı; yeniden
+            // bağlanmalarda kimlikler büyüdüğü için mod alınca iki oyuncu aynı noktaya düşebiliyordu)
+            int idx = 0;
+            for (int i = 0; i < PlayerNetworkSetup.All.Count; i++)
+                if (PlayerNetworkSetup.All[i] != null && PlayerNetworkSetup.All[i].OwnerClientId == me.OwnerClientId) { idx = i; break; }
+            SpawnPoint sp = SpawnPoint.All[idx % SpawnPoint.All.Count];
             t = sp.transform;
         }
         if (t == null) return;
