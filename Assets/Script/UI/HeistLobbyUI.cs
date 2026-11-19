@@ -8,7 +8,8 @@ using UnityEngine.InputSystem;
 /// <summary>
 /// GARAJ / LOBİ: oyuncuların buluştuğu ve soyguna hazırlandığı aşama. Garajdayken (kamyon ve müze dışında) sol tarafta
 /// "SOYGUN HAZIRLIĞI" paneli çıkar: oyuncular (renk, ad, nerede), HAZIR durumu (F3), rol bilgisi ve yapılacaklar.
-/// Hazır durumu yalnızca bilgidir (oyunu kilitlemez): ekip kimin hazır olduğunu görür.
+/// [F3] HAZIR = kamyona bin: basınca kısa bir geri sayımdan (1,5 sn, yeniden [F3] ile iptal) sonra oyuncu kendiliğinden
+/// kamyona ışınlanır (eski "kapıya bakıp E" yolu kaldırıldı). Tek oyunculuda da aynı tuş. Ekip kimin hazır olduğunu görür.
 /// Ağ: CustomMessagingManager named message ("SS_ReadyReq" istemci -> sunucu, "SS_ReadyState" sunucu -> herkes);
 /// çalışma anında NetworkBehaviour eklenemediği için böyle. Kendini kurar, sahneye bir şey eklemek gerekmez.
 /// </summary>
@@ -27,6 +28,8 @@ public class HeistLobbyUI : MonoBehaviour
     private bool stateDirty;
     private float nextBroadcast;
     private int serverLevel = -1;
+    private const float GoDelay = 1.5f;
+    private float goAt = -1f; // >0: bu zamanda kamyona ışınlan (geri sayım)
 
 
 
@@ -168,10 +171,32 @@ public class HeistLobbyUI : MonoBehaviour
 
         if (nm.IsServer) ServerTick(nm);
 
+        // Geri sayım: garajdan çıkıldıysa / menü açıldıysa iptal; süre dolunca kamyona ışınlan
+        if (goAt > 0f)
+        {
+            if (!GameFlow.LocalSpawned || GameFlow.Phase != GamePhase.Garage) goAt = -1f;
+            else if (Time.unscaledTime >= goAt && !SessionMenuUI.IsPaused && !PlayerController.InputLocked)
+            {
+                goAt = -1f;
+                string why = GarageTravel.TryTravelLocal();
+                if (why != null)
+                {
+                    SendReady(false);
+                    if (PlayerInventory.Local != null) PlayerInventory.Local.ShowLocalToast(why);
+                    GameAudio.Play2D(SoundId.UiClick, 0.4f);
+                }
+            }
+        }
+
         Keyboard kb = Keyboard.current;
-        if (kb == null || !PanelVisible || ChatUI.IsTyping || PlayerInventory.IsPanelOpen || GameFlow.Solo) return;
+        if (kb == null || !PanelVisible || ChatUI.IsTyping || PlayerInventory.IsPanelOpen) return;
         if (Cursor.lockState == CursorLockMode.Locked && kb[ReadyKey].wasPressedThisFrame)
-            SendReady(!ready.Contains(nm.LocalClientId));
+        {
+            bool nowReady = goAt < 0f; // geri sayım yoksa: hazır + geri sayım; geri sayım sırasında tekrar basmak iptal eder
+            SendReady(nowReady);
+            goAt = nowReady ? Time.unscaledTime + GoDelay : -1f;
+            GameAudio.Play2D(SoundId.UiClick, nowReady ? 0.6f : 0.4f);
+        }
     }
 
     // ---------------- Çizim ----------------
@@ -188,6 +213,12 @@ public class HeistLobbyUI : MonoBehaviour
 
     private void OnGUI()
     {
+        // Kamyona geri sayım bandı (tek oyunculu dahil)
+        if (goAt > 0f && PanelVisible)
+        {
+            int left = Mathf.Max(1, Mathf.CeilToInt(goAt - Time.unscaledTime));
+            HudKit.Banner(Loc.T("lobby.going", left, ReadyKey.ToString()), IconId.Truck, UITheme.Sage, UITheme.Ivory);
+        }
         // Tek oyunculuda hazırlık paneli gereksiz (sağ üstteki hedef aynı şeyi söyler): yalnızca ekipte görünür
         if (!PanelVisible || GameFlow.Solo) return;
         NetworkManager nm = NetworkManager.Singleton;

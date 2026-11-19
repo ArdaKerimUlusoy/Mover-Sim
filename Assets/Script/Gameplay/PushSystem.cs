@@ -113,14 +113,30 @@ public class PushSystem : MonoBehaviour
         current = FindTarget(out bool canAct);
         HasTargetInFront = canAct && current.kind != TargetKind.None;
 
+        // İtme: SOL TIK. Sol tıkı kendisi kullanan bir şey elindeyken (fırça, fotoğraf vizörü, fizikle taşınan obje) F ile itilir.
         Keyboard kb = Keyboard.current;
-        if (!HasTargetInFront || kb == null || !kb.fKey.wasPressedThisFrame || Time.unscaledTime < nextPush) return;
+        Mouse mouse = Mouse.current;
+        bool clickBusy = ClickBusy();
+        bool pressed = clickBusy ? kb != null && kb.fKey.wasPressedThisFrame
+                                 : mouse != null && mouse.leftButton.wasPressedThisFrame;
+        if (!HasTargetInFront || !pressed || Time.unscaledTime < nextPush) return;
         nextPush = Time.unscaledTime + Cooldown;
 
         Camera cam = Camera.main;
         Vector3 dir = cam != null ? cam.transform.forward : Vector3.forward;
         dir.y = 0f;
         SendRequest(nm, current, dir.sqrMagnitude > 0.001f ? dir.normalized : Vector3.forward);
+    }
+
+    /// <summary>Sol tık şu an başka bir işe mi gidiyor (fırçayla boyama, fotoğraf çekme, fizik objesini fırlatma)?</summary>
+    private static bool ClickBusy()
+    {
+        PlayerInventory inv = PlayerInventory.Local;
+        if (inv != null && PaintBrush.IsHoldingBrush(inv)) return true;
+        if (SoloPhotoCamera.Aiming) return true;
+        PlayerStealth me = PlayerStealth.Local;
+        ObjectCarrier oc = me != null ? me.GetComponent<ObjectCarrier>() : null;
+        return oc != null && oc.IsHolding;
     }
 
     /// <summary>Kendi oyuncunun önündeki (bakış açısındaki) en yakın oyuncu / güvenlik / ziyaretçi.</summary>
@@ -529,7 +545,8 @@ public class PushSystem : MonoBehaviour
         if (sp.z <= 0f) return;
         // Hedef üstünde küçük istem: tuş kapağı + eylem (tanık: Bayılt = Danger tonu)
         bool ko = current.kind == TargetKind.Visitor && VisitorManager.Instance != null && VisitorManager.Instance.IsWitness((byte)current.id);
-        PromptHud.Parse(Loc.T(ko ? "push.knockhint" : "push.hint"), out string hk, out string hl, out _);
+        bool viaF = ClickBusy();
+        PromptHud.Parse(Loc.T(ko ? (viaF ? "push.knockhint.f" : "push.knockhint") : (viaF ? "push.hint.f" : "push.hint")), out string hk, out string hl, out _);
         float sc = UITheme.Scale;
         GUIStyle hs = UITheme.Style(TextRole.BodyStrong, ko ? UITheme.DangerLight : UITheme.Ivory, TextAnchor.MiddleLeft);
         int fs = Mathf.RoundToInt(14f * sc);

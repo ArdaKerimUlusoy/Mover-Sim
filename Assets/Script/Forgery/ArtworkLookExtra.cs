@@ -412,7 +412,7 @@ public static partial class ArtworkLook
                 mesh = GridLathe((row, seg) => d.VaseRadiusAt(row, seg), radial, rows, d.VaseHeight);
                 go = new GameObject("ForgedVase");
                 go.AddComponent<MeshFilter>().sharedMesh = mesh;
-                go.AddComponent<MeshRenderer>().sharedMaterial = MakeLit(Color.white, tex);
+                go.AddComponent<MeshRenderer>().sharedMaterial = TwoSided(MakeLit(Color.white, tex));
                 break;
             }
 
@@ -655,11 +655,9 @@ public static partial class ArtworkLook
     /// <summary>Her noktası ayrı yarıçaplı döner gövde (kilin atölyedeki hali; ClaySculptor ile aynı düzen).</summary>
     public static Mesh GridLathe(System.Func<int, int, float> radiusAt, int radial, int rows, float height)
     {
-        var mesh = new Mesh { name = "ForgedLathe" };
         int stride = radial + 1;
-        int body = stride * (rows + 1);
-        var verts = new Vector3[body + 2];
-        var uvs = new Vector2[body + 2];
+        var body = new Vector3[stride * (rows + 1)];
+        var uvs = new Vector2[body.Length];
         float dA = Mathf.PI * 2f / radial;
         int vi = 0;
         for (int y = 0; y <= rows; y++)
@@ -667,35 +665,11 @@ public static partial class ArtworkLook
             {
                 float a = s * dA;
                 float r = radiusAt(y, s % radial == 0 ? 0 : s); // dikiş kapalı kalsın
-                verts[vi] = new Vector3(Mathf.Cos(a) * r, y * height / rows, Mathf.Sin(a) * r);
+                body[vi] = new Vector3(Mathf.Cos(a) * r, y * height / rows, Mathf.Sin(a) * r);
                 uvs[vi] = new Vector2((float)s / radial, (float)y / rows);
                 vi++;
             }
-        int bottom = vi++, top = vi++;
-        verts[bottom] = Vector3.zero;
-        verts[top] = new Vector3(0f, height, 0f);
-        uvs[bottom] = new Vector2(0.5f, 0.02f);
-        uvs[top] = new Vector2(0.5f, 0.98f);
-
-        var tris = new int[radial * rows * 6 + radial * 6];
-        int ti = 0;
-        for (int y = 0; y < rows; y++)
-            for (int s = 0; s < radial; s++)
-            {
-                int cur = y * stride + s, next = cur + stride;
-                tris[ti++] = cur; tris[ti++] = next; tris[ti++] = cur + 1;
-                tris[ti++] = cur + 1; tris[ti++] = next; tris[ti++] = next + 1;
-            }
-        for (int s = 0; s < radial; s++) { tris[ti++] = bottom; tris[ti++] = s + 1; tris[ti++] = s; }
-        int topRow = rows * stride;
-        for (int s = 0; s < radial; s++) { tris[ti++] = top; tris[ti++] = topRow + s; tris[ti++] = topRow + s + 1; }
-
-        mesh.vertices = verts;
-        mesh.uv = uvs;
-        mesh.triangles = tris;
-        mesh.RecalculateNormals();
-        mesh.RecalculateBounds();
-        return mesh;
+        return HollowLathe("ForgedLathe", body, uvs, radial, rows, height); // içi boş ağızlı vazo
     }
 }
 

@@ -42,7 +42,16 @@ public partial class PlayerAvatar
     }
 
     private Transform model;
-    private SkinnedMeshRenderer modelSkin;
+    private SkinnedMeshRenderer modelSkin;   // gövde (kollar, eller, kıyafet)
+    private SkinnedMeshRenderer headSkin;    // kafa (yüz, saç, bere): kendi ekranında yalnızca gölgesi (birinci şahıs)
+    private SkinnedMeshRenderer faceSkin;    // göz kırpma / ağız şekilleri olan mesh
+    // Birinci şahıs: kendi gövden ve kolların görünür (diğerlerinin gördüğüyle aynı), sadece kafan gizli.
+    // Kamera kafanın içinde; gövde hafifçe geride çizilir ki aşağı bakınca boyun / yaka kameraya girmesin.
+    private const float FpBodyBack = 0.04f; // yalnızca yaka kameraya girmesin diye; fazlası eşyayı kameranın altına çekiyordu (yakın / basık görünüyordu)
+    private float fpBack;
+    private bool ownerBodyShown, ownerVisApplied;
+    /// <summary>Yerel oyuncunun gövdesi birinci şahısta çiziliyor mu (kollar eşyayı / fırçayı gerçekten tutar).</summary>
+    public static bool LocalBodyVisible { get; private set; }
     private Material modelBeretMat;
     private int blinkShape = -1, mouthShape = -1;
     private float nextBlink, blinkT;
@@ -100,6 +109,12 @@ public partial class PlayerAvatar
         if (animated) PoseNow(); // Soygun: el bu karenin pozunda
         float bs = animated && brushHold ? 1f : brushSmooth;
         if (model == null || mHandR == null || mHandR.t == null || bs < 0.05f) return false;
+        if (BrushGripIsRoot)
+        {
+            pos = brushGrip.position;
+            dir = (brushTip.position - brushGrip.position).normalized;
+            return true;
+        }
         Transform h = mHandR.t;
         // Parmakların sardığı nokta ile aynı (CurlFingers'taki avuç merkezi): fırça yumruğun içinden geçsin
         pos = midFingerR != null ? h.position + (midFingerR.position - h.position) * 0.5f - body.right * (0.05f * model.lossyScale.y)
@@ -112,6 +127,17 @@ public partial class PlayerAvatar
     private HeldItemView heldView;
     private readonly List<Transform> fingersL = new List<Transform>(), fingersR = new List<Transform>();
     private Transform midFingerL, midFingerR, thumbL, thumbR;
+    private Transform idxL, idxR, litL, litR; // işaret / serçe parmak kökleri: elin yan ekseni (avucun düzlemi)
+
+    /// <summary>Elin başparmak tarafı (avuç düzleminde, parmak eksenine dik): işaret kökü − serçe kökü.
+    /// Başparmak kökü avucun altına doğru da kaydığı için onu kullanmak avucu ~45° yanlış çeviriyordu.</summary>
+    private Vector3 ThumbSide(Bone hand, Transform thumb)
+    {
+        bool left = hand == mHandL;
+        Transform i = left ? idxL : idxR, l = left ? litL : litR;
+        if (i != null && l != null) return i.position - l.position;
+        return thumb != null ? thumb.position - hand.t.position : Vector3.zero;
+    }
     private readonly Dictionary<Transform, Quaternion> fingerRest = new Dictionary<Transform, Quaternion>();
 
     private void CollectFingers(Dictionary<string, Transform> bones, string side, List<Transform> list, out Transform mid, out Transform thumb)
@@ -230,7 +256,15 @@ public partial class PlayerAvatar
         foreach (Animator a in go.GetComponentsInChildren<Animator>(true)) a.enabled = false; // kemikleri kod yönetir
         foreach (Collider c in go.GetComponentsInChildren<Collider>(true)) Destroy(c);       // ışınlara / taşımaya takılmasın
 
-        modelSkin = go.GetComponentInChildren<SkinnedMeshRenderer>(true);
+        // Soygun iki mesh: gövde ("Soygun") + kafa ("SoygunHead"). Eski karakter tek mesh.
+        modelSkin = null; headSkin = null;
+        SkinnedMeshRenderer[] skins = go.GetComponentsInChildren<SkinnedMeshRenderer>(true);
+        foreach (SkinnedMeshRenderer sk in skins)
+        {
+            if (sk.name.EndsWith("Head")) { if (headSkin == null) headSkin = sk; }
+            else if (modelSkin == null) modelSkin = sk;
+        }
+        if (modelSkin == null) { modelSkin = headSkin; headSkin = null; }
         Dictionary<string, Transform> bones = new Dictionary<string, Transform>();
         foreach (Transform t in go.GetComponentsInChildren<Transform>(true))
             if (!bones.ContainsKey(t.name)) bones[t.name] = t;
@@ -263,6 +297,8 @@ public partial class PlayerAvatar
         mUpArmR = MakeBone(B("UpperArm" + R)); mLoArmR = MakeBone(B("LowerArm" + R)); mHandR = MakeBone(B("Hand" + R));
         CollectFingers(bones, L, fingersL, out midFingerL, out thumbL);
         CollectFingers(bones, R, fingersR, out midFingerR, out thumbR);
+        bones.TryGetValue("Index_Proximal" + L, out idxL); bones.TryGetValue("Little_Proximal" + L, out litL);
+        bones.TryGetValue("Index_Proximal" + R, out idxR); bones.TryGetValue("Little_Proximal" + R, out litR);
         mUpLegL = MakeBone(B("UpperLeg" + L)); mLoLegL = MakeBone(B("LowerLeg" + L)); mFootL = MakeBone(B("Foot" + L));
         mUpLegR = MakeBone(B("UpperLeg" + R)); mLoLegR = MakeBone(B("LowerLeg" + R)); mFootR = MakeBone(B("Foot" + R));
 
@@ -279,10 +315,14 @@ public partial class PlayerAvatar
         SetupClips(bones); // Soygun: hazır animasyonlar (Idle, Walk, Run, Itme, Taşıma...) + kafa / göz bakışı
 
         // 4) Yüz ifadeleri (blend shape): göz kırpma, ağız açma
-        if (modelSkin != null && modelSkin.sharedMesh != null)
+        faceSkin = null;
+        foreach (SkinnedMeshRenderer sk in skins)
         {
-            blinkShape = modelSkin.sharedMesh.GetBlendShapeIndex("Blink");
-            mouthShape = modelSkin.sharedMesh.GetBlendShapeIndex("MouthOpen");
+            if (sk == null || sk.sharedMesh == null) continue;
+            int bi = sk.sharedMesh.GetBlendShapeIndex("Blink"), mi = sk.sharedMesh.GetBlendShapeIndex("MouthOpen");
+            if (bi < 0 && mi < 0) continue;
+            faceSkin = sk; blinkShape = bi; mouthShape = mi;
+            break;
         }
         nextBlink = Time.time + Random.Range(2f, 5f);
 
@@ -303,29 +343,32 @@ public partial class PlayerAvatar
             renderers.Add(r);
             r.shadowCastingMode = ShadowCastingMode.On;
         }
-        if (modelSkin != null) modelSkin.updateWhenOffscreen = false;
+        foreach (SkinnedMeshRenderer sk in skins) if (sk != null) sk.updateWhenOffscreen = false;
 
-        // Oyuncu rengi: berenin malzemesi (sadece bu karakterin kopyası)
-        if (modelSkin != null)
+        // Oyuncu rengi: berenin malzemesi (sadece bu karakterin kopyası) — bere kafa mesh'inde, tulum gövdede
+        foreach (SkinnedMeshRenderer sk in skins)
         {
-            Material[] mats = modelSkin.sharedMaterials;
+            if (sk == null) continue;
+            Material[] mats = sk.sharedMaterials;
             EnsureSoygunTextures(mats); // içe aktarmada doku bağlanmadıysa Resources'tan bağla
             for (int i = 0; i < mats.Length; i++)
             {
                 if (mats[i] == null) continue;
                 if (mats[i].name.StartsWith("MAT_Overalls_Yellow"))
                 {
+                    if (modelOverallMat != null) { mats[i] = modelOverallMat; continue; }
                     modelOverallMat = new Material(mats[i]); // tulum da oyuncu renginde
                     mats[i] = modelOverallMat;
                     continue;
                 }
                 bool beret = mats[i].name.StartsWith("G_Bere") || (mats[i].name.StartsWith("MAT_Beret") && !mats[i].name.StartsWith("MAT_Beret_Band"));
                 if (!beret) continue;
-                modelBeretMat = new Material(mats[i]);
+                if (modelBeretMat == null) modelBeretMat = new Material(mats[i]);
                 mats[i] = modelBeretMat;
             }
-            modelSkin.sharedMaterials = mats;
+            sk.sharedMaterials = mats;
         }
+        ownerVisApplied = false;
         if (hasPendingColor) TintModel(pendingColor);
     }
 
@@ -467,13 +510,13 @@ public partial class PlayerAvatar
         }
 
         // Yüz: ara sıra göz kırpar; baygınken gözler kapalı, ağız açık
-        if (modelSkin != null)
+        if (faceSkin != null)
         {
             float blink = 0f;
             if (Time.time >= nextBlink) { blinkT = 0.16f; nextBlink = Time.time + Random.Range(2.5f, 6f); }
             if (blinkT > 0f) { blinkT -= dt; blink = Mathf.Sin(Mathf.Clamp01(1f - blinkT / 0.16f) * Mathf.PI); }
-            if (blinkShape >= 0) modelSkin.SetBlendShapeWeight(blinkShape, Mathf.Max(blink, knock) * 100f);
-            if (mouthShape >= 0) modelSkin.SetBlendShapeWeight(mouthShape, knock * 70f);
+            if (blinkShape >= 0) faceSkin.SetBlendShapeWeight(blinkShape, Mathf.Max(blink, knock) * 100f);
+            if (mouthShape >= 0) faceSkin.SetBlendShapeWeight(mouthShape, knock * 70f);
         }
     }
 
@@ -583,6 +626,27 @@ public partial class PlayerAvatar
         previewCam.fieldOfView = main.fieldOfView;
     }
 
+    /// <summary>Sahibinin ekranı: kafa yalnızca gölge (kamera kafanın içinde), gövde ve kollar normal çizilir —
+    /// diğer oyuncuların gördüğüyle aynı tutuş. Baygınken (kamera yere düşer) ve kafa ayrı mesh değilse (eski karakter)
+    /// tüm gövde yalnızca gölge (eski davranış). F5 önizlemede hepsi görünür.</summary>
+    private void ApplyOwnerVisibility(bool isOwner)
+    {
+        bool split = headSkin != null;
+        bool bodyOn = isOwner && split && Mathf.Clamp01(knockSmooth) < 0.3f;
+        if (!isOwner) { LocalBodyVisible = false; return; }
+        if (ownerVisApplied && bodyOn == ownerBodyShown) { LocalBodyVisible = bodyOn && !previewOn; return; }
+        ownerVisApplied = true;
+        ownerBodyShown = bodyOn;
+        LocalBodyVisible = bodyOn && !previewOn;
+        foreach (Renderer r in renderers)
+        {
+            if (r == null || (stars != null && r.transform.IsChildOf(stars))) continue;
+            bool head = !split || r == headSkin;
+            bool show = previewOn || (!head && bodyOn);
+            r.shadowCastingMode = show ? ShadowCastingMode.On : ShadowCastingMode.ShadowsOnly;
+        }
+    }
+
     private void SetPreview(bool on)
     {
         previewOn = on;
@@ -604,10 +668,9 @@ public partial class PlayerAvatar
             previewCam.depth = (main != null ? main.depth : 0f) + 5f; // oyunun kamerasının üstüne çizilir
             previewCam.enabled = on;
         }
-        // Kendi gövden: önizlemede görünsün, normalde sadece gölgesi
-        foreach (Renderer r in renderers)
-            if (r != null && (stars == null || !r.transform.IsChildOf(stars)))
-                r.shadowCastingMode = on ? ShadowCastingMode.On : ShadowCastingMode.ShadowsOnly;
+        // Kendi gövden: önizlemede tamamen görünsün, normalde kafa sadece gölge (gövde / kollar birinci şahısta görünür)
+        ownerVisApplied = false;
+        ApplyOwnerVisibility(true);
         if (PlayerInventory.Local != null) PlayerInventory.Local.ShowLocalToast(on ? "Karakter önizleme: AÇIK (orta tuş + fare: etrafında dön, Alt+tekerlek: uzaklık, F5: kapat)" : "Karakter önizleme: KAPALI");
     }
 }

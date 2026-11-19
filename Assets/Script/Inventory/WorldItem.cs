@@ -109,6 +109,11 @@ public class WorldItem : NetworkBehaviour
         // Sahneye konmuş eşya oturum kapanınca yok olmaz: NetworkRigidbody onu kinematik bırakır, yeniden
         // açılınca havada asılı kalırdı. Sunucuda fiziği geri aç.
         if (IsServer && this != null && !IsConsumed) ServerEnsurePhysics();
+        // İstemci: sunucu sahneye konmuş bir eşyayı ağdan kaldırdıysa (ör. eski masa ganimeti) burada da görünmesin;
+        // yoksa masalar yeni yerlerine taşındığı için havada asılı kalıyordu. Oturum kapanırken dokunulmaz.
+        NetworkManager nm = NetworkManager;
+        if (!IsServer && this != null && nm != null && nm.IsListening && !nm.ShutdownInProgress && !gameObject.name.EndsWith("(Clone)"))
+            WorldItemGhosts.ClientHide(gameObject);
     }
 
     /// <summary>Yaşayan tüm yerdeki eşyalar (sunucu temizliği ve uyandırma için).</summary>

@@ -1366,3 +1366,172 @@ Yalnızca **Tek Oyunculu** (ana menü → Tek Oyunculu / Öğretici; `SessionMan
 - Kendi ekranındaki kollar yine Soygun'un kolları; yerleşim ve kavrama eski oyundaki gibi (omuz noktası, IK, parmak kavrayışı aynı). Ölçek: kol 1.0, el 1.25 (çıplak eller eskisindeki eldivenler kadar dolgun dursun).
 - Kolda delik: sadeleştirmede kazak kolunda omuza kadar uzanan ince üçgenler oluşmuş; kol kesme kuralı bunları atınca delik kalıyordu. Yeni kural (yalnızca Soygun): iki köşesi kolda olan üçgen de alınır, omuzdaki parçalar gelmez. Blender'da birinci şahıs görüntü taklit edilip kontrol edildi: delik yok.
 - Dış çizgi birinci şahısta çizilmez; malzemeler çift yüzlü kopya. Modelde 7 köşenin hatalı (komşularından çok farklı) ağırlığı düzeltildi.
+
+## Ek 54: Göz hizası, F3 ile kamyon, ganimet hayaletleri, tutuşlar, baygınlık, itme (sol tık)
+
+- **Göz hizası:** karakter 1,75 m'ye küçülünce kamera eski 1,6 m'de kalmıştı → oyuncular birbirini kendi göz hizasının altında görüyordu. Kamera artık Soygun'un gerçek göz hizasında (`PlayerAvatar.ModelEyeY` → `PlayerController.EyeOffset`, ~1,35 m). Kayıt kamerası (uzaktaki kayıt yapan) da aynı yükseklikten çeker.
+- **F3 = hazır + kamyona bin:** garajda [F3] → 1,5 sn geri sayım ([F3] ile iptal) → kamyona ışınlanma (`GarageTravel.TryTravelLocal`). Tek oyunculuda da geçerli. Kapıya bakıp E ile geçiş kaldırıldı (kapı yalnızca bilgi istemi gösterir). Metinler güncellendi.
+- **Küçük ganimetler (arkadaşta havada):** müzeye elle konmuş eski masa ganimetleri istemcide ağa hiç bağlanmadan sahnede kalıyordu; masalar yeni yerlerine taşındığı için havada görünüyordu. `WorldItemGhosts` (yeni): bağlı istemcide spawn edilmemiş sahne eşyalarını gizler, oturumdan çıkınca geri açar; `WorldItem.OnNetworkDespawn` istemcide kaldırılan sahne eşyasını gizler.
+- **Tablo çevirme:** elde gösterilen eşya artık pivotu değil yatay ORTASI tutulan noktaya konur (`HeldItemView.centerOff`); R ile çevirince içeri / dışarı kaymaz.
+- **Bozuk para / küçük eşya (birinci şahıs):** iki elle ortada değil, sağ elin avucunda (sağ altta, avuç yukarı, parmaklar hafif kıvrık; `FirstPersonArms.ShowSmall`). Blender'da birinci şahıs görüntüyle denendi.
+- **Birinci şahıs kollar:** ayrı kol modeli `SoygunArms.fbx` (Soygun'un kazak kolu + elleri, omuzda temiz kesilmiş, yalnızca kol kemiklerine bağlı) → kıyafette yırtık / delik yok; tabloyu tutarken başparmaklar önde.
+- **Çanta:** sol el çantanın içine giriyordu → çanta biraz geriye / dışa alındı, sol kol 8° açıldı (taşıma klipleri hariç), Blender'da.
+- **Bakış:** kafa önce ve belirgin döner (kalan açının %60'ı, en çok 45°), gövde biraz sonra ve az döner (en çok 22°).
+- **Baygınlık:** yatan gövde havada kalıyordu → baygınken 0,2 sn'de bir mesh pişirilip en alt noktası zemine oturtulur (`KnockGroundFit`). Kendi kameran karakterle aynı zamanlamayla sendeler, yere yığılır (yerden ~20 cm, yan yatmış), sekip kalkar.
+- **Kayıt ışığı:** eski sabit yer büyük kafanın içinde kalıyordu → Soygun'un sol göğsünde, gövdeyle hareket eder.
+- **Kayıtta kendi gövden:** kaydı izleyen kişi kendi bilgisayarında yalnızca gölge olarak çizildiği için kayıtta görünmüyordu → kayıt kamerası için geçici olarak çizilir; birinci şahıs kollar / önündeki eşya kayıtta gizlenir.
+- **"Çal" troll:** güvenlik bir hırsızlık kelimesini duyarsa konuşanın 4 m yakınındaki oyuncular da "duyuldu" sayılır.
+- **İtme = SOL TIK** (fırça / fotoğraf vizörü / fizik objesi eldeyken F).
+
+## Ek 55: Birinci şahıs tutuşlar Blender'da tasarlandı, garaj dolabı (renk)
+
+- **Tablo ve bozuk para tutuşu artık Blender'da tasarlanmış pozlar:** `SoygunArms.fbx` içinde klipler `FP_Tablo_Dar`, `FP_Tablo_Genis` (yan kenarlardan kavrama: avuç kenara yaslanır, parmaklar kenarı dolanıp arkaya geçer, başparmak ön yüzde) ve `FP_Kucuk` (sağ avuç yukarı, bozuk para avuçta). Ara genişlikteki tablolarda iki poz karıştırılır. `FirstPersonArms` bu klipleri elle örnekler (`ShowPainting`, `ShowSmall`).
+- **Kolların kameraya göre yeri Blender'dakiyle birebir:** modelde kamera kemikleri var (`FP_Cam`, 1 m ileri `FP_CamF`, 1 m yukarı `FP_CamU`); Unity kökü bunlara göre yerleştirir. Avuçtaki eşya noktası `FP_ItemR` (+ yukarısı `FP_ItemRUp`). Blender'da FBX yeniden içe aktarılıp aynı yerleştirmeyle çizildi: tasarımla aynı görüntü.
+- **Kamera yakın kesme düzlemi** 0,3 → 0,05 m (birinci şahıs kollar gösterilirken): kameraya yakın kazak kolları kesik görünüyordu.
+- **Elde küçük eşyalar gerçek boyunda:** bozuk para ~5,5 cm, diğer küçük eşyalar en çok ~10 cm (dünyadaki görünüşleri bilerek büyük).
+- **Garaj dolabı** (`GarageWardrobe`, yeni): garajdaki kozmetik dolabı (`Garage_CosmeticLocker`) çalışma anında kapak çizgisi / kulp / korniş ile dolaba çevrilir; bakıp [E] → DOLAP paneli: karakter rengi (herkes görür, dolu renkler seçilemez). "Kıyafetler: Yakında" bölümü hazır. PromptHud'a 7. kanal (garaj dolabı).
+- Ayarlar → tuşlar listesinde itme artık "Mouse 1".
+
+## Ek 56: PromptHud hata düzeltmesi
+
+- 7. istem kanalı (garaj dolabı) eklenince `drawFrame` dizisi 6 elemanlı kalmıştı → `IndexOutOfRangeException` (PromptHud.cs:88). Dizi artık kanal sayısından üretiliyor.
+
+## Ek 57: Yazı-tura para, tablo çevirirken el animasyonu, ince avuç, dışarıdan fırça tutuşu
+
+- **Bozuk para (birinci şahıs):** yazı-tura tutuşu (`FP_Para_Tut`: yumruk, para işaret parmağının üstünde) ve fiske pozu (`FP_Para_Fiske`: başparmak açılır). [R] ile (ya da 6–11 sn'de bir kendiliğinden) başparmakla fiske: para dönerek (3 tur) ~20 cm havalanır ve ele geri düşer (0,75 sn). Para noktası `FP_CoinR` / `FP_CoinRUp` kemikleri. `FirstPersonArms.ShowCoin`, `HeldItemView` (isCoin).
+- **Tablo çevirirken ([R]):** eller tabloyu bırakıp hafif açılır ve dışa çekilir (`FP_Tablo_Dar_Acik` / `FP_Tablo_Genis_Acik`), tablo dönünce yeniden kavrar (ağırlık = dönüşün sinüsü).
+- **Tablo tutuşu daha ince:** eller %88 boyutta, başparmaklar çerçeve kenarı boyunca (avuç içi daha az görünür).
+- **Fırça (dışarıdan bakınca):** ana karaktere Blender'da `Firca` pozu: sağ kol öne uzanır, fırça kalem gibi başparmak–işaret parmağı arasında. Fırçanın yeri `BrushGrip` / `BrushTip` kemiklerinden (`PlayerAvatar.BrushGripIsRoot`). Boyarken kol küçük dairelerle fırçayı sürer. Eski kodla kurulan fırça kolu yalnızca bu poz yoksa kullanılır.
+- Blender iş akışı: `soybuild2.py` → `soybrush.py save` → `soyexp.py` (karakter); `soyarms.py` → `fpauthor.py export` (birinci şahıs kollar).
+
+## Ek 58: Birinci şahısta el yok, dışarıdan fırça yumrukla tutulur
+
+- **Birinci şahıs: el / kol hiç çizilmez.** Tablo, vazo, büst ekranın alt ortasında, küçük eşyalar (bozuk para, yüzük, ganimet, alet) sağ altta kendi başına durur; fırça da elsiz (`PaintBrush` artık `FirstPersonArms.ShowBrush` çağırmaz, `HeldItemView` kol pozlarını kullanmaz). Bozuk parada [R] ile yazı-tura kalır (para dönerek havalanır, yerine düşer; kendiliğinden atma kaldırıldı). `FirstPersonArms` / `SoygunArms.fbx` dosyada duruyor ama kullanılmıyor.
+- **Fırça (dışarıdan):** kalem tutuşunda fırçanın sapı ön kola giriyordu → Blender'da yeni `Firca` pozu: fırça yumruğun içinden geçer (parmaklar sapı sarar), uç başparmak tarafından öne-yukarı çıkar, sapın arkası kolun altında serbest kalır. `BrushGrip` = fırçanın kökü (sapın ortası yumrukta).
+
+## Ek 59: Tek görüntü — birinci şahısta kendi gövdenin kolları tutar (Lethal Company tarzı)
+
+- **Ayrı FPS el / kol yok.** Birinci şahısta karakterin kendi gövdesi ve kolları görünür; eşyayı, fırçayı, bozuk parayı diğer oyuncuların gördüğü aynı kollar, aynı pozla tutar (`HeldItemView` artık kameraya bağlı ayrı yerleşim kullanmaz, herkes için `TryGetHoldPoint` + kol IK).
+- **Karakter iki mesh oldu (Blender, `soyhead.py`):** `Soygun` (gövde, kollar, eller, kıyafet) + `SoygunHead` (yüz, saç, bere, kafa konturu, yakanın içindeki ten rengi boyun dibi). Normaller ayırmadan önce sabitlendi → boyunda dikiş / renk geçişi farkı yok; dışarıdan görünüm birebir aynı (eski/yeni render karşılaştırması). Kazağın yaka ağzı içten yaka beyazıyla kapatıldı (sadece aşağı bakınca görünür, dışarıdan kafanın altında kalır). Animasyonlar, kemikler, `Firca`, `BrushGrip` aynen.
+- **Sahibinin ekranı:** yalnızca kafa "sadece gölge" (kamera kafanın içinde); gövde normal çizilir. Gövde 5 cm geride çizilir ki aşağı bakınca yaka kameraya girmesin. Baygınken (kamera yere düşer) gövde yine sadece gölge. F5 önizleme, garaj aynası, kayıt kamerası eskisi gibi çalışır (kayıt görüntüsünde elindeki eşya artık gizlenmez — gerçekten elinde). Eski tek parça karakterde eski davranış (gövde gölge, eşya ekranda).
+- **Kollar bakışı izler:** tablo / büyük eşya omuzdan bakışla birlikte iner-kalkar (eğimin %40'ı) ve eşya da o kadar eğilir; küçük eşya ve fırçada sağ kol aynı şekilde (%50, hafif öne kalkık). Sahibinde kameranın eğimi, diğerlerinde senkron `LookPitch` → iki görüntü aynı. Tablo kolların uzandığı kadar önde, üst kenarı çene hizasında (yüzü kapatmaz); birinci şahısta hafif aşağı bakınca tamamı görünür.
+- **Bozuk para:** [R] yazı-tura artık herkes için avuçtan dönerek havalanır.
+- Değişen: `PlayerAvatar.cs`, `PlayerAvatarModel.cs`, `PlayerAvatarClips.cs`, `HeldItemView.cs`, `PaintBrush.cs`, `BodyCam.cs`, `SoygunChar.fbx`.
+
+## Ek 60: Tutuş daha yukarıda, tablo kolların önünde, avuçta para, envanter ikonu düzeltmesi
+
+- **Eşyalar ekranda:** tablo / vazo / büst artık göz hizasının biraz altından tutulur (üst kenar tabloda ~17 cm, büyük eşyada ~20 cm aşağıda). Düz bakarken ekranın altında görünür, aşağı bakmak gerekmez; dışarıdan bakınca yüz açıkta kalır (çene / göğüs hizası). Bakışla iniş-kalkış azaltıldı (%25). Ne kadar önde tutulacağı kol boyuna göre hesaplanır (bilekler rahat yetişir).
+- **Tablo:** eller tablonun ARKASINDA, yan kenarlara yakın; parmaklar kenarı öne doğru sarar → kollar / kollar tablonun içinden geçmez.
+- **Vazo / büst:** iki yandan alt yarısından kavranır (eskiden kafasının / gövdesinin ortasından tutuyordu).
+- **Bozuk para / yüzük / küçük eşya:** sağ el öne-yukarı ve biraz dışa uzanır, ön kol dönüp avuç yukarı bakar, eşya avucun içinde durur (birinci şahısta sağ altta görünür, dışarıdan "avucunda gösteriyor"). [R] yazı-tura avuçtan havalanır.
+- **Envanter ikonu:** yeni görev / odada sahte kimlikleri 1'den başlıyordu, ikon önbelleği eski sahtenin (ör. tablonun) resmini yeni sahteye (ör. büst) gösteriyordu. Anahtar artık temizleme sayacı + eşya türü + kimlik.
+- Blender'da birinci / üçüncü şahıs benzetimiyle (aynı IK hesabı) kontrol edildi.
+- Değişen: `PlayerAvatarClips.cs`, `ForgeryData.cs`, `ItemIconRenderer.cs`.
+
+## Ek 61: Parmaklar Blender pozlarından, vazonun içi boş görünmüyor
+
+- **Parmaklar (Blender, `soyhands.py`):** üç el pozu eklendi (yalnız parmaklar, iki el): `El_Tablo` (parmaklar kanca gibi tablonun yan kenarını öne doğru sarar), `El_Kavra` (vazo / büst gövdesini sarar, başparmak karşıda), `El_Avuc` (avuç açık, hafif çukur — bozuk para / yüzük). Oyunda IK eli yerleştirir, parmaklar bu pozları alır (`SetupHandPoses`, `HandPose`); eskiden kod parmakları bir noktaya doğru kıvırıyordu, parmaklar yamuluyor / avucun içine gömülüyordu. Pozlar yoksa eski kıvırma devrede.
+- **Küçük eşya:** el yüzün önüne değil, sağ öne-yana uzanır (dışarıdan "avucunda gösteriyor", ağzına götürüyor gibi durmaz); avuç yukarı, eşya avucun üstünde.
+- **Vazo:** döner gövde mesh'lerinin (`Lathe`, `GridLathe`) üst ve alt kapaklarının yüz yönü tersti (yukarıdan bakınca kapak çizilmiyor, vazonun içi boş / arkası yok görünüyordu). Düzeltildi — müzedeki vazolar ve atölyede yapılan sahte vazolar dahil.
+- Blender'da aynı IK + parmak pozlarıyla birinci / üçüncü şahıs kontrol edildi.
+- Değişen: `PlayerAvatarClips.cs`, `ArtworkLook.cs`, `ArtworkLookExtra.cs`, `SoygunChar.fbx`.
+
+## Ek 62: Eşyanın şekline göre tutuş (eller yüzeye oturur, parmaklar yüzeye değince durur)
+
+- **Şekil (`HoldShape`, HeldItemView.cs):** eşya alınınca görselinin köşe noktalarından bir kez kurulur. Tablo = kutu (genişlik, yükseklik, kalınlık). Vazo / büst / heykel / küçük eşya = dikey eksen etrafında 14 yükseklik × 16 açı hücresinde yüzeyin eksene uzaklığı (yarıçap zarfı). Okunamayan mesh'te kutuya düşer. `Sdf` (işaretli uzaklık), `Radius`, `BestGripY`.
+- **Eller:** vazo / büstte iki yanın en geniş olduğu yükseklik seçilir (alt-orta bölge: vazonun karnı, büstün omuz altı); ince boyunlu ya da şişman vazoda eller farklı yere oturur. Avucun ortası yüzeyin üstüne konur (yüzey eğimine göre avuç da eğilir), iki geçişli IK ile bilek yerleşir. Tabloda avuç arka yüzde, yan kenarın hemen içinde.
+- **Parmaklar:** her parmak açık avuç pozundan (`El_Avuc`) yeni yumruk pozuna (`El_Kapali`, Blender) doğru eklem eklem 6 adımda kapanır; o eklemden sonraki boğumlar / parmak ucu yüzeye değince durur → parmaklar eşyanın şeklini sarar (şişman vazoda az, ince boyunda çok bükülür; tabloda kalınlığa göre kanca). Açık pozda bile eşyanın içine giren parmak (ör. tablonun içinden çıkan başparmak) önce dışarı açılır. Küçük eşyada parmaklar çukur avuca kadar kapanır, yüzüğe / ganimete değince durur; yazı-tura sırasında düz avuç.
+- **El yönü düzeltmesi:** el çevrilirken başparmak kökü kullanılıyordu; bu kök avucun altına doğru da kaydığı için avuç ~45° yanlış bakıyordu (parmaklar eşyaya değil yana kapanıyordu). Artık işaret − serçe parmak kökü ekseni kullanılır (`ThumbSide`). Bozuk para avucu artık düz yukarı bakar, para avucun ortasında.
+- Eşya herkeste gecikmesiz konur (parmaklar eşyanın o karedeki yerine oturur). Hesap her bilgisayarda yerel; ağ trafiği yok. Maliyet: eşya tutan oyuncu başına karede ~10 parmak × 3 eklem × 6 adım uzaklık sorgusu.
+- Blender'da aynı hesapla şişman / ince vazo ve tablo için kontrol edildi.
+- Değişen: `PlayerAvatarClips.cs`, `PlayerAvatarModel.cs`, `HeldItemView.cs`, `SoygunChar.fbx`.
+
+## Ek 63: Tablo insan gibi tutulur (avuçlar yan kenarlarda, parmaklar arkada)
+
+- Tablo kollar yetişecek genişlikteyse (`EdgeGrip`): avuçlar iki yan kenara yaslanır ve birbirine bakar; parmaklar kenarı dolanıp tablonun karşı (arka) yüzüne kapanır, yüzeye değince durur; başparmak sana bakan yüzde. Eller tablonun içinden geçmez. Kollar kenarlara yetişmeyecek kadar geniş tablolarda eski arka yüz tutuşu kalır.
+- Blender'da aynı hesapla birinci / üçüncü şahıs kontrol edildi.
+- Değişen: `PlayerAvatarClips.cs`.
+
+## Ek 64: Bozuk para yazı-tura tutuşu (başparmakla fiske)
+
+- **Tutuş (Blender `El_Yazitura`):** yumruk öne bakar (avuç içe, işaret parmağı tarafı yukarı); işaret parmağı biraz açık kıvrım yapar, başparmak onun altında öne uzanır; para başparmak tırnağı ile işaret kıvrımının üstünde düz yatar (görseldeki gibi). Ön kol kendi ekseninde döner, bilek burulmaz.
+- **Atış [R]:** başparmak ilk ~0,06 sn'de yukarı fiske vurur (`El_Fiske`), para havadayken öyle kalır, para düşerken geri kıvrılır. Para başparmağın üstünden dönerek (1080°) ~20 cm havalanır, aynı yere düşer. Herkes görür (yerel hesap, `HeldItemView.CoinFlipProgress`).
+- Diğer küçük eşyalar (yüzük, ganimet): avuç yukarı, şekle göre çukur avuç (Ek 62) aynen.
+- Değişen: `PlayerAvatarClips.cs`, `HeldItemView.cs`, `SoygunChar.fbx`.
+
+## Ek 65: Eller ekranda daha yukarıda, vazo daha önde, vazoların içi boş
+
+- **Birinci şahısta görünürlük:** kendi ekranında gövde 12 cm geride çizilir (önceden 5 cm) → eller ve tutulan eşya kameradan biraz uzakta, ekranda daha yukarıda kalır (diğer oyunculara etkisi yok). Bakışla iniş-kalkış %12'ye indi (aşağı bakınca eşya daha az iner). Bozuk para / küçük eşya eli göz hizasının ~19 cm altında (önceden 24). Tablo yan kenarlardan ortanın biraz üstünden tutulur, üst kenar gözün ~14 cm altında.
+- **Vazo / büst:** gövdeden daha önde (eşya yarıçapı + 24 cm), ortada; eller vazonun orta-üst bölgesinin en geniş yerinden kavrar (gövdenin %35–78'i).
+- **Vazoların içi boş:** döner gövde mesh'leri (`ArtworkLook.HollowLathe` — `Lathe` ve `GridLathe` bunu kullanır) artık ağızlı: üstte yukarı bakan ağız halkası, et kalınlığı kadar içeride içe bakan iç duvar ve derinde iç taban. Yukarıdan bakınca gerçek vazo gibi içi görünür (müze vazoları + atölyede yapılan sahte vazolar).
+- Değişen: `PlayerAvatarClips.cs`, `PlayerAvatarModel.cs`, `ArtworkLook.cs`, `ArtworkLookExtra.cs`.
+
+## Ek 66: Vazo ağzı sana doğru eğik, duvarlar iki yüzlü (ön taraf saydam kalmaz)
+
+- Vazo (ArtKind.Vase) elde ağzı sana doğru 16° eğik tutulur (`HeldItemView.ExtraTilt`; parmak / el hesabı da aynı eğimle) → aşağı bakınca ağız ve içi tam görünür.
+- Vazo malzemesi iki yüzlü (`ArtworkLook.TwoSided`, `_Cull` = 0): ince duvarın arka yüzü de çizilir, yakından / tepeden bakınca ön taraf saydam kalmaz (müze ve sahte vazolar).
+- Değişen: `ArtworkLook.cs`, `ArtworkLookExtra.cs`, `HeldItemView.cs`, `PlayerAvatarClips.cs`.
+
+## Ek 67: Vazo ağzı yuvarlak kalır, elin dış çizgisi vazonun içinden görünmez
+
+- Vazo eğimi 16° → 6° (fazla eğilince ağzın yakın tarafı büyüyüp oval görünüyordu).
+- Elin siyah dış çizgisi (kontur kabuğu) ince vazo duvarının içinden görünüyordu: avuç yüzeyden 3 cm, parmaklar 2 cm (parmak + çizgi kalınlığı) uzakta durur; vazo et kalınlığı 1,5–3 cm.
+- Değişen: `PlayerAvatarClips.cs`, `HeldItemView.cs`, `ArtworkLook.cs`.
+
+## Ek 68: Yüzük çimdikle, vazo yukarı bakınca yüze girmez
+
+- **Yüzük (Blender `El_Cimdik`):** işaret parmağı ile başparmağın uçları buluşur, diğer parmaklar gevşek kıvrık; yüzük bandından bu iki uç arasında tutulur ve dik durur (deliği sana bakar). Yüzük elde gerçek boyunda (~3,5 cm). Birinci şahısta sağ altta görünür. `HeldItemView.IsRing` (`forgery_ring`, `original_ring`).
+- **Vazo / tablo yukarı bakınca:** eskiden yukarı bakınca eşya kollarla birlikte kalkıyor, vazo kameraya / yüze giriyordu (ağzı ve içi garip görünüyordu). Artık yalnızca aşağı bakınca biraz iner, yukarı bakınca kalkmaz; üst kenar her zaman göz hizasının en az 12 cm altında.
+- Para kesesi (`loot_coinpouch`) artık yanlışlıkla bozuk para gibi yazı-tura tutuşuna girmez.
+- Değişen: `PlayerAvatarClips.cs`, `HeldItemView.cs`, `SoygunChar.fbx`.
+
+## Ek 69: Eşyalar birinci şahısta daha uzakta (net görünür)
+
+- Kendi ekranında gövde 20 cm geride çizilir (önceden 12) → eller ve tüm tutulan eşyalar kameradan daha uzakta, yakın çekim bozulması (ağzı / kenarı büyümüş görünme) olmaz. Diğer oyuncuların gördüğü değişmez.
+- Kollar daha çok uzanır (%94): vazo / büst gövdeden eşya yarıçapı + 28 cm, tablo en az 34 cm önde; küçük eşya eli daha önde.
+- Değişen: `PlayerAvatarClips.cs`, `PlayerAvatarModel.cs`.
+
+## Ek 70: Tablo yüzü sana eğik, yüzük çimdik (yazı-tura değil)
+
+- **Tablo:** yüzü sana doğru 30° eğik tutulur (üst kenar sana yakın) ve biraz daha önde (en az 38 cm) → aşağı bakınca resim tam görünür. Eller yan kenarlarda, aynı eğimle.
+- **Yüzük:** bozuk paranın yumruk tutuşundan ayrıldı. El yarı yana yatık (avuç aşağı-içe), parmaklar öne-içe uzanır; işaret ve başparmak uçları buluşur, diğer parmaklar gevşek (`El_Cimdik` yeniden: orta / yüzük / serçe az kıvrık). Yüzük parmak uçlarının önünde-üstünde, dik. [R] yüzüğü döndürmez / zıplatmaz.
+- Değişen: `PlayerAvatarClips.cs`, `HeldItemView.cs`, `SoygunChar.fbx`.
+
+## Ek 71: Tablo eğimi ters yöne
+
+- Tablo üst kenarı senden UZAĞA 30° eğik tutulur (Ek 70'te sana doğruydu → sana bakan resim aşağı dönüyor, arkası görünüyordu). Artık aşağı bakınca resim yukarı bakar ve tam görünür.
+- Değişen: `HeldItemView.cs`.
+
+## Ek 72: Yüzük — R etkisiz (kalkma da yok), daha büyük, yandan çimdik
+
+- [R] yüzükte hiçbir şey yapmaz: dönme animasyonu ve dönerken kalkma (`flipLift`) da kapalı. Bozuk parada ayrıca kalkma yok (kendi yazı-tura atışı var).
+- Yüzük elde ~6 cm (ekranda rahat görünür).
+- Tutuş (referans görseldeki gibi): el yandan görünür — parmaklar içe (sola) uzanır, işaret parmağı üstte, başparmak altında; yüzük ikisinin uçları arasında dik, deliği sana bakar.
+- Unity'de `SoygunChar.fbx` → Reimport gerekebilir (çimdik pozu `El_Cimdik` Ek 70'te değişti).
+- Değişen: `PlayerAvatarClips.cs`, `HeldItemView.cs`.
+
+## Ek 73: Tablo / büyük eşya sabit (nefes alma ile oynamaz), daha uzakta
+
+- Tutulan eşyanın yeri her karede bir kez hesaplanır ve oyuncuya göre yumuşatılır (nefes alma / adım sallanması eşyayı aşağı-yukarı oynatmaz); eller ve eşya aynı noktayı kullanır.
+- Kollar tam gerilmez (uzanma %88): eller tablonun kenarından kopmaz, boşluk kalmaz. Tablo avucu kenara 1,8 cm (vazoda 3 cm kalır).
+- Kendi ekranında gövde 28 cm geride (önceden 20) → eşya ve eller kameradan daha uzakta, görüş açısı daha geniş. Diğer oyuncular etkilenmez.
+- Değişen: `PlayerAvatarClips.cs`, `PlayerAvatarModel.cs`.
+
+## Ek 74: Birinci şahıs gövde kaydırması düzeltildi (asıl yakın / basık görünme sebebi)
+
+- Hata: kendi ekranında gövdeyi geri kaydırmak (Ek 65/69/73: 12 → 20 → 28 cm) eşyayı kameradan UZAKLAŞTIRMIYOR, tersine kameranın ALTINA çekiyordu (eller ve eşya omuzlara bağlı, kamera yerinde). 28 cm'de tablo kameranın ~6 cm önünde kalıyordu → dev eller, yukarıdan basık görünen tablo.
+- Gövde kaydırması 4 cm'ye indi (yalnızca yaka kameraya girmesin). Eşyalar artık kameranın ~30+ cm önünde: düz bakınca ekranın altında, hafif aşağı bakınca tamamı ve eller görünür.
+- Tablo yüzü sana 20° (30° basık görünüyordu).
+- Blender'da oyunla aynı kamera (70° görüş, göz hizası) ve aynı IK hesabıyla tablo, vazo, yüzük, bozuk para için 0° / 20° / 40° bakışta kontrol edildi.
+- Değişen: `PlayerAvatarModel.cs`, `HeldItemView.cs`.
+
+## Ek 75: Büyük vazo kameraya girmez, yüzük dik ve bandından tutulur
+
+- Tablo / vazo / büst görseli elde taşınabilir boyuta küçültülür (tablo yarı genişlik ≤ 36 cm, vazo / büst ≤ 18 cm, yarı yükseklik ≤ 30 cm). Çok geniş vazonun ağzı birinci şahısta kameranın içinde kalıp kesik / açık görünüyordu. Vazo gövdeden eşya yarıçapı + 20 cm önde (kollar yetişir).
+- Yüzük: modelin hangi eksende yattığından bağımsız olarak deliği (en ince ekseni) sana bakacak şekilde dik çevrilir; ~8 cm; işaret ve başparmak halkanın alt bandını tutar, halka parmak uçlarının üstünde (`HeldItemView.RingRadius`).
+- Değişen: `HeldItemView.cs`, `PlayerAvatarClips.cs`.
+
+## Ek 76: Vazo / büst kollar uzanmış, çenenin altında
+
+- Vazo / büstün üst kenarı çenenin altında (eskiden gözün 17 cm altı → iri kafada burnun / yüzün önüne giriyordu, birinci şahısta kameraya çok yakındı). Kollar daha çok uzanır (%92): eşya gövdeden olabildiğince önde, eller iki yanından.
+- Değişen: `PlayerAvatarClips.cs`.

@@ -15,7 +15,7 @@ public enum PromptTone { Normal, Dim, Warn, Danger }
 public static class PromptHud
 {
     private const int TweenBase = 0x50726D00;   // "Prm"
-    private const int Channels = 6; // 0 etkileşim, 1 taşıma, 2 maymuncuk, 3 garaj kapısı, 4 fırça (duvar), 5 sprey
+    private const int Channels = 7; // 0 etkileşim, 1 taşıma, 2 maymuncuk, 3 garaj kapısı, 4 fırça (duvar), 5 sprey, 6 garaj dolabı
 
     private static readonly bool[] has = new bool[Channels];
     private static readonly string[] lastKey = new string[Channels], lastLabel = new string[Channels];
@@ -79,7 +79,8 @@ public static class PromptHud
         }
     }
 
-    private static readonly int[] drawFrame = { -1, -1, -1, -1, -1, -1 };
+    private static readonly int[] drawFrame = NewFrames(); // kanal sayısı kadar (-1)
+    private static int[] NewFrames() { var a = new int[Channels]; for (int i = 0; i < a.Length; i++) a[i] = -1; return a; }
     private static readonly EventType[] drawEvent = new EventType[Channels];
 
     private static void Draw(int c, float t)

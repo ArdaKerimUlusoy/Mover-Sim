@@ -678,7 +678,10 @@ public class PaintBrush : MonoBehaviour
         // Kendi ekranın: sağ altta fırça; çizerken ucu baktığın yere doğru uzanır ve sallanır
         Camera cam = Camera.main;
         PlayerStealth meVis = PlayerStealth.Local;
+        // Kendi gövden görünüyorsa (Soygun) fırçayı kendi elin tutar (aşağıdaki eldeki fırça, herkesin gördüğüyle aynı);
+        // kameraya bağlı fırça yalnızca gövde görünmezken (eski karakter / baygın)
         bool showFp = holding && cam != null && !WorkbenchUI.IsOpen && !BodyCam.PanelOpen && !PlayerAvatar.PreviewActive &&
+                      !PlayerAvatar.LocalBodyVisible &&
                       (meVis == null || meVis.CurrentHidingSpot == null); // kapının içindeyken fırça da görünmez
         if (showFp)
         {
@@ -703,7 +706,7 @@ public class PaintBrush : MonoBehaviour
                     fpArms = li.GetComponent<FirstPersonArms>();
                     if (fpArms == null) fpArms = li.gameObject.AddComponent<FirstPersonArms>();
                 }
-                fpArms.ShowBrush(cam.transform, fpBrush.TransformPoint(0f, 0f, 0f), fpBrush.up); // parmak uçları metal halkanın altında (kalem tutuşu)
+                fpArms.Hide(); // birinci şahısta el yok: fırça ekranda kendi başına durur
             }
         }
         else if (fpBrush != null && fpBrush.gameObject.activeSelf) fpBrush.gameObject.SetActive(false);
@@ -721,7 +724,7 @@ public class PaintBrush : MonoBehaviour
             if (!show) { if (b != null && b.gameObject.activeSelf) b.gameObject.SetActive(false); continue; }
             if (b == null) { b = BuildBrush("HandBrush_" + id, true); remoteBrush[id] = b; }
             if (!b.gameObject.activeSelf) b.gameObject.SetActive(true);
-            SetShadowOnly(id, b, p.IsOwner && !PlayerAvatar.PreviewActive);
+            SetShadowOnly(id, b, p.IsOwner && !PlayerAvatar.PreviewActive && !PlayerAvatar.LocalBodyVisible);
         }
     }
 
@@ -738,7 +741,9 @@ public class PaintBrush : MonoBehaviour
             if (av != null && av.TryGetBrushGrip(out Vector3 grip, out Vector3 tipDir))
             {
                 // Fırçanın kökü sapın üst ucu: yumruk sapın ortasını kavrasın (sap 0.155 m → yarısı yukarı)
-                b.SetPositionAndRotation(grip + tipDir * 0.065f, Quaternion.FromToRotation(Vector3.up, tipDir) * Quaternion.Euler(0f, p.transform.eulerAngles.y, 0f));
+                // Soygun: kalem tutuşu, parmak uçları fırçanın kökünde (metal halkanın altı) → kaydırma yok
+                float off = av.BrushGripIsRoot ? 0f : 0.065f;
+                b.SetPositionAndRotation(grip + tipDir * off, Quaternion.FromToRotation(Vector3.up, tipDir) * Quaternion.Euler(0f, p.transform.eulerAngles.y, 0f));
                 b.localScale = Vector3.one * 1.35f;
                 continue;
             }

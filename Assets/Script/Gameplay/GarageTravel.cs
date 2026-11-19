@@ -2,7 +2,9 @@
 using UnityEngine.InputSystem;
 
 /// <summary>
-/// Garaj (ayrı sahne) ile kamyon arasındaki geçiş kapısı. Bakıp E'ye basınca yerel oyuncu karşı tarafa ışınlanır.
+/// Garaj (ayrı sahne) ile kamyon arasındaki geçiş kapısı. Kamyona geçiş artık E ile DEĞİL: garajda [F3] (hazır) basınca
+/// oyuncu kısa bir geri sayımdan sonra kendiliğinden kamyona ışınlanır (HeistLobbyUI → GarageTravel.TryTravelLocal).
+/// Kapıya bakınca yalnızca bilgi istemi çıkar.
 ///  - ToTruck : garajın kapısı → kamyonun içindeki doğma noktaları (soyguna çıkış)
 ///  - ToGarage: (kullanılmıyor) görev ortasında garaja dönüş yok; garaja görev bitince dönülür
 /// Ağ nesnesi gerektirmez: oyuncu hareketi zaten sahibinde (PlayerStealth.LocalTeleport), konum herkese NetworkTransform ile gider.
@@ -21,7 +23,6 @@ public class GarageTravel : MonoBehaviour
     private static Camera cachedCam;
     private static PlayerStealth cachedFor;
     private Collider col;
-    private float nextAllowed;
 
     public void Setup(Destination d) => destination = d;
 
@@ -73,20 +74,21 @@ public class GarageTravel : MonoBehaviour
 
         target = this;
         targetFrame = Time.frameCount;
+    }
 
-        Keyboard kb = Keyboard.current;
-        if (kb == null || !InputFree || !kb.eKey.wasPressedThisFrame || Time.unscaledTime < nextAllowed) return;
-        nextAllowed = Time.unscaledTime + 1f;
-
-        string why = BlockReason(me);
-        if (why != null)
-        {
-            PlayerInventory inv = me.GetComponent<PlayerInventory>();
-            if (inv != null) inv.ShowLocalToast(why);
-            GameAudio.Play2D(SoundId.UiClick, 0.4f);
-            return;
-        }
-        Travel(me);
+    /// <summary>Yerel oyuncuyu kamyona ışınla ([F3] hazır). Engel varsa nedenini (çeviri metni) döndürür, geçtiyse null.</summary>
+    public static string TryTravelLocal()
+    {
+        PlayerStealth me = PlayerStealth.Local;
+        if (me == null || !me.IsSpawned || me.IsJailed) return Loc.T("garage.travel.none");
+        GarageTravel door = null;
+        foreach (GarageTravel g in FindObjectsByType<GarageTravel>(FindObjectsSortMode.None))
+            if (g != null && g.destination == Destination.ToTruck) { door = g; break; }
+        if (door == null) return Loc.T("garage.travel.none");
+        string why = door.BlockReason(me);
+        if (why != null) return why;
+        door.Travel(me);
+        return null;
     }
 
     /// <summary>Geçiş şu an yasaksa nedeni (çeviri metni), serbestse null.</summary>
@@ -133,7 +135,7 @@ public class GarageTravel : MonoBehaviour
             if (target == this || target == null) PromptHud.Idle(3);
             return;
         }
-        string key = destination == Destination.ToTruck ? "garage.exit.prompt" : "garage.return.prompt";
+        string key = destination == Destination.ToTruck ? (GameFlow.Solo ? "garage.exit.prompt.solo" : "garage.exit.prompt") : "garage.return.prompt";
         PromptHud.Show(Loc.T(key), PromptTone.Normal, -1f, 3);
     }
 }

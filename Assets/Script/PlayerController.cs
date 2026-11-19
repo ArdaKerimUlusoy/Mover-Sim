@@ -70,12 +70,18 @@ public class PlayerController : MonoBehaviour
     private float stepTimer = 0f;
     private float landOffset = 0f;
 
+    /// <summary>Ayakta göz (kamera) yüksekliği, oyuncu kökünden (kapsül merkezi). Soygun karakterinde kamera karakterin
+    /// GERÇEK göz hizasına iner (1,75 m karakter: gözler ~1,37 m); böylece oyuncular birbirini göz hizasında görür.</summary>
+    public static float EyeOffset => PlayerAvatar.ModelEyeY > 0.5f ? Mathf.Clamp(PlayerAvatar.ModelEyeY - 1f + 0.03f, 0.2f, 0.6f) : 0.6f;
+    private float StandCamY => PlayerAvatar.ModelEyeY > 0.5f ? Mathf.Min(standingCameraY, EyeOffset) : standingCameraY;
+    private float knockStart = -10f;
+
     private void Awake()
     {
         characterController = GetComponent<CharacterController>();
         carrier = GetComponent<ObjectCarrier>();
         inventory = GetComponent<PlayerInventory>();
-        currentBaseCamY = standingCameraY;
+        currentBaseCamY = StandCamY;
     }
 
     private void Start()
@@ -107,6 +113,7 @@ public class PlayerController : MonoBehaviour
     /// <summary>Jopla vuruldu: birkaç saniye yere yığılır (hareket ve bakış yok).</summary>
     public void KnockOut(float seconds)
     {
+        if (!IsKnockedOut) knockStart = Time.time; // düşüş anı: kamera karakterin sendeleme + düşüş zamanlamasını izler
         knockedUntil = Mathf.Max(knockedUntil, Time.time + seconds);
         pushVelocity = Vector3.zero;
         currentHorizontalVelocity = Vector3.zero;
@@ -162,11 +169,21 @@ public class PlayerController : MonoBehaviour
             characterController.Move(verticalVelocity * Time.deltaTime);
         }
         if (playerCamera == null) return;
+        // Karakterle aynı zamanlama (PlayerAvatar: 0,55 sn sendeleme, 0,28 sn düşüş): önce sallanır, sonra kamera yere
+        // yığılır (yan yatmış, yerden ~20 cm), yere çarpınca küçük sekme; kalkarken yavaşça doğrulur
+        const float Stagger = 0.55f, Fall = 0.28f;
+        float t = Time.time - knockStart;
+        if (down) knockAmount = Mathf.Min(knockAmount, Mathf.Clamp01((t - Stagger) / Fall)); // sendelerken henüz düşmedi
         float k = Mathf.SmoothStep(0f, 1f, knockAmount);
+        float floorY = characterController != null ? characterController.center.y - characterController.height * 0.5f : -1f;
+        float stag = down && t < Stagger ? 1f - Mathf.Clamp01((t - (Stagger - 0.12f)) / 0.12f) : 0f;
+        float tb = t - Stagger - Fall;
+        float bounce = down && tb > 0f ? Mathf.Abs(Mathf.Sin(tb * 13f)) * 0.06f * Mathf.Exp(-tb * 4.5f) : 0f;
         Vector3 lp = playerCamera.localPosition;
-        lp.y = Mathf.Lerp(currentBaseCamY, 0.3f, k);
+        lp.y = Mathf.Lerp(currentBaseCamY, floorY + 0.2f, k) + bounce * k;
         playerCamera.localPosition = lp;
-        playerCamera.localRotation = Quaternion.Euler(Mathf.Lerp(rotationX, -10f, k), 0f, Mathf.Lerp(0f, 75f, k));
+        float wobbleRoll = Mathf.Sin(t * 11f) * 10f * stag, wobblePitch = Mathf.Sin(t * 8f + 1f) * 6f * stag;
+        playerCamera.localRotation = Quaternion.Euler(Mathf.Lerp(rotationX, 22f, k) + wobblePitch, 0f, Mathf.Lerp(0f, 80f, k) + wobbleRoll);
     }
 
     private void HandleMovement()
@@ -279,7 +296,7 @@ public class PlayerController : MonoBehaviour
 
         float targetHeight = isCrouching ? crouchHeight : standingHeight;
         float targetCenterY = isCrouching ? -(standingHeight - crouchHeight) / 2f : 0f;
-        float targetCamY = isCrouching ? crouchCameraY : standingCameraY;
+        float targetCamY = isCrouching ? crouchCameraY : StandCamY;
 
         characterController.height = Mathf.Lerp(characterController.height, targetHeight, Time.deltaTime * crouchTransitionSpeed);
         characterController.center = Vector3.Lerp(characterController.center, new Vector3(0, targetCenterY, 0), Time.deltaTime * crouchTransitionSpeed);

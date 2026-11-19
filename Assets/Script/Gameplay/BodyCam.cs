@@ -41,7 +41,7 @@ public class BodyCam : MonoBehaviour
     public const float BatteryPerLevel = 45f;
     private const float ChargePerSecond = 0.06f;   // kamyonda: tam pilin %6'sı / sn
     private const float LiveFps = 15f;
-    private const float EyeHeight = 0.6f;           // PlayerController.standingCameraY ile aynı
+    private static float EyeHeight => PlayerController.EyeOffset; // oyuncunun kamera (göz) yüksekliğiyle aynı
     private const float ReadDistance = 1.4f;
     private const float FeedForward = 0.12f;        // kayıt kamerası gözün bu kadar önünde (kafanın içinden çekmesin)
     private const ulong Nobody = ulong.MaxValue;
@@ -120,6 +120,7 @@ public class BodyCam : MonoBehaviour
     // Kayıt yapanın kendi avatarı: kayıt kamerası çizilirken geçici gizlenir (kafa / burun / göz görünmesin)
     private readonly List<Renderer> hideBuf = new List<Renderer>();
     private readonly List<Renderer> hiddenNow = new List<Renderer>();
+    private readonly List<Renderer> shownNow = new List<Renderer>(); // yalnızca gölgesi çizilen kendi gövden: kayıtta görünsün
     private Texture2D noSignal;
     private float nextLiveRender;
     private bool renderedThisFrame;
@@ -867,6 +868,33 @@ public class BodyCam : MonoBehaviour
             hideBuf.Clear();
             break;
         }
+        // Kaydı izleyen BU bilgisayarın oyuncusu kayıt yapan değilse kayıtta görünmeli: kendi ekranında gövden yalnızca
+        // gölge olarak çizilir (birinci şahıs), kayıt kamerası için geçici olarak normal çizilir. Kameraya bağlı birinci şahıs
+        // kollar / fırça ve önündeki eşya görüntüsü kayıtta havada durmasın diye gizlenir.
+        foreach (PlayerNetworkSetup p in PlayerNetworkSetup.All)
+        {
+            if (p == null || !p.IsSpawned || !p.IsOwner || p.OwnerClientId == feedFor) continue;
+            p.GetComponentsInChildren(true, hideBuf);
+            foreach (Renderer r in hideBuf)
+                if (r != null && r.enabled && r.shadowCastingMode == UnityEngine.Rendering.ShadowCastingMode.ShadowsOnly)
+                { r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On; shownNow.Add(r); }
+            hideBuf.Clear();
+            Camera main = Camera.main;
+            if (main != null)
+            {
+                main.GetComponentsInChildren(true, hideBuf);
+                foreach (Renderer r in hideBuf) if (r != null && r.enabled) { r.enabled = false; hiddenNow.Add(r); }
+                hideBuf.Clear();
+            }
+            HeldItemView hv = p.GetComponent<HeldItemView>();
+            if (hv != null && hv.VisualObject != null && !PlayerAvatar.LocalBodyVisible) // gövde görünürken eşya zaten elinde
+            {
+                hv.VisualObject.GetComponentsInChildren(true, hideBuf);
+                foreach (Renderer r in hideBuf) if (r != null && r.enabled) { r.enabled = false; hiddenNow.Add(r); }
+                hideBuf.Clear();
+            }
+            break;
+        }
     }
 
     private void OnEndFeedCamera(UnityEngine.Rendering.ScriptableRenderContext ctx, Camera cam)
@@ -878,6 +906,9 @@ public class BodyCam : MonoBehaviour
     {
         for (int i = 0; i < hiddenNow.Count; i++) if (hiddenNow[i] != null) hiddenNow[i].enabled = true;
         hiddenNow.Clear();
+        for (int i = 0; i < shownNow.Count; i++)
+            if (shownNow[i] != null) shownNow[i].shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.ShadowsOnly;
+        shownNow.Clear();
     }
 
     /// <summary>Kayıt yapanın baktığı eser (≤5 m, ±18°, arada duvar yok).</summary>
@@ -977,8 +1008,11 @@ public class BodyCam : MonoBehaviour
             if (light.transform.parent != who.transform)
             {
                 light.transform.SetParent(who.transform, false);
-                light.transform.localPosition = new Vector3(0.14f, 0.35f, 0.33f); // göğüs cebinde
+                light.transform.localPosition = new Vector3(0.14f, 0.35f, 0.33f); // göğüs cebinde (eski karakter)
             }
+            // Soygun karakteri: sol göğüste, gövdeyle birlikte hareket eder (eski sabit yer büyük kafanın içinde kalıyordu)
+            PlayerAvatar av = who.GetComponent<PlayerAvatar>();
+            if (av != null && av.TryGetRecLightPoint(out Vector3 lp)) light.transform.position = lp;
             if (!light.activeSelf) light.SetActive(true);
             Renderer r = light.GetComponent<Renderer>();
             if (r != null) r.enabled = blink && !(who.IsOwner && !WorkbenchUI.IsOpen && Camera.main != null);

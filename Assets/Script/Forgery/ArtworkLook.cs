@@ -297,7 +297,7 @@ public static partial class ArtworkLook
         var mr = go.AddComponent<MeshRenderer>();
         // look.pattern önbellekte paylaşılır (ClearCaches yönetir); sadece bu görsel için üretilenler sahiplenilir.
         Texture2D degraded = fake ? Degrade(look.pattern, sim) : null;
-        Material mat = MakeLit(Color.white, degraded != null ? degraded : look.pattern);
+        Material mat = TwoSided(MakeLit(Color.white, degraded != null ? degraded : look.pattern));
         mr.sharedMaterial = mat;
         RuntimeResources res = RuntimeResources.For(go);
         res.Own(mesh);
@@ -423,11 +423,9 @@ public static partial class ArtworkLook
     // ---------------------------------------------------------------
     public static Mesh Lathe(System.Func<float, float> radiusAt, float height, int radialSegments, int heightSegments)
     {
-        var mesh = new Mesh { name = "LatheMesh" };
-        int rowStride = radialSegments + 1;
-        int bodyCount = rowStride * (heightSegments + 1);
-        var verts = new Vector3[bodyCount + 2];
-        var uvs = new Vector2[bodyCount + 2];
+        int stride = radialSegments + 1;
+        var body = new Vector3[stride * (heightSegments + 1)];
+        var bodyUv = new Vector2[body.Length];
         float dA = Mathf.PI * 2f / radialSegments;
         int vi = 0;
         for (int y = 0; y <= heightSegments; y++)
@@ -437,33 +435,81 @@ public static partial class ArtworkLook
             for (int s = 0; s <= radialSegments; s++)
             {
                 float a = s * dA;
-                verts[vi] = new Vector3(Mathf.Cos(a) * r, t * height, Mathf.Sin(a) * r);
-                uvs[vi] = new Vector2((float)s / radialSegments, t);
+                body[vi] = new Vector3(Mathf.Cos(a) * r, t * height, Mathf.Sin(a) * r);
+                bodyUv[vi] = new Vector2((float)s / radialSegments, t);
                 vi++;
             }
         }
-        int bottom = vi++, top = vi++;
-        verts[bottom] = Vector3.zero;
-        verts[top] = new Vector3(0f, height, 0f);
-        uvs[bottom] = new Vector2(0.5f, 0.02f);
-        uvs[top] = new Vector2(0.5f, 0.98f);
+        return HollowLathe("LatheMesh", body, bodyUv, radialSegments, heightSegments, height);
+    }
 
-        var tris = new int[radialSegments * heightSegments * 6 + radialSegments * 6];
-        int ti = 0;
-        for (int y = 0; y < heightSegments; y++)
-            for (int s = 0; s < radialSegments; s++)
+    /// <summary>
+    /// Döner gövdeden vazo mesh'i: dış yüz + alt kapak + İÇİ BOŞ ağız (yukarı bakan ağız halkası, içe bakan iç duvar,
+    /// derindeki iç taban). Yukarıdan bakınca gerçek vazo gibi içi görünür. body: (rows+1) satır × (radial+1) nokta.
+    /// </summary>
+    public static Mesh HollowLathe(string name, Vector3[] body, Vector2[] bodyUv, int radial, int rows, float height)
+    {
+        int stride = radial + 1;
+        float wall = Mathf.Clamp(height * 0.06f, 0.015f, 0.03f);           // et kalınlığı (tutan elin dış çizgisi içeriden görünmesin)
+        int floorRow = Mathf.Clamp(Mathf.RoundToInt(rows * 0.18f), 1, rows - 1); // iç taban yüksekliği
+        int innerRows = rows - floorRow;                                   // iç duvar satır aralığı sayısı
+        var verts = new System.Collections.Generic.List<Vector3>(body.Length * 2 + stride * 2 + 4);
+        var uvs = new System.Collections.Generic.List<Vector2>(verts.Capacity);
+        var tris = new System.Collections.Generic.List<int>(radial * rows * 12);
+        verts.AddRange(body); uvs.AddRange(bodyUv);
+        // dış yüz
+        for (int y = 0; y < rows; y++)
+            for (int s = 0; s < radial; s++)
             {
-                int cur = y * rowStride + s, next = cur + rowStride;
-                tris[ti++] = cur; tris[ti++] = next; tris[ti++] = cur + 1;
-                tris[ti++] = cur + 1; tris[ti++] = next; tris[ti++] = next + 1;
+                int cur = y * stride + s, next = cur + stride;
+                tris.Add(cur); tris.Add(next); tris.Add(cur + 1);
+                tris.Add(cur + 1); tris.Add(next); tris.Add(next + 1);
             }
-        for (int s = 0; s < radialSegments; s++) { tris[ti++] = bottom; tris[ti++] = s + 1; tris[ti++] = s; }
-        int topRow = heightSegments * rowStride;
-        for (int s = 0; s < radialSegments; s++) { tris[ti++] = top; tris[ti++] = topRow + s; tris[ti++] = topRow + s + 1; }
-
-        mesh.vertices = verts;
-        mesh.uv = uvs;
-        mesh.triangles = tris;
+        // alt kapak (aşağı bakar)
+        int bottom = verts.Count; verts.Add(Vector3.zero); uvs.Add(new Vector2(0.5f, 0.02f));
+        for (int s = 0; s < radial; s++) { tris.Add(bottom); tris.Add(s); tris.Add(s + 1); }
+        // iç duvar: dış profilin et kalınlığı kadar içeride, ağızdan iç tabana
+        int inner0 = verts.Count;
+        for (int k = 0; k <= innerRows; k++)
+        {
+            int y = rows - k;
+            for (int s = 0; s <= radial; s++)
+            {
+                Vector3 o = body[y * stride + s];
+                float r = Mathf.Sqrt(o.x * o.x + o.z * o.z);
+                float ri = Mathf.Max(r - wall, Mathf.Min(r * 0.5f, 0.003f));
+                float f = r > 1e-5f ? ri / r : 0f;
+                verts.Add(new Vector3(o.x * f, o.y, o.z * f));
+                uvs.Add(bodyUv[y * stride + s]);
+            }
+        }
+        for (int k = 0; k < innerRows; k++)
+            for (int s = 0; s < radial; s++)
+            {
+                int cur = inner0 + k * stride + s, below = cur + stride; // k büyüdükçe aşağı
+                // içe bakan yüz (dış yüzün tersi)
+                tris.Add(cur); tris.Add(below); tris.Add(cur + 1);
+                tris.Add(cur + 1); tris.Add(below); tris.Add(below + 1);
+            }
+        // iç taban (yukarı bakar)
+        int fl = verts.Count;
+        verts.Add(new Vector3(0f, body[floorRow * stride].y, 0f)); uvs.Add(new Vector2(0.5f, 0.5f));
+        int floorRing = inner0 + innerRows * stride;
+        for (int s = 0; s < radial; s++) { tris.Add(fl); tris.Add(floorRing + s + 1); tris.Add(floorRing + s); }
+        // ağız halkası (yukarı bakar): dış üst satır ile iç üst satır arası — ayrı noktalar (keskin kenar)
+        int rimO = verts.Count, topRow = rows * stride;
+        for (int s = 0; s <= radial; s++) { verts.Add(body[topRow + s]); uvs.Add(bodyUv[topRow + s]); }
+        int rimI = verts.Count;
+        for (int s = 0; s <= radial; s++) { verts.Add(verts[inner0 + s]); uvs.Add(uvs[inner0 + s]); }
+        for (int s = 0; s < radial; s++)
+        {
+            tris.Add(rimO + s); tris.Add(rimI + s); tris.Add(rimI + s + 1);
+            tris.Add(rimO + s); tris.Add(rimI + s + 1); tris.Add(rimO + s + 1);
+        }
+        var mesh = new Mesh { name = name };
+        mesh.SetVertices(verts);
+        mesh.SetUVs(0, uvs);
+        mesh.SetTriangles(tris, 0);
         mesh.RecalculateNormals();
         mesh.RecalculateBounds();
         return mesh;
@@ -473,6 +519,13 @@ public static partial class ArtworkLook
     {
         foreach (var n in names) { var s = Shader.Find(n); if (s != null) return s; }
         return null;
+    }
+
+    /// <summary>İki yüzlü çiz (içi boş vazo: duvarın her iki yüzü görünür, yakından / tepeden bakınca saydam kalmaz).</summary>
+    public static Material TwoSided(Material m)
+    {
+        if (m != null && m.HasProperty("_Cull")) m.SetFloat("_Cull", 0f);
+        return m;
     }
 
     public static Material MakeLit(Color color, Texture tex = null)

@@ -155,7 +155,7 @@ public static class SettingsUI
         {
             { "W A S D", "keys.move" }, { "Shift", "keys.run" }, { "Ctrl / C", "keys.crouch" }, { "Space", "keys.jump" },
             { "E", "keys.interact" }, { "Tab", "keys.bag" }, { "1 2 3", "keys.quick" }, { "Q", "keys.coin" },
-            { "F", "keys.push" }, { "H", "keys.record" }, { "B", "keys.brush" }, { "M", "keys.plan" },
+            { "Mouse 1", "keys.push" }, { "H", "keys.record" }, { "B", "keys.brush" }, { "M", "keys.plan" },
             { "K", "keys.truck" }, { "V", "keys.voice" }, { "Mouse 3", "keys.ping" }, { "Enter", "keys.chat" },
             { "F5", "keys.preview" }, { "Esc", "keys.menu" },
         };

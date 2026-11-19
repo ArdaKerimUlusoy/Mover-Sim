@@ -12,7 +12,9 @@ using UnityEngine;
 public class FirstPersonArms : MonoBehaviour
 {
     // Ana karakter (Soygun) kolları; yoksa eski BitirmeChar. Yerleşim / kavrama eski oyundakiyle aynı, yalnızca ölçek modele göre.
-    private const string ModelResource = "Characters/SoygunChar";
+    // SoygunArms.fbx: Soygun'un yalnızca kolları (kazak kolu + el), omuzda temiz kesilmiş, yalnızca kol kemiklerine bağlı
+    private const string ModelResource = "Characters/SoygunArms";
+    private const float SoygunArmLength = 0.5865f; // omuz→bilek (m): kol bu boya ölçeklenir (mesh sınırından bağımsız, hep aynı)
     private const string OldModelResource = "Characters/BitirmeChar";
     // Oyuncu modeline göre ölçek: kollar karakterin kendi kolu gibi dursun (çok büyük olmasın) ama eşyaya yetişsin
     private float ViewScale = 1.35f;
@@ -34,10 +36,90 @@ public class FirstPersonArms : MonoBehaviour
 
     // Kavrama açıları (derece; Proximal, Intermediate, Distal) — Blender'da bu modelle denenip ayarlandı
     private static readonly float[] PaintCurl = { 55f, 60f, 40f, 55f, 60f, 40f, 55f, 60f, 40f, 55f, 60f, 40f, 30f, 25f, 15f };
+    // Küçük eşya avuçta: parmaklar hafif kıvrık (çanak), başparmak yanda
+    private static readonly float[] CupCurl = { 30f, 30f, 20f, 32f, 32f, 20f, 36f, 34f, 22f, 40f, 36f, 24f, 10f, 15f, 10f };
     private static readonly float[] PenCurl = { 15f, 25f, 15f, 40f, 50f, 30f, 70f, 80f, 50f, 75f, 80f, 50f, 15f, 20f, 10f };
     private readonly Dictionary<Transform, Quaternion> rest = new Dictionary<Transform, Quaternion>();
     private bool built, failed;
     private Transform cam;
+
+    // ---- Blender'da tasarlanmış pozlar (SoygunArms.fbx klipleri) ----
+    // Tablo (iki genişlik, aradaki genişlikler karıştırılır) ve avuçta küçük eşya. Kolların kameraya göre yeri, modeldeki
+    // kamera kemiklerinden (FP_Cam, 1 m ileri FP_CamF, 1 m yukarı FP_CamU) birebir kurulur → Blender'daki görüntünün aynısı.
+    private bool authored;
+    private GameObject clipHost;
+    private AnimationClip clipDar, clipGenis, clipSmall, clipDarOpen, clipGenisOpen, clipCoin, clipFlick;
+    private Transform itemR, itemRUp, coinR, coinRUp;
+    private Vector3[] buf2P;
+    private Quaternion[] buf2R;
+    private Transform[] allT;
+    private Vector3[] restP, restS, bufP;
+    private Quaternion[] restR, bufR;
+    private Vector3 placePos, placeScale;
+    private Quaternion placeRot;
+    private const float DarHW = 0.17f, DarHH = 0.13f, GenisHW = 0.275f, GenisHH = 0.21f;
+    private const float AuthoredItemHalfThick = 0.0065f; // Blender'daki bozuk paranın yarı kalınlığı
+    private static Vector3 PaintingCenter(float hw, float hh) => new Vector3(0f, -0.18f - hh * 0.25f, 0.7f + hw * 0.35f);
+
+    /// <summary>Tablo: Blender'da tasarlanmış yan kavrama (parmaklar kenarı dolanıp arkada, başparmak önde). itemLocal: tablonun
+    /// kamera uzayındaki ortası. Tasarlanmış poz yoksa eski IK kavramasına döner.</summary>
+    public bool ShowPainting(Transform camera, Vector3 itemLocal, Quaternion itemLocalRot, float halfWidth, float halfHeight, float open = 0f)
+    {
+        if (!Begin(camera)) return false;
+        if (!authored || clipDar == null) return Show(camera, itemLocal, itemLocalRot, halfWidth, halfHeight);
+        float t = Mathf.InverseLerp(DarHW, GenisHW, halfWidth);
+        SampleBlendRaw(clipDar, clipGenis != null ? clipGenis : clipDar, t);
+        // R ile çevirirken: eller tabloyu bırakıp hafif açılır (Blender'daki "açık" poz), dönüş bitince yeniden kavrar
+        if (open > 0.001f && clipDarOpen != null)
+        {
+            for (int i = 0; i < allT.Length; i++) { buf2P[i] = allT[i].localPosition; buf2R[i] = allT[i].localRotation; }
+            SampleBlendRaw(clipDarOpen, clipGenisOpen != null ? clipGenisOpen : clipDarOpen, t);
+            float w = Mathf.Clamp01(open);
+            for (int i = 0; i < allT.Length; i++)
+            {
+                allT[i].localPosition = Vector3.Lerp(buf2P[i], allT[i].localPosition, w);
+                allT[i].localRotation = Quaternion.Slerp(buf2R[i], allT[i].localRotation, w);
+            }
+        }
+        root.localRotation = placeRot; root.localScale = placeScale;
+        Vector3 refCenter = Vector3.Lerp(PaintingCenter(DarHW, DarHH), PaintingCenter(GenisHW, GenisHH), t);
+        root.localPosition = placePos + (itemLocal - refCenter); // tablo nerede ise kollar onunla birlikte
+        return true;
+    }
+
+    /// <summary>Bozuk para yazı-tura tutuşu (yumruk, para işaret parmağının üstünde). flick 0→1: başparmak fiskeyle açılır.
+    /// coinPos / coinUp: paranın tutuştaki yeri ve yukarısı (Blender'daki FP_CoinR noktası). Tasarlanmış poz yoksa false.</summary>
+    public bool ShowCoin(Transform camera, float flick, out Vector3 coinPos, out Vector3 coinUp)
+    {
+        coinPos = Vector3.zero; coinUp = Vector3.up;
+        if (!Begin(camera)) return false;
+        if (!authored || clipCoin == null || coinR == null || coinRUp == null) return false;
+        SampleBlend(clipCoin, clipFlick != null ? clipFlick : clipCoin, Mathf.Clamp01(flick));
+        coinUp = (coinRUp.position - coinR.position).normalized;
+        coinPos = coinR.position;
+        return true;
+    }
+
+    /// <summary>Klip örnekle; kök (kameraya göre yerleşim) klipten etkilenmesin diye sonra geri konur.</summary>
+    private void SampleBlend(AnimationClip a, AnimationClip b, float t)
+    {
+        SampleBlendRaw(a, b, t);
+        root.localPosition = placePos; root.localRotation = placeRot; root.localScale = placeScale;
+    }
+
+    private void SampleBlendRaw(AnimationClip a, AnimationClip b, float t)
+    {
+        a.SampleAnimation(clipHost, 0f);
+        if (b == a || t <= 0.001f) return;
+        for (int i = 0; i < allT.Length; i++) { bufP[i] = allT[i].localPosition; bufR[i] = allT[i].localRotation; }
+        b.SampleAnimation(clipHost, 0f);
+        if (t >= 0.999f) return;
+        for (int i = 0; i < allT.Length; i++)
+        {
+            allT[i].localPosition = Vector3.Lerp(bufP[i], allT[i].localPosition, t);
+            allT[i].localRotation = Quaternion.Slerp(bufR[i], allT[i].localRotation, t);
+        }
+    }
 
     /// <summary>Kolları göster ve eşyanın iki kenarını tutacak şekilde poz ver (kamera uzayında). Yapılamazsa false.</summary>
     public bool Show(Transform camera, Vector3 itemLocal, Quaternion itemLocalRot, float halfWidth, float halfHeight)
@@ -53,7 +135,9 @@ public class FirstPersonArms : MonoBehaviour
             float side = k == 0 ? -1f : 1f;
             Vector3 inward = -right * side;
             Vector3 edge = center + right * (halfWidth * side);
-            Vector3 wrist = edge + right * (side * 0.035f) + cam.forward * 0.01f;
+            // Soygun: bilek biraz öne (kameraya) gelir → başparmak ve elin üstü eşyanın ÖN yüzünde görünür (gerçekten tutuyor)
+            Vector3 wrist = soygunArms ? edge + right * (side * 0.025f) - cam.forward * 0.04f
+                                       : edge + right * (side * 0.035f) + cam.forward * 0.01f;
             Vector3 wf = (cam.forward * 0.6f + cam.up * 0.75f + inward * 0.1f).normalized;
             if (k == 0) { ArmIK(upL, loL, handL, wrist, -1f); OrientPalm(handL, midL, indexL, littleL, palmSignL, wf, inward); CurlTo(digL, handL, midL, indexL, littleL, palmSignL, PaintCurl); }
             else { ArmIK(upR, loR, handR, wrist, 1f); OrientPalm(handR, midR, indexR, littleR, palmSignR, wf, inward); CurlTo(digR, handR, midR, indexR, littleR, palmSignR, PaintCurl); }
@@ -82,6 +166,40 @@ public class FirstPersonArms : MonoBehaviour
         return true;
     }
 
+    /// <summary>Küçük eşya (bozuk para, yüzük, ganimet, alet): sağ elin AVUCUNDA, ekranın sağ altında; avuç yukarı ve hafif
+    /// kameraya dönük, parmaklar hafif kıvrık. itemWorld / palmUp: eşyanın oturacağı nokta ve avucun yukarısı.</summary>
+    public bool ShowSmall(Transform camera, Vector3 itemLocal, float itemHalfThick, out Vector3 itemWorld, out Vector3 palmUp)
+    {
+        itemWorld = Vector3.zero; palmUp = Vector3.up;
+        if (!Begin(camera)) return false;
+        if (authored && clipSmall != null && itemR != null && itemRUp != null)
+        {
+            // Blender'da tasarlanmış avuç pozu; eşya avuçtaki FP_ItemR noktasına oturur
+            SampleBlend(clipSmall, clipSmall, 0f);
+            palmUp = (itemRUp.position - itemR.position).normalized;
+            itemWorld = itemR.position + palmUp * (Mathf.Max(0.003f, itemHalfThick) - AuthoredItemHalfThick);
+            return true;
+        }
+        Vector3 target = cam.TransformPoint(itemLocal);
+        Vector3 wf = (cam.forward * 0.8f - cam.right * 0.45f + cam.up * 0.05f).normalized;   // parmaklar ileri-sola
+        Vector3 wn = (cam.up * 0.85f - cam.forward * 0.45f).normalized;                       // avuç içi yukarı, sana dönük
+        ArmIK(upR, loR, handR, target, 1f);
+        OrientPalm(handR, midR, indexR, littleR, palmSignR, wf, wn);
+        // Avucun ortası (bilek ile orta parmak kökü arası) hedefe gelsin: bilek kaydırılır, yön aynı kalır
+        Vector3 palm = midR != null ? Vector3.Lerp(handR.position, midR.position, 0.75f) : handR.position;
+        ArmIK(upR, loR, handR, target - (palm - handR.position), 1f);
+        OrientPalm(handR, midR, indexR, littleR, palmSignR, wf, wn);
+        CurlTo(digR, handR, midR, indexR, littleR, palmSignR, CupCurl);
+        ArmIK(upL, loL, handL, cam.TransformPoint(new Vector3(-0.3f, -0.95f, 0.25f)), -1f); // sol kol aşağıda (görünmez)
+        palm = midR != null ? Vector3.Lerp(handR.position, midR.position, 0.75f) : handR.position;
+        float handLen = midR != null ? Vector3.Distance(handR.position, midR.position) : 0.1f;
+        if (midR != null && indexR != null && littleR != null)
+            palmUp = PalmNormal(handR, midR, indexR, littleR, palmSignR, out _);
+        // Avucun yüzeyi kemiğin el boyunun ~%45'i kadar üstünde (Blender'da birinci şahıs görüntüyle denendi)
+        itemWorld = palm + palmUp * (Mathf.Max(0.004f, itemHalfThick) + handLen * 0.45f);
+        return true;
+    }
+
     private bool Begin(Transform camera)
     {
         if (failed || camera == null) return false;
@@ -90,6 +208,15 @@ public class FirstPersonArms : MonoBehaviour
         if (root.parent != cam) root.SetParent(cam, false);
         if (!root.gameObject.activeSelf) root.gameObject.SetActive(true);
         lastPoseFrame = Time.frameCount;
+        // Kameranın yakın kesme düzlemi 0,3 m: kameraya yakın kol / kazak parçaları kesik görünüyordu
+        Camera cc = cam.GetComponent<Camera>();
+        if (cc != null && cc.nearClipPlane > 0.06f) cc.nearClipPlane = 0.05f;
+        if (authored)
+        {
+            // Tüm kemikler dinlenmeye (klip pozu bir önceki karede ölçek / konum da değiştirmiş olabilir), kök kameraya göre yerinde
+            for (int i = 0; i < allT.Length; i++) { allT[i].localPosition = restP[i]; allT[i].localRotation = restR[i]; allT[i].localScale = restS[i]; }
+            root.localPosition = placePos; root.localRotation = placeRot; root.localScale = placeScale;
+        }
         // Dinlenme pozuna dön (her kare IK baştan)
         foreach (KeyValuePair<Transform, Quaternion> kv in rest) if (kv.Key != null) kv.Key.localRotation = kv.Value;
         return true;
@@ -121,7 +248,7 @@ public class FirstPersonArms : MonoBehaviour
         try { prefab = Resources.Load<GameObject>(ModelResource); } catch (System.Exception) { }
         soygunArms = prefab != null;
         // Soygun: kolları uzun → biraz küçük çizilir; elleri çıplak / küçük → biraz büyütülür (eski eldivenli eller kadar dolgun dursun)
-        if (soygunArms) { ViewScale = 1.0f; HandScale = 1.25f; }
+        if (soygunArms) { ViewScale = 1.0f; HandScale = 1.2f; }
         else
         {
             try { prefab = Resources.Load<GameObject>(OldModelResource); } catch (System.Exception) { }
@@ -137,7 +264,7 @@ public class FirstPersonArms : MonoBehaviour
         SkinnedMeshRenderer smr = go.GetComponentInChildren<SkinnedMeshRenderer>(true);
         if (smr == null || smr.sharedMesh == null) { Destroy(go); root = null; return false; }
 
-        Mesh arms = ArmsOnly(smr);
+        Mesh arms = soygunArms ? smr.sharedMesh : ArmsOnly(smr); // Soygun: hazır kol modeli, kesmeye gerek yok
         if (arms == null) { Destroy(go); root = null; return false; }
         smr.sharedMesh = arms;
         if (soygunArms)
@@ -192,6 +319,13 @@ public class FirstPersonArms : MonoBehaviour
         string[] dn = { "Index", "Middle", "Ring", "Little", "Thumb" }, sn = { "_Proximal", "_Intermediate", "_Distal" };
         for (int f = 0; f < 5; f++) for (int g = 0; g < 3; g++) { digL[f * 3 + g] = B(dn[f] + sn[g] + L); digR[f * 3 + g] = B(dn[f] + sn[g] + R); }
         if (upL == null || loL == null || handL == null || upR == null || loR == null || handR == null) { Destroy(go); root = null; return false; }
+        if (soygunArms)
+        {
+            // Ölçek: kol boyu sabit (Blender'da birinci şahıs görüntü bu ölçüyle denendi)
+            root.localScale = Vector3.one;
+            float armLen = (Vector3.Distance(upL.position, loL.position) + Vector3.Distance(loL.position, handL.position)) / Mathf.Max(0.0001f, cam.lossyScale.x);
+            if (armLen > 0.0001f) root.localScale = Vector3.one * (SoygunArmLength / armLen);
+        }
         foreach (string f in new[] { "Index", "Middle", "Ring", "Little", "Thumb" })
             foreach (string seg in new[] { "_Proximal", "_Intermediate", "_Distal" })
             {
@@ -212,7 +346,55 @@ public class FirstPersonArms : MonoBehaviour
         // Omuzların ortasını kamera uzayında ShoulderLocal'a taşı
         Vector3 shMid = cam.InverseTransformPoint((upL.position + upR.position) * 0.5f);
         root.localPosition += ShoulderLocal - shMid;
+        if (soygunArms) SetupAuthored(go, B);
         return true;
+    }
+
+    /// <summary>Soygun kol modelinde Blender pozları ve kamera kemikleri varsa: kökü kamera kemiklerine göre birebir yerleştir.</summary>
+    private void SetupAuthored(GameObject go, System.Func<string, Transform> B)
+    {
+        authored = false;
+        Transform c0 = B("FP_Cam"), cf = B("FP_CamF"), cu = B("FP_CamU");
+        itemR = B("FP_ItemR"); itemRUp = B("FP_ItemRUp");
+        coinR = B("FP_CoinR"); coinRUp = B("FP_CoinRUp");
+        Animation an = go.GetComponentInChildren<Animation>(true);
+        if (c0 == null || cf == null || cu == null || an == null) return;
+        foreach (AnimationState s in an)
+        {
+            if (s.clip == null) continue;
+            string n = s.name;
+            if (n.EndsWith("FP_Tablo_Dar")) clipDar = s.clip;
+            else if (n.EndsWith("FP_Tablo_Genis")) clipGenis = s.clip;
+            else if (n.EndsWith("FP_Tablo_Dar_Acik")) clipDarOpen = s.clip;
+            else if (n.EndsWith("FP_Tablo_Genis_Acik")) clipGenisOpen = s.clip;
+            else if (n.EndsWith("FP_Para_Tut")) clipCoin = s.clip;
+            else if (n.EndsWith("FP_Para_Fiske")) clipFlick = s.clip;
+            else if (n.EndsWith("FP_Kucuk")) clipSmall = s.clip;
+        }
+        an.Stop();
+        an.enabled = false; // pozları biz örnekliyoruz
+        clipHost = an.gameObject;
+        if (clipDar == null && clipSmall == null) return;
+
+        // Kamera kemikleri kökün uzayında (kökün kendi dönüşünden bağımsız)
+        Vector3 p0 = root.InverseTransformPoint(c0.position), pf = root.InverseTransformPoint(cf.position), pu = root.InverseTransformPoint(cu.position);
+        Vector3 fl = pf - p0, ul = pu - p0;
+        if (fl.sqrMagnitude < 1e-8f || ul.sqrMagnitude < 1e-8f) return;
+        float k = 1f / fl.magnitude;
+        Quaternion q = Quaternion.Inverse(Quaternion.LookRotation(fl, ul));
+        placeRot = q;
+        placeScale = Vector3.one * k;
+        placePos = -(q * (p0 * k));
+        root.localRotation = placeRot; root.localScale = placeScale; root.localPosition = placePos;
+
+        var list = new List<Transform>();
+        foreach (Transform t in go.GetComponentsInChildren<Transform>(true)) if (t != root) list.Add(t);
+        allT = list.ToArray();
+        restP = new Vector3[allT.Length]; restR = new Quaternion[allT.Length]; restS = new Vector3[allT.Length];
+        bufP = new Vector3[allT.Length]; bufR = new Quaternion[allT.Length];
+        buf2P = new Vector3[allT.Length]; buf2R = new Quaternion[allT.Length];
+        for (int i = 0; i < allT.Length; i++) { restP[i] = allT[i].localPosition; restR[i] = allT[i].localRotation; restS[i] = allT[i].localScale; }
+        authored = true;
     }
 
     /// <summary>Modelin mesh'inden sadece kol / el / parmak üçgenlerini tutan kopya (bir kez, herkes paylaşır).</summary>

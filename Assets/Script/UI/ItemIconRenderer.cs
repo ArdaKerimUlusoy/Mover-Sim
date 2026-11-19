@@ -245,7 +245,7 @@ public class ItemIconRenderer : MonoBehaviour
         if (def.type == ItemType.Forgery && slot.ForgeryId != 0)
         {
             if (!ForgeryRegistry.TryGet(slot.ForgeryId, out _)) return null; // veri bekleniyor
-            key = "forgery:" + slot.ForgeryId;
+            key = "forgery:" + ForgeryRegistry.Generation + ":" + def.id + ":" + slot.ForgeryId; // tür de anahtarda (tablo / büst karışmasın)
         }
         else if (def.type == ItemType.Original && slot.LookKey != 0)
         {

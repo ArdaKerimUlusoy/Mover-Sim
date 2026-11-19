@@ -35,6 +35,8 @@ public class HeldItemView : MonoBehaviour
     private bool snap;
 
     public bool IsShowing => visual != null;
+    /// <summary>Elde gösterilen eşya görüntüsü (yoksa null).</summary>
+    public GameObject VisualObject => visual;
     /// <summary>Eşyanın yarı genişliği (m): karakterin elleri bu kadar iki yanından kavrar.</summary>
     public float HalfWidth => visualHalfWidth;
     /// <summary>Eşyanın yarı yüksekliği (m).</summary>
@@ -46,9 +48,34 @@ public class HeldItemView : MonoBehaviour
     [SerializeField] private bool inHands = true;
     private PlayerAvatar avatar;
     private float shownYaw;
+    /// <summary>Eşyanın gösterilen dönüşü (R ile çevirme dahil, derece). Karakter parmakları eşyanın şekline bu çerçevede oturtur.</summary>
+    public float ShownYaw => shownYaw;
+    /// <summary>Bozuk para mı (yazı-turada parmaklar parayı izlemez).</summary>
+    public bool IsCoin => isCoin;
+    /// <summary>Eşyanın şekli (tutuş: eller ve parmaklar yüzeye oturur). Yoksa null.</summary>
+    public HoldShape Shape { get; private set; }
+    /// <summary>Yazı-tura sürüyor mu.</summary>
+    public bool CoinFlipping => coinFlipT >= 0f;
+    /// <summary>Yüzük mü (işaret ve başparmak uçları arasında, dik tutulur).</summary>
+    public bool IsRing { get; private set; }
+    /// <summary>Yüzüğün yarıçapı (m): parmaklar bandından tutar, halka parmak uçlarının üstünde.</summary>
+    public float RingRadius { get; private set; } = 0.03f;
+    private Quaternion ringFix = Quaternion.identity;
+    /// <summary>Ek öne-arkaya eğim (derece): vazo ağzı sana doğru hafif eğik tutulur (içi görünsün).</summary>
+    public float ExtraTilt { get; private set; }
+    /// <summary>Yazı-tura ilerlemesi 0..1 (atış yoksa −1): başparmak fiskesi buna göre.</summary>
+    public float CoinFlipProgress => coinFlipT >= 0f ? Mathf.Clamp01(coinFlipT) : -1f;
     private FirstPersonArms fpArms;
     private Transform fpHands, fpHandL, fpHandR, fpSleeveL, fpSleeveR;
     private float visualHalfWidth = 0.2f, visualHalfHeight = 0.2f;
+    // Görselin pivotu ile gerçek ortası arasındaki yatay fark (dönmemiş halde). Tablo gibi pivotu arkada / önde olan
+    // eşyalar R ile çevrilince ellerin arasından kaymasın diye her zaman ORTASI tutulan noktaya konur.
+    private Vector3 centerOff;
+    // Bozuk para yazı-tura (birinci şahıs)
+    private bool isCoin;
+    private float coinFlipT = -1f, lastCoinYaw, nextIdleFlip;
+    private const float CoinFlipTime = 0.75f, CoinFlipHeight = 0.2f;
+    private float visualHalfThick = 0.02f;
     private static Material gloveMat, sleeveMat, stripeMat;
     /// <summary>Süzülen eşyanın şu anki yeri (bırakırken buradan düşer).</summary>
     public Vector3 Position => pos;
@@ -85,7 +112,64 @@ public class HeldItemView : MonoBehaviour
         else if (id.Contains("ring") || maxExt < 0.13f ||
                  (def != null && (def.IsSmallLoot || def.type == ItemType.Tool || def.type == ItemType.Distraction))) CarryKind = 3;
         else CarryKind = 2;
+        // Küçük eşya (bozuk para, yüzük, ganimet, alet) elde gerçek boyunda: dünyadaki görünüşü bilerek büyük (yerde görünsün),
+        // elde avuca sığsın (bozuk para ~5,5 cm, diğerleri en çok ~10 cm)
+        isCoin = CarryKind == 3 && id.Contains("coin") && !id.Contains("pouch"); // para kesesi yazı-tura atılmaz
+        IsRing = CarryKind == 3 && !isCoin && (id.Contains("ring") || id.Contains("yuzuk"));
+        coinFlipT = -1f;
+        lastCoinYaw = inventory != null ? inventory.HoldYaw : 0f;
+        nextIdleFlip = Time.time + Random.Range(3f, 6f);
+        if (CarryKind == 3 && visual != null && ItemVisuals.TryGetBounds(visual, out Bounds sb))
+        {
+            float mx = Mathf.Max(sb.size.x, sb.size.y, sb.size.z);
+            float want = isCoin ? 0.055f : IsRing ? 0.08f : 0.1f; // yüzük parmak uçlarında, ekranda rahat görünecek boyda
+            if ((mx > want || IsRing) && mx > 0.0001f)
+            {
+                visual.transform.localScale *= want / mx;
+                visualHalfWidth = Mathf.Max(0.02f, visualHalfWidth * want / mx);
+                visualHalfHeight = Mathf.Max(0.01f, visualHalfHeight * want / mx);
+            }
+        }
+        // Tablo / vazo / büst elde taşınabilir boyutta (görsel küçültülür): kollar kenarlarına yetişsin, kameraya fazla
+        // yaklaşmasın (çok geniş vazonun ağzı birinci şahısta kameranın içinde kalıyordu)
+        if ((CarryKind == 1 || CarryKind == 2) && visual != null)
+        {
+            float maxW = CarryKind == 1 ? 0.36f : 0.18f, maxH = 0.3f;
+            float f = Mathf.Min(1f, Mathf.Min(maxW / Mathf.Max(0.01f, visualHalfWidth), maxH / Mathf.Max(0.01f, visualHalfHeight)));
+            if (f < 0.999f)
+            {
+                visual.transform.localScale *= f;
+                visualHalfWidth *= f; visualHalfHeight *= f;
+            }
+        }
+        // Yatay orta farkı (dönmemiş halde ölçülür)
+        centerOff = Vector3.zero;
+        visualHalfThick = 0.02f;
+        if (visual != null)
+        {
+            Quaternion r0 = visual.transform.rotation;
+            visual.transform.rotation = Quaternion.identity;
+            if (ItemVisuals.TryGetBounds(visual, out Bounds cb))
+            {
+                Vector3 off = cb.center - visual.transform.position;
+                centerOff = new Vector3(off.x, 0f, off.z);
+                visualHalfThick = Mathf.Clamp(Mathf.Min(cb.extents.x, cb.extents.y, cb.extents.z), 0.004f, 0.08f);
+            }
+            visual.transform.rotation = r0;
+        }
         ItemVisuals.SetShadows(visual, true);
+        Shape = visual != null ? HoldShape.Build(visual, centerOff, CarryKind == 1) : null;
+        // Yüzük: halkanın deliği (en ince ekseni) sana baksın — modelin hangi eksende yattığından bağımsız; yarıçap
+        ringFix = Quaternion.identity; RingRadius = visualHalfWidth;
+        if (IsRing && Shape != null)
+        {
+            Vector3 bh = Shape.BoxHalf;
+            Vector3 axis = bh.x <= bh.y && bh.x <= bh.z ? Vector3.right : bh.y <= bh.z ? Vector3.up : Vector3.forward;
+            ringFix = Quaternion.FromToRotation(axis, Vector3.forward);
+            RingRadius = axis == Vector3.right ? Mathf.Max(bh.y, bh.z) : axis == Vector3.up ? Mathf.Max(bh.x, bh.z) : Mathf.Max(bh.x, bh.y);
+        }
+        // Vazo ağzı hafif, tablo yüzü belirgin sana doğru eğik (resmi görürsün); fazla eğik vazo ağzı yakında oval görünüyordu
+        ExtraTilt = CarryKind == 2 && def != null && ArtworkLook.KindOf(def) == ArtKind.Vase ? -6f : CarryKind == 1 ? 20f : 0f; // tablo: üst kenar senden uzağa → sana bakan yüz yukarı döner
         snap = true;
         lastRootPos = transform.position;
         lastRootYaw = transform.eulerAngles.y;
@@ -93,6 +177,7 @@ public class HeldItemView : MonoBehaviour
 
     public void Hide()
     {
+        Shape = null;
         if (visual != null) Destroy(visual);
         visual = null;
         if (fpHands != null) fpHands.gameObject.SetActive(false);
@@ -188,12 +273,17 @@ public class HeldItemView : MonoBehaviour
     private void UpdateInHands(float dt)
     {
         if (avatar == null) avatar = GetComponent<PlayerAvatar>();
-        bool firstPerson = IsOwnerView && !PlayerAvatar.PreviewActive;
+        // Kendi gövden birinci şahısta görünüyorsa (Soygun) eşyayı diğerlerinin gördüğü gibi kendi ellerin tutar: tek görüntü.
+        // Gövde görünmüyorsa (eski karakter / baygın) eski davranış: eşya ekranın altında kendi başına durur.
+        bool firstPerson = IsOwnerView && !PlayerAvatar.PreviewActive && !PlayerAvatar.LocalBodyVisible;
         // R: eşya sadece ön / arka çevrilir (karşındakine gösterir). Kısa animasyonla döner, dönerken hafifçe kalkar.
         float yawTarget = inventory != null ? inventory.HoldYaw : 0f;
         shownYaw = Mathf.MoveTowardsAngle(shownYaw, yawTarget, 560f * dt);
         float turning = Mathf.Abs(Mathf.DeltaAngle(shownYaw, yawTarget)) / 180f;     // 1 → 0
         float flipLift = Mathf.Sin(Mathf.Clamp01(turning) * Mathf.PI) * 0.07f;
+        // Yüzük: [R] hiçbir şey yapmaz (dönmez, kalkmaz). Bozuk para: kendi yazı-tura atışı var, ayrıca kalkmaz.
+        if (IsRing) { shownYaw = yawTarget; turning = 0f; flipLift = 0f; }
+        else if (isCoin) flipLift = 0f;
         float yaw = shownYaw;
         Vector3 target;
         Quaternion targetRot;
@@ -209,27 +299,52 @@ public class HeldItemView : MonoBehaviour
             smoothedMove = Vector3.Lerp(v, transform.InverseTransformDirection(rootMove), 1f - Mathf.Exp(-8f * dt));
             float walk = Mathf.Clamp01(new Vector2(smoothedMove.x, smoothedMove.z).magnitude / 4.5f);
             float bob = Mathf.Sin(Time.time * 9f) * 0.012f * walk;
-            // Eşya ekranın ortasına daha yakın ve biraz ileride: ne yaptığın (çizim, sahte, eser) görünsün
+            // Birinci şahısta EL YOK: eşya kendi başına ekranda durur (kol / el modeli çizilmez)
+            SetFpHands(false);
+            if (fpArms == null) fpArms = GetComponent<FirstPersonArms>();
+            if (fpArms != null) fpArms.Hide();
+            if (CarryKind == 3)
+            {
+                // Küçük eşya (bozuk para, yüzük, ganimet, alet): ekranın sağ altında, hafif eğik
+                Vector3 sl = new Vector3(0.17f, -0.17f + bob, 0.45f);
+                float height = 0f, spin = 0f;
+                if (isCoin)
+                {
+                    // Bozuk para: [R] ile yazı-tura — para dönerek havalanır ve yerine düşer
+                    if (!Mathf.Approximately(yawTarget, lastCoinYaw)) { lastCoinYaw = yawTarget; if (coinFlipT < 0f) coinFlipT = 0f; }
+                    if (coinFlipT >= 0f)
+                    {
+                        coinFlipT += dt / CoinFlipTime;
+                        float u = Mathf.Clamp01(coinFlipT);
+                        height = 4f * CoinFlipHeight * u * (1f - u);
+                        spin = u * 1080f;
+                        if (coinFlipT >= 1f) coinFlipT = -1f;
+                    }
+                }
+                Vector3 up = (cam.up * 0.8f - cam.forward * 0.6f).normalized;   // yüzü hafif sana dönük
+                Quaternion baseRot = Quaternion.LookRotation(Vector3.ProjectOnPlane(cam.forward, up).normalized, up);
+                rot = Quaternion.AngleAxis(spin, cam.right) * baseRot * Quaternion.Euler(0f, isCoin ? 0f : yaw - 20f, 0f);
+                pos = cam.TransformPoint(sl) + Vector3.up * height; vel = Vector3.zero; snap = false;
+                visual.transform.SetPositionAndRotation(pos - rot * centerOff, rot);
+                return;
+            }
             Vector3 local = new Vector3(0f, -0.18f - visualHalfHeight * 0.25f + bob + flipLift, 0.7f + visualHalfWidth * 0.35f);
             target = cam.TransformPoint(local);
             // Eşya kameraya hafif dönük (resim yüzü sana baksın), yürürken hafif yatar
             targetRot = cam.rotation * Quaternion.Euler(-12f, yaw, Mathf.Clamp(-smoothedMove.x * 2f, -8f, 8f));
             pos = target; rot = targetRot; vel = Vector3.zero; snap = false;
-            visual.transform.SetPositionAndRotation(pos, rot);
-            // Karakterin GERÇEK kolları (FirstPersonArms); model okunamazsa basit eldivenli eller
-            if (fpArms == null) fpArms = GetComponent<FirstPersonArms>();
-            if (fpArms == null) fpArms = gameObject.AddComponent<FirstPersonArms>();
-            // Eller tabloyla birlikte DÖNMEZ: R ile tablo ellerin arasında kendi etrafında döner, eller yerinde kalır
-            Vector3 handsLocal = new Vector3(local.x, local.y - flipLift, local.z);
-            Quaternion handsRot = Quaternion.Euler(-12f, 0f, Mathf.Clamp(-smoothedMove.x * 2f, -8f, 8f));
-            if (fpArms.Show(cam, handsLocal, handsRot, visualHalfWidth, visualHalfHeight))
-                SetFpHands(false);
-            else UpdateFpHands(local);
+            visual.transform.SetPositionAndRotation(pos - rot * centerOff, rot);
             return;
         }
 
         SetFpHands(false);
-        // Diğer oyuncular (ve F5 önizleme): karakterin iki elinin arasında
+        // Herkes (kendi ekranın dahil): karakterin kendi elleri tutar
+        bool owner = IsOwnerView;
+        if (owner)
+        {
+            if (fpArms == null) fpArms = GetComponent<FirstPersonArms>();
+            if (fpArms != null) fpArms.Hide();
+        }
         if (avatar != null && avatar.TryGetHoldPoint(out Vector3 hp, out float gap))
         {
             target = hp + Vector3.up * flipLift; // eller bu noktanın iki yanını kavrar (PlayerAvatarModel IK)
@@ -239,16 +354,37 @@ public class HeldItemView : MonoBehaviour
             bool crouch = stealth != null && stealth.IsCrouching;
             target = transform.TransformPoint(0f, crouch ? -0.35f : 0.05f, 0.45f);
         }
-        targetRot = Quaternion.Euler(0f, transform.eulerAngles.y + yaw, 0f);
-        if (turning > 0.001f) rot = targetRot; // çevirme animasyonu shownYaw ile yapılır
-        if (snap || (target - pos).sqrMagnitude > 4f) { snap = false; pos = target; rot = targetRot; }
+        // Tablo / büyük eşya kollarla birlikte bakışa göre öne-arkaya eğilir
+        float tilt = avatar != null && CarryKind != 3 ? avatar.CarryTilt + ExtraTilt : 0f;
+        targetRot = Quaternion.AngleAxis(tilt, transform.right) * Quaternion.Euler(0f, transform.eulerAngles.y + yaw, 0f);
+        // Bozuk para: [R] ile yazı-tura — avuçtan dönerek havalanır ve geri düşer (herkes görür)
+        float coinHop = 0f, coinSpin = 0f;
+        if (isCoin)
+        {
+            if (!Mathf.Approximately(yawTarget, lastCoinYaw)) { lastCoinYaw = yawTarget; if (coinFlipT < 0f) coinFlipT = 0f; }
+            if (coinFlipT >= 0f)
+            {
+                coinFlipT += dt / CoinFlipTime;
+                float u = Mathf.Clamp01(coinFlipT);
+                coinHop = 4f * CoinFlipHeight * u * (1f - u);
+                coinSpin = u * 1080f;
+                if (coinFlipT >= 1f) coinFlipT = -1f;
+            }
+            targetRot = Quaternion.Euler(0f, transform.eulerAngles.y, 0f);
+        }
+        // Yüzük: dik (deliği sana bakar), işaret ile başparmak arasında
+        if (IsRing) targetRot = Quaternion.Euler(0f, transform.eulerAngles.y, 0f) * ringFix; // dik, deliği sana bakar; [R] döndürmez
+        if (turning > 0.001f || isCoin) rot = targetRot; // çevirme animasyonu shownYaw ile yapılır
+        // Herkeste gecikmesiz: parmaklar eşyanın bu karedeki yerine / dönüşüne oturur (eller zaten yumuşak hareket eder)
+        if (snap || owner || inHands || (target - pos).sqrMagnitude > 4f) { snap = false; pos = target; rot = targetRot; }
         else
         {
-            pos = Vector3.Lerp(pos, target, 1f - Mathf.Exp(-25f * dt)); // ele yapışık (çok az gecikme)
-            rot = Quaternion.Slerp(rot, targetRot, 1f - Mathf.Exp(-20f * dt));
+            pos = Vector3.Lerp(pos, target, 1f - Mathf.Exp(-40f * dt)); // ele yapışık
+            rot = Quaternion.Slerp(rot, targetRot, 1f - Mathf.Exp(-30f * dt));
         }
         vel = Vector3.zero;
-        visual.transform.SetPositionAndRotation(pos, rot);
+        Quaternion shownRot = coinSpin != 0f ? Quaternion.AngleAxis(coinSpin, transform.right) * rot : rot;
+        visual.transform.SetPositionAndRotation(pos + Vector3.up * coinHop - shownRot * centerOff, shownRot);
     }
 
     /// <summary>Kendi ekranında eşyayı tutan iki el (eldiven + çizgili kol); eşyanın iki yanını kavrar.</summary>
@@ -328,3 +464,123 @@ public class HeldItemView : MonoBehaviour
         r.receiveShadows = false;
     }
 }
+
+/// <summary>
+/// Tutulan eşyanın kaba şekli (eşya çerçevesinde, metre): tablo = kutu; diğerleri = dikey eksen etrafında yükseklik × açı
+/// yarıçap zarfı (vazo, büst, heykel, küçük eşya). Eller en uygun yere konur, parmaklar yüzeye değene kadar kapanır.
+/// Çerçeve: köken = tutulan nokta (eşyanın ortası), eksenler = eşyanın dönüşü. Eşya alınınca bir kez kurulur.
+/// </summary>
+public sealed class HoldShape
+{
+    public const int NY = 14, NA = 16;
+    public bool IsBox;
+    public Vector3 BoxCenter, BoxHalf;
+    public float Y0, Y1;
+    private readonly float[] r = new float[NY * NA];
+
+    public static HoldShape Build(GameObject visual, Vector3 centerOff, bool box)
+    {
+        if (visual == null) return null;
+        Transform root = visual.transform;
+        Quaternion r0 = root.rotation; Vector3 p0 = root.position;
+        root.rotation = Quaternion.identity;
+        // Çerçeve kökeni (dünyada): HeldItemView görseli pos - rot*centerOff'a koyar → köken = p0 + centerOff
+        Vector3 origin = p0 + centerOff;
+        var pts = new System.Collections.Generic.List<Vector3>(4096);
+        foreach (MeshFilter mf in visual.GetComponentsInChildren<MeshFilter>())
+        {
+            Mesh m = mf.sharedMesh;
+            if (m == null || !m.isReadable) continue;
+            Vector3[] v = m.vertices;
+            int step = Mathf.Max(1, v.Length / 6000);
+            Matrix4x4 l2w = mf.transform.localToWorldMatrix;
+            for (int i = 0; i < v.Length; i += step) pts.Add(l2w.MultiplyPoint3x4(v[i]) - origin);
+        }
+        Bounds wb = default; bool hasB = ItemVisuals.TryGetBounds(visual, out wb);
+        root.rotation = r0; root.position = p0;
+        var hs = new HoldShape();
+        if (pts.Count < 8)
+        {
+            if (!hasB) return null;
+            pts.Clear(); // okunamayan mesh: kutu
+            box = true;
+            hs.BoxCenter = wb.center - origin; hs.BoxHalf = wb.extents;
+        }
+        Vector3 mn = Vector3.one * 1e9f, mx = -Vector3.one * 1e9f;
+        foreach (Vector3 q in pts) { mn = Vector3.Min(mn, q); mx = Vector3.Max(mx, q); }
+        if (pts.Count >= 8) { hs.BoxCenter = (mn + mx) * 0.5f; hs.BoxHalf = (mx - mn) * 0.5f; }
+        hs.IsBox = box;
+        hs.Y0 = hs.BoxCenter.y - hs.BoxHalf.y; hs.Y1 = hs.BoxCenter.y + hs.BoxHalf.y;
+        if (box) return hs;
+        // Yükseklik × açı hücrelerinde en büyük yarıçap
+        for (int i = 0; i < hs.r.Length; i++) hs.r[i] = -1f;
+        float h = Mathf.Max(1e-4f, hs.Y1 - hs.Y0);
+        foreach (Vector3 q in pts)
+        {
+            int yi = Mathf.Clamp((int)((q.y - hs.Y0) / h * NY), 0, NY - 1);
+            int ai = Mathf.Clamp((int)((Mathf.Atan2(q.x, q.z) + Mathf.PI) / (2f * Mathf.PI) * NA), 0, NA - 1);
+            float rr = Mathf.Sqrt(q.x * q.x + q.z * q.z);
+            int k = yi * NA + ai;
+            if (rr > hs.r[k]) hs.r[k] = rr;
+        }
+        // Boş hücreler: komşulardan doldur
+        for (int pass = 0; pass < 4; pass++)
+            for (int yi = 0; yi < NY; yi++)
+                for (int ai = 0; ai < NA; ai++)
+                {
+                    int k = yi * NA + ai;
+                    if (hs.r[k] >= 0f) continue;
+                    float sum = 0f; int n = 0;
+                    int[] nb = { yi * NA + (ai + 1) % NA, yi * NA + (ai + NA - 1) % NA, Mathf.Max(0, yi - 1) * NA + ai, Mathf.Min(NY - 1, yi + 1) * NA + ai };
+                    foreach (int j in nb) if (hs.r[j] >= 0f) { sum += hs.r[j]; n++; }
+                    if (n > 0) hs.r[k] = sum / n;
+                }
+        for (int i = 0; i < hs.r.Length; i++) if (hs.r[i] < 0f) hs.r[i] = Mathf.Max(hs.BoxHalf.x, hs.BoxHalf.z);
+        return hs;
+    }
+
+    /// <summary>Yükseklik y'de (çerçeve), a açısında (atan2(x, z)) yüzeyin eksene uzaklığı.</summary>
+    public float Radius(float y, float a)
+    {
+        if (IsBox) return Mathf.Min(BoxHalf.x, BoxHalf.z);
+        float fy = Mathf.Clamp((y - Y0) / Mathf.Max(1e-4f, Y1 - Y0) * NY - 0.5f, 0f, NY - 1);
+        float fa = (a + Mathf.PI) / (2f * Mathf.PI) * NA - 0.5f;
+        int y0 = Mathf.Min((int)fy, NY - 2 < 0 ? 0 : NY - 2), y1 = Mathf.Min(y0 + 1, NY - 1);
+        float ty = fy - y0;
+        int a0 = ((int)Mathf.Floor(fa) % NA + NA) % NA, a1 = (a0 + 1) % NA;
+        float ta = fa - Mathf.Floor(fa);
+        float r0 = Mathf.Lerp(r[y0 * NA + a0], r[y0 * NA + a1], ta), r1 = Mathf.Lerp(r[y1 * NA + a0], r[y1 * NA + a1], ta);
+        return Mathf.Lerp(r0, r1, ty);
+    }
+
+    /// <summary>İşaretli uzaklık (çerçevede, m): dışarıda +, içeride −.</summary>
+    public float Sdf(Vector3 p)
+    {
+        if (IsBox)
+        {
+            Vector3 q = p - BoxCenter;
+            Vector3 d = new Vector3(Mathf.Abs(q.x) - BoxHalf.x, Mathf.Abs(q.y) - BoxHalf.y, Mathf.Abs(q.z) - BoxHalf.z);
+            Vector3 o = Vector3.Max(d, Vector3.zero);
+            return o.magnitude + Mathf.Min(Mathf.Max(d.x, Mathf.Max(d.y, d.z)), 0f);
+        }
+        float rr = Mathf.Sqrt(p.x * p.x + p.z * p.z);
+        float dr = rr - Radius(p.y, Mathf.Atan2(p.x, p.z));
+        float dy = Mathf.Max(Y0 - p.y, p.y - Y1);
+        return Mathf.Max(dr, dy);
+    }
+
+    /// <summary>İki yandan kavramak için en uygun yükseklik: [lo, hi] (0 alt, 1 üst) aralığında iki yanın ortalama yarıçapı en büyük.</summary>
+    public float BestGripY(float aRight, float aLeft, float lo, float hi)
+    {
+        if (IsBox) return BoxCenter.y;
+        float best = -1f, by = (Y0 + Y1) * 0.5f;
+        for (int i = 0; i <= 12; i++)
+        {
+            float y = Mathf.Lerp(Y0, Y1, Mathf.Lerp(lo, hi, i / 12f));
+            float v = Radius(y, aRight) + Radius(y, aLeft);
+            if (v > best + 1e-4f) { best = v; by = y; }
+        }
+        return by;
+    }
+}
+

@@ -297,13 +297,16 @@ public partial class PlayerAvatar : MonoBehaviour
 
     private void Update()
     {
-        // Kendi gövden görünmesin, sadece gölgesi düşsün (ağda doğduktan sonra belli olur)
+        // Kendi ekranında: kafan yalnızca gölge (kamera kafanın içinde); gövden ve kolların görünür — eşyayı / fırçayı
+        // diğerlerinin gördüğü gibi kendi ellerin tutar. (Eski tek parça karakterde tüm gövde yalnızca gölge.)
         if (!ownerApplied && netSetup != null && netSetup.IsSpawned)
         {
             ownerApplied = true;
             if (netSetup.IsOwner)
                 foreach (Renderer r in renderers) if (r != null) r.shadowCastingMode = ShadowCastingMode.ShadowsOnly;
+            ownerVisApplied = false;
         }
+        if (ownerApplied && netSetup != null && netSetup.IsOwner && model != null) ApplyOwnerVisibility(true);
 
         float dt = Mathf.Max(Time.deltaTime, 0.0001f);
         Vector3 delta = transform.position - lastPos;
@@ -499,5 +502,6 @@ public partial class PlayerAvatar : MonoBehaviour
         foreach (Material m in new[] { mainMat, hatMat, skinMat, darkMat, whiteMat, sackMat, cheekMat, starMat, xMat })
             if (m != null) Destroy(m);
         DestroyModelMaterials();
+        if (ownerBodyShown) LocalBodyVisible = false;
     }
 }

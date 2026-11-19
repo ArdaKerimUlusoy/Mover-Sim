@@ -59,9 +59,22 @@ public partial class PlayerAvatar
     private readonly List<bool> blendRightArm = new List<bool>();
     private Quaternion[] blendCache;
 
+    /// <summary>Soygun modelinin göz yüksekliği (ayak hizasından, m); kamera bu hizaya iner (PlayerController.EyeOffset). -1 = bilinmiyor.</summary>
+    public static float ModelEyeY = -1f;
+
     // Bakış
     private Transform lookTarget, speakTarget;
-    private float speakUntil, nextLookScan, lookW;
+    private float speakUntil, nextLookScan, lookW, bodyW;
+    private float bodyYaw;
+
+    // Baygınken yere oturtma (pişirilmiş mesh'in en alt noktası zemine)
+    private Mesh knockBake;
+    private float knockFit, knockFitTarget, nextKnockBake;
+    // Bakış eğimi (aşağı +): eldeki eşya / fırça / küçük eşya kollarla birlikte bakışı izler (birinci şahısta görünür kalır,
+    // diğer oyuncular da kolların aşağı-yukarı indiğini görür — iki görüntü aynı)
+    private float armPitch, carryTilt;
+    /// <summary>Tablo / büyük eşyanın bakışla öne-arkaya eğimi (derece, aşağı +). HeldItemView eşyayı bu kadar eğer.</summary>
+    public float CarryTilt => carryTilt;
     private Vector3 lookDir = Vector3.forward;
 
     private void SetupClips(Dictionary<string, Transform> bones)
@@ -95,8 +108,18 @@ public partial class PlayerAvatar
         bones.TryGetValue("UpperNeck", out upperNeck);
         bones.TryGetValue("CarryPainting", out carryPainting);
         bones.TryGetValue("CarryBig", out carryBig);
+        bones.TryGetValue("BrushGrip", out brushGrip);
+        bones.TryGetValue("BrushTip", out brushTip);
+        SetupBrushPose(bones);
+        SetupHandPoses();
         if (eyeL != null) eyeLRest = eyeL.localRotation;
         if (eyeR != null) eyeRRest = eyeR.localRotation;
+        if (eyeL != null && eyeR != null)
+        {
+            // Bağlama pozunda gözlerin ayak hizasından yüksekliği (zemin payı ~5 cm düşülür: model yere oturtulur)
+            float ey = root.InverseTransformPoint((eyeL.position + eyeR.position) * 0.5f).y * root.lossyScale.y;
+            if (ey > 0.8f && ey < 2.2f) ModelEyeY = ey - 0.05f;
+        }
         if (mHead != null) headFwdLocal = Quaternion.Inverse(mHead.t.rotation) * root.forward;
         lookDir = root.forward;
         modelBasePos = model.localPosition;
@@ -104,7 +127,7 @@ public partial class PlayerAvatar
         // İskelet: SkinnedMeshRenderer'ın kemikleri (+ taşıma noktaları); itme maskesi = göğüs ve altı (kollar, kafa)
         var list = new List<Transform>();
         foreach (Transform t in model.GetComponentsInChildren<Transform>(true))
-            if (t != model && t != (modelSkin != null ? modelSkin.transform : null)) list.Add(t);
+            if (t != model && t != (modelSkin != null ? modelSkin.transform : null) && t != (headSkin != null ? headSkin.transform : null)) list.Add(t);
         skel = list.ToArray();
         skelUpper = new bool[skel.Length];
         for (int i = 0; i < skel.Length; i++) skelUpper[i] = mChest != null && skel[i].IsChildOf(mChest.t);
@@ -121,6 +144,82 @@ public partial class PlayerAvatar
         blendCache = new Quaternion[blendT.Count];
 
         curLoop = cIdle; curT = 0f; fade = 1f;
+    }
+
+    // Fırça (üçüncü şahıs): Blender'da tasarlanmış "Firca" pozu — sağ kol öne uzanır, fırça kalem gibi başparmak ile işaret
+    // parmağı arasında; fırçanın yeri BrushGrip (parmak uçlarının buluştuğu nokta) ve BrushTip kemiklerinden
+    private Transform brushGrip, brushTip;
+    private Transform[] brushBones;
+    private Quaternion[] brushRot;
+
+    /// <summary>Fırça kökü doğrudan BrushGrip noktası mı (Blender pozu)? Değilse eski yumruk tutuşu (PaintBrush kaydırır).</summary>
+    public bool BrushGripIsRoot => animated && brushBones != null && brushGrip != null && brushTip != null;
+
+    private void SetupBrushPose(Dictionary<string, Transform> bones)
+    {
+        brushBones = null;
+        if (!clipMap.TryGetValue("Firca", out AnimationClip fc) || fc == null) return;
+        var list = new List<Transform>();
+        foreach (string n in new[] { "UpperArm.R", "LowerArm.R", "Hand.R" }) if (bones.TryGetValue(n, out Transform t) && t != null) list.Add(t);
+        foreach (string f in new[] { "Index", "Middle", "Ring", "Little", "Thumb" })
+            foreach (string sg in new[] { "_Proximal", "_Intermediate", "_Distal" })
+                if (bones.TryGetValue(f + sg + ".R", out Transform t) && t != null) list.Add(t);
+        if (list.Count < 3) return;
+        fc.SampleAnimation(animRoot, 0f);
+        brushBones = list.ToArray();
+        brushRot = new Quaternion[brushBones.Length];
+        for (int i = 0; i < brushBones.Length; i++) brushRot[i] = brushBones[i].localRotation;
+        if (clipMap.TryGetValue(cIdle, out AnimationClip ic) && ic != null) ic.SampleAnimation(animRoot, 0f);
+    }
+
+    // El pozları (Blender'da tasarlandı, yalnız parmaklar): IK eli yerleştirir, parmaklar bu pozu alır
+    private Quaternion[] handTabloL, handTabloR, handKavraL, handKavraR, handAvucL, handAvucR, handKapaliL, handKapaliR, handCupR, handYaziR, handFiskeR, handCimdikR;
+    private float gripY; // vazo / büst: ellerin kavradığı yükseklik (eşya çerçevesinde, m)
+    private Vector3 carryLocal; private int carryFrame = -1, carryKindLast = -1; // eşyanın yumuşatılmış yeri (oyuncuya göre)
+
+    private void SetupHandPoses()
+    {
+        handTabloL = handTabloR = handKavraL = handKavraR = handAvucL = handAvucR = handKapaliL = handKapaliR = handCupR = handYaziR = handFiskeR = handCimdikR = null;
+        BuildChains(fingersL, chainsL);
+        BuildChains(fingersR, chainsR);
+        bool any = false;
+        foreach (string n in new[] { "El_Tablo", "El_Kavra", "El_Avuc", "El_Kapali", "El_Yazitura", "El_Fiske", "El_Cimdik" })
+        {
+            if (!clipMap.TryGetValue(n, out AnimationClip c) || c == null) continue;
+            c.SampleAnimation(animRoot, 0f);
+            any = true;
+            Quaternion[] l = Capture(fingersL), r = Capture(fingersR);
+            if (n == "El_Tablo") { handTabloL = l; handTabloR = r; }
+            else if (n == "El_Kavra") { handKavraL = l; handKavraR = r; }
+            else if (n == "El_Kapali") { handKapaliL = l; handKapaliR = r; }
+            else if (n == "El_Yazitura") handYaziR = r;
+            else if (n == "El_Fiske") handFiskeR = r;
+            else if (n == "El_Cimdik") handCimdikR = r;
+            else { handAvucL = l; handAvucR = r; }
+        }
+        // Küçük eşya için en kapalı hal: avuç ile kavrama arası (eşyayı örtmeden çukur avuç)
+        if (handAvucR != null && handKavraR != null && handAvucR.Length == handKavraR.Length)
+        {
+            handCupR = new Quaternion[handAvucR.Length];
+            for (int i = 0; i < handCupR.Length; i++) handCupR[i] = Quaternion.Slerp(handAvucR[i], handKavraR[i], 0.7f);
+        }
+        if (any && clipMap.TryGetValue(cIdle, out AnimationClip ic) && ic != null) ic.SampleAnimation(animRoot, 0f);
+    }
+
+    private static Quaternion[] Capture(List<Transform> list)
+    {
+        var a = new Quaternion[list.Count];
+        for (int i = 0; i < list.Count; i++) a[i] = list[i] != null ? list[i].localRotation : Quaternion.identity;
+        return a;
+    }
+
+    /// <summary>Parmakları tasarlanmış poza getir (w ile karışım). Poz yoksa false (eski kıvırma kullanılır).</summary>
+    private static bool HandPose(List<Transform> list, Quaternion[] pose, float w)
+    {
+        if (pose == null || pose.Length != list.Count) return false;
+        for (int i = 0; i < list.Count; i++)
+            if (list[i] != null) list[i].localRotation = Quaternion.Slerp(list[i].localRotation, pose[i], w);
+        return true;
     }
 
     /// <summary>Elde ne var: 0 yok, 1 tablo, 2 büyük eşya, 3 küçük eşya.</summary>
@@ -228,6 +327,61 @@ public partial class PlayerAvatar
         }
         // 3) Katmanlar
         LateAnimate(Mathf.Max(Time.deltaTime, 0.0001f));
+        // 4) Baygınken gövde yere tam otursun (havada kalmasın)
+        KnockGroundFit(Mathf.Max(Time.deltaTime, 0.0001f));
+    }
+
+    /// <summary>Baygın yatarken: ara ara (0,2 sn) mesh pişirilip en alt noktası bulunur, model dünya yukarısı boyunca
+    /// zemine indirilir / kaldırılır. Yalnızca baygınlıkta çalışır (normalde hiç maliyeti yok).</summary>
+    private void KnockGroundFit(float dt)
+    {
+        float knock = Mathf.Clamp01(knockSmooth);
+        if (knock < 0.02f || modelSkin == null)
+        {
+            knockFit = Mathf.MoveTowards(knockFit, 0f, dt * 2f);
+            knockFitTarget = 0f;
+            if (Mathf.Abs(knockFit) > 0.0005f) model.position += Vector3.up * knockFit * knock;
+            return;
+        }
+        if (Time.time >= nextKnockBake)
+        {
+            nextKnockBake = Time.time + 0.2f;
+            if (knockBake == null) knockBake = new Mesh { name = "KnockBake" };
+            // Önce bu karenin düzeltmesi uygulanmış haliyle ölç
+            model.position += Vector3.up * knockFit * knock;
+            try
+            {
+                float minY = float.MaxValue;
+                for (int k = 0; k < 2; k++)
+                {
+                    SkinnedMeshRenderer sk = k == 0 ? modelSkin : headSkin; // kafa da yere değebilir (iri kafa)
+                    if (sk == null) continue;
+                    sk.BakeMesh(knockBake, true);
+                    Vector3[] v = knockBake.vertices;
+                    Matrix4x4 m = sk.transform.localToWorldMatrix;
+                    for (int i = 0; i < v.Length; i += 3) { float y = m.MultiplyPoint3x4(v[i]).y; if (y < minY) minY = y; }
+                }
+                if (minY < float.MaxValue &&
+                    Physics.Raycast(transform.position + Vector3.up * 0.3f, Vector3.down, out RaycastHit gh, 3f, ~0, QueryTriggerInteraction.Ignore) &&
+                    !gh.collider.transform.IsChildOf(transform))
+                    knockFitTarget = Mathf.Clamp(knockFit + (gh.point.y + 0.01f - minY) / Mathf.Max(0.05f, knock), -0.8f, 0.4f);
+            }
+            catch (System.Exception) { }
+            model.position -= Vector3.up * knockFit * knock;
+        }
+        knockFit = Mathf.Lerp(knockFit, knockFitTarget, 1f - Mathf.Exp(-8f * dt));
+        model.position += Vector3.up * knockFit * knock;
+    }
+
+    /// <summary>Kayıt ışığının yeri: sol göğüs (askının karşı tarafı), göğüs kemiğiyle birlikte hareket eder.</summary>
+    public bool TryGetRecLightPoint(out Vector3 pos)
+    {
+        pos = Vector3.zero;
+        if (!animated || model == null || mChest == null) return false;
+        float s = transform.lossyScale.y;
+        Vector3 f = transform.forward, r = transform.right, u = transform.up;
+        pos = mChest.t.position + (f * 0.2f - r * 0.09f + u * 0.09f) * s;
+        return true;
     }
 
     /// <summary>Örneklenmiş animasyonun üstüne baygınlık / fırça / eğilme / zıplama / yana yürüme / eşya tutma / bakış / zemin.</summary>
@@ -235,22 +389,39 @@ public partial class PlayerAvatar
     {
         float knock = Mathf.Clamp01(knockSmooth), nk = 1f - knock;
         float wBrush = brushSmooth * nk;
+        armPitch = Mathf.Lerp(armPitch, LookPitchNow(), 1f - Mathf.Exp(-18f * dt));
 
-        // 1) Baygınlık (tüm gövde) ve fırça (sağ kol): kodla poz hesaplanır, animasyonla ağırlıklı karıştırılır
-        if (knock > 0.005f || wBrush > 0.005f)
+        // 1) Baygınlık (tüm gövde) ve fırça (sağ kol): kodla poz hesaplanır, animasyonla ağırlıklı karıştırılır.
+        //    Soygun'da fırça Blender pozuyla (aşağıda) yapılır; kodla poz yalnızca baygınlık için.
+        bool authoredBrush = brushBones != null;
+        float wProcBrush = authoredBrush ? 0f : wBrush;
+        if (knock > 0.005f || wProcBrush > 0.005f)
         {
             for (int i = 0; i < blendT.Count; i++) blendCache[i] = blendT[i].localRotation;
             Vector3 hipPos = mHips != null ? mHips.t.localPosition : Vector3.zero;
             AnimateProcedural(dt);
             for (int i = 0; i < blendT.Count; i++)
             {
-                float w = blendRightArm[i] ? Mathf.Max(knock, wBrush) : knock;
+                float w = blendRightArm[i] ? Mathf.Max(knock, wProcBrush) : knock;
                 blendT[i].localRotation = Quaternion.Slerp(blendCache[i], blendT[i].localRotation, w);
             }
             if (mHips != null) mHips.t.localPosition = Vector3.Lerp(hipPos, mHips.t.localPosition, knock);
             // Fırça tutan bilek animasyondaki halinden çok bükülmesin (kolun ucunda boşluk / yırtık olmasın)
             int hi = mHandR != null ? blendT.IndexOf(mHandR.t) : -1;
-            if (hi >= 0 && knock < 0.5f) ClampLocal(mHandR.t, blendCache[hi], 55f);
+            if (hi >= 0 && knock < 0.5f && wProcBrush > 0.005f) ClampLocal(mHandR.t, blendCache[hi], 55f);
+        }
+        if (authoredBrush && wBrush > 0.005f)
+        {
+            for (int i = 0; i < brushBones.Length; i++)
+                brushBones[i].localRotation = Quaternion.Slerp(brushBones[i].localRotation, brushRot[i], wBrush);
+            // Boyarken: kol küçük daireler çizerek fırçayı sürer
+            float pw = paintSmooth * wBrush;
+            if (pw > 0.005f && brushBones[0] != null)
+            {
+                float tt = Time.time;
+                brushBones[0].rotation = Quaternion.AngleAxis(Mathf.Sin(tt * 11f) * 7f * pw, root.up) *
+                                         Quaternion.AngleAxis(Mathf.Cos(tt * 8.5f) * 6f * pw, root.right) * brushBones[0].rotation;
+            }
         }
 
         // Zemin: ayaklar yere bassın (CharacterController'ın deri payı karakteri havada gösterir)
@@ -260,7 +431,10 @@ public partial class PlayerAvatar
             !gh.collider.transform.IsChildOf(transform))
             want = Mathf.Clamp(gh.point.y - root.position.y, -0.25f, 0.05f);
         groundShift = Mathf.Lerp(groundShift, want, 1f - Mathf.Exp(-12f * dt));
-        model.localPosition = modelBasePos + Vector3.up * (groundShift / Mathf.Max(0.0001f, root.lossyScale.y));
+        // Birinci şahıs (yalnızca kendi ekranında): gövde biraz geride → kamera yakanın önünde kalır
+        fpBack = Mathf.MoveTowards(fpBack, ownerBodyShown && !previewOn ? FpBodyBack : 0f, dt * 0.6f);
+        model.localPosition = modelBasePos + Vector3.up * (groundShift / Mathf.Max(0.0001f, root.lossyScale.y))
+                                           - Vector3.forward * (fpBack / Mathf.Max(0.0001f, root.lossyScale.z));
         if (nk < 0.01f) return;
 
         // 2) Yana yürüme: kalça gidilen yöne, göğüs öne
@@ -292,8 +466,165 @@ public partial class PlayerAvatar
         int kind = CarryKindNow();
         if ((kind == 1 || kind == 2) && holdSmooth > 0.01f) ApplyCarryIK(holdSmooth * nk, kind);
 
+        // 5b) Küçük eşya: sağ el öne-yukarı uzanır, avuç yukarı bakar, eşya avucun içinde (göz hizasının biraz altında:
+        //     birinci şahısta sağ altta görünür, dışarıdan "avucunda gösteriyor" gibi). Bakışla birlikte iner-kalkar.
+        smallPalmOk = false;
+        if (kind == 3 && holdSmooth > 0.01f && wBrush < 0.05f) ApplySmallIK(holdSmooth * nk);
+        // Fırça: sağ kol bakışla birlikte iner-kalkar (omuzdan)
+        if (wBrush > 0.005f && mUpArmR != null)
+        {
+            float ang = (Mathf.Clamp(armPitch, -35f, 55f) * 0.5f - 6f) * wBrush;
+            mUpArmR.t.rotation = Quaternion.AngleAxis(ang, root.right) * mUpArmR.t.rotation;
+        }
+
         // 6) Kafa / göz
         ApplyLook(dt, nk);
+    }
+
+    private bool smallPalmOk;
+    private Vector3 smallPalm;
+
+    /// <summary>Göz hizası (dünya y): göz kemikleri (eğilince / zıplayınca birlikte iner), yoksa kamera hizası.</summary>
+    private float EyeY()
+    {
+        if (eyeL != null && eyeR != null) return (eyeL.position.y + eyeR.position.y) * 0.5f;
+        return transform.position.y + PlayerController.EyeOffset;
+    }
+
+    private void ApplySmallIK(float w)
+    {
+        if (mUpArmR == null || mLoArmR == null || mHandR == null) return;
+        Vector3 right = body.right, fwd = body.forward, up = Vector3.up;
+        Vector3 sh = mUpArmR.t.position;
+        float R = armReach;
+        // Hedef: omzun önünde-üstünde, biraz dışarıda (göz hizasının ~22 cm altı; yüzün önüne gelmez)
+        float upAmt = Mathf.Clamp(EyeY() - 0.19f * (R / 0.44f) - sh.y, 0.05f * R, 0.55f * R);
+        Vector3 off = fwd * (R * 0.86f) + up * upAmt + right * (R * 0.36f); // yüzün önüne değil, yana-öne
+        if (off.magnitude > R * 0.95f) off = off.normalized * (R * 0.95f);
+        off = Quaternion.AngleAxis(Mathf.Clamp(armPitch, -30f, 50f) * 0.5f, right) * off;
+        foreach (Transform f in fingersR) if (f != null && fingerRest.TryGetValue(f, out Quaternion fr)) f.localRotation = fr;
+        ArmIK(mUpArmR, mLoArmR, mHandR, sh + off, 1f, w);
+        if (heldView != null && heldView.IsCoin && handYaziR != null && handFiskeR != null && midFingerR != null)
+        {
+            CoinHand(w, right, fwd, up, R);
+            return;
+        }
+        if (heldView != null && heldView.IsRing && handCimdikR != null && midFingerR != null)
+        {
+            RingHand(w, right, fwd, up);
+            return;
+        }
+        // Avuç yukarı: önce ön kol kendi ekseninde döner (bilek burulmasın), sonra el; parmaklar öne, başparmak dışa
+        if (midFingerR != null && thumbR != null)
+        {
+            Vector3 fa = (mHandR.t.position - mLoArmR.t.position).normalized;
+            Vector3 ct0 = Vector3.ProjectOnPlane(ThumbSide(mHandR, thumbR), fa), wt0 = Vector3.ProjectOnPlane(right * 0.9f + up * 0.15f, fa);
+            if (ct0.sqrMagnitude > 1e-6f && wt0.sqrMagnitude > 1e-6f)
+                mLoArmR.t.rotation = Quaternion.AngleAxis(Vector3.SignedAngle(ct0, wt0, fa) * 0.6f * w, fa) * mLoArmR.t.rotation;
+        }
+        if (midFingerR != null)
+        {
+            Quaternion from = mHandR.t.rotation;
+            Vector3 wantFinger = (fwd * 0.85f - right * 0.3f + up * 0.12f).normalized;
+            mHandR.t.rotation = Quaternion.FromToRotation((midFingerR.position - mHandR.t.position).normalized, wantFinger) * mHandR.t.rotation;
+            if (thumbR != null)
+            {
+                Vector3 axis = (midFingerR.position - mHandR.t.position).normalized;
+                Vector3 ct = Vector3.ProjectOnPlane(ThumbSide(mHandR, thumbR), axis), wt = Vector3.ProjectOnPlane(right * 0.9f + up * 0.15f, axis);
+                if (ct.sqrMagnitude > 1e-6f && wt.sqrMagnitude > 1e-6f)
+                    mHandR.t.rotation = Quaternion.AngleAxis(Vector3.SignedAngle(ct, wt, axis), axis) * mHandR.t.rotation;
+            }
+            mHandR.t.rotation = Quaternion.Slerp(from, mHandR.t.rotation, w);
+            Vector3 h = mHandR.t.position, m = midFingerR.position;
+            smallPalm = h + (m - h) * 0.55f + (up * 0.9f - right * 0.16f).normalized * (0.045f * (R / 0.44f));
+            smallPalmOk = true;
+            // Avuç açık; parmaklar çukurlaşırken eşyaya (yüzük / ganimet) değince durur. Yazı-tura sırasında düz avuç.
+            HoldShape hsh = heldView != null ? heldView.Shape : null;
+            if (hsh != null && handCupR != null && handAvucR != null && !heldView.CoinFlipping)
+            {
+                Vector3 hp = mHandR.t.position, mp = midFingerR.position;
+                Vector3 itemAt = hp + (mp - hp) * 0.55f + (up * 0.9f - right * 0.16f).normalized * (0.045f * (R / 0.44f));
+                AdaptFingers(fingersR, chainsR, handAvucR, handCupR, hsh, itemAt, ItemRotation(3), 0.02f * (R / 0.44f), w);
+            }
+            else if (!HandPose(fingersR, handAvucR, w)) CurlFingers(fingersR, mHandR, smallPalm + up * (0.05f * (R / 0.44f)), w * 0.35f);
+        }
+        if (smallPalmOk) { Vector3 h = mHandR.t.position, m = midFingerR.position; smallPalm = h + (m - h) * 0.55f + (up * 0.9f - right * 0.16f).normalized * (0.045f * (R / 0.44f)); }
+    }
+
+    /// <summary>Yüzük: işaret parmağı ile başparmağın uçları arasında çimdikle tutulur (Blender "El_Cimdik"), yüzük dik
+    /// durur; el öne-içe bakar, işaret tarafı yukarı.</summary>
+    private void RingHand(float w, Vector3 right, Vector3 fwd, Vector3 up)
+    {
+        Vector3 fa = (mHandR.t.position - mLoArmR.t.position).normalized;
+        // Referanstaki gibi: el yandan görünür — parmaklar içe (sola) uzanır, işaret parmağı üstte, başparmak altında;
+        // yüzük ikisinin uçları arasında, dik (deliği sana bakar). Birinci şahısta elinin yanını ve yüzüğü görürsün.
+        Vector3 ringFinger = (fwd * 0.45f - right * 0.85f + up * 0.05f).normalized, ringSide = (up * 0.92f - fwd * 0.25f).normalized;
+        Vector3 ct0 = Vector3.ProjectOnPlane(ThumbSide(mHandR, thumbR), fa), wt0 = Vector3.ProjectOnPlane(ringSide, fa);
+        if (ct0.sqrMagnitude > 1e-6f && wt0.sqrMagnitude > 1e-6f)
+            mLoArmR.t.rotation = Quaternion.AngleAxis(Vector3.SignedAngle(ct0, wt0, fa) * 0.6f * w, fa) * mLoArmR.t.rotation;
+        OrientHandTo(mHandR, midFingerR, thumbR, ringFinger, ringSide, w);
+        HandPose(fingersR, handCimdikR, w);
+        Transform id = null, ii = null, td = null, ti = null;
+        foreach (Transform t in fingersR)
+        {
+            if (t == null) continue;
+            if (t.name.StartsWith("Index_Distal")) id = t; else if (t.name.StartsWith("Index_Intermediate")) ii = t;
+            else if (t.name.StartsWith("Thumb_Distal")) td = t; else if (t.name.StartsWith("Thumb_Intermediate")) ti = t;
+        }
+        if (id == null || ii == null || td == null || ti == null) return;
+        Vector3 pinch = (id.position + (id.position - ii.position) + td.position + (td.position - ti.position)) * 0.5f;
+        float rr = heldView != null ? heldView.RingRadius : 0.03f;   // parmaklar halkanın alt bandını tutar: ortası bir yarıçap yukarıda
+        smallPalm = pinch + up * (rr * 0.92f);
+        smallPalmOk = true;
+    }
+
+    /// <summary>Yazı-tura tutuşu: yumruk öne bakar (avuç içe, işaret tarafı yukarı), para başparmak tırnağı ile işaret
+    /// parmağının kıvrımının üstünde yatar. [R] ile atışta başparmak yukarı fiske vurur (Blender "El_Fiske"), para
+    /// dönerek havalanır, geri düşer.</summary>
+    private void CoinHand(float w, Vector3 right, Vector3 fwd, Vector3 up, float R)
+    {
+        // Ön kol kendi ekseninde döner (bilek burulmasın): işaret tarafı yukarı
+        Vector3 fa = (mHandR.t.position - mLoArmR.t.position).normalized;
+        Vector3 ct0 = Vector3.ProjectOnPlane(ThumbSide(mHandR, thumbR), fa), wt0 = Vector3.ProjectOnPlane(up, fa);
+        if (ct0.sqrMagnitude > 1e-6f && wt0.sqrMagnitude > 1e-6f)
+            mLoArmR.t.rotation = Quaternion.AngleAxis(Vector3.SignedAngle(ct0, wt0, fa) * 0.6f * w, fa) * mLoArmR.t.rotation;
+        OrientHandTo(mHandR, midFingerR, thumbR, (fwd * 0.9f - up * 0.15f - right * 0.15f).normalized, (up * 0.95f + right * 0.1f).normalized, w);
+        HandPose(fingersR, handYaziR, w);
+        // Paranın yeri: başparmak ucunun hemen üstü (fiske başlamadan önceki pozdan)
+        Transform td = null, ti = null;
+        for (int i = 0; i < fingersR.Count; i++)
+        {
+            Transform t = fingersR[i];
+            if (t == null) continue;
+            if (t.name.StartsWith("Thumb_Distal")) td = t; else if (t.name.StartsWith("Thumb_Intermediate")) ti = t;
+        }
+        float ks = R / 0.44f;
+        if (td != null && ti != null) smallPalm = td.position + (td.position - ti.position) + up * (0.012f * ks);
+        else { Vector3 h = mHandR.t.position, m = midFingerR.position; smallPalm = h + (m - h) * 0.6f + up * (0.05f * ks); }
+        smallPalmOk = true;
+        // Fiske: atışın başında başparmak hızla yukarı fırlar, para havadayken öyle kalır, düşerken geri kıvrılır
+        float u = heldView.CoinFlipProgress;
+        if (u >= 0f)
+        {
+            float f = u < 0.08f ? u / 0.08f : u < 0.35f ? 1f : u < 0.6f ? 1f - (u - 0.35f) / 0.25f : 0f;
+            for (int i = 0; i < fingersR.Count; i++)
+            {
+                Transform t = fingersR[i];
+                if (t != null && t.name.StartsWith("Thumb")) t.localRotation = Quaternion.Slerp(t.localRotation, handFiskeR[i], f * w);
+            }
+        }
+    }
+
+    /// <summary>Bakış eğimi (aşağı +). Sahibinde kameranın kendisi (gecikmesiz), diğerlerinde senkron eğim.</summary>
+    private float LookPitchNow()
+    {
+        if (netSetup == null || !netSetup.IsSpawned) return 0f;
+        if (netSetup.IsOwner)
+        {
+            Camera c = Camera.main;
+            if (c != null && c.transform.IsChildOf(transform)) return Mathf.DeltaAngle(0f, c.transform.localEulerAngles.x);
+        }
+        return netSetup.LookPitch;
     }
 
     private static void ClampLocal(Transform t, Quaternion refLocal, float maxDeg)
@@ -313,6 +644,10 @@ public partial class PlayerAvatar
         Vector3 right = body.right, fwd = body.forward;
         float hh = heldView.HalfHeight;
         float half = Mathf.Min(heldView.HalfWidth + 0.02f, armReach * 0.85f);
+        float ks = armReach / 0.44f;
+        HoldShape shape = heldView.Shape;
+        bool shaped = shape != null && handKapaliL != null && handAvucL != null;
+        Quaternion irot = ItemRotation(kind);
         Quaternion animL = mHandL.t.localRotation, animR = mHandR.t.localRotation;
         for (int k = 0; k < 2; k++)
         {
@@ -321,40 +656,212 @@ public partial class PlayerAvatar
             Transform mid = k == 0 ? midFingerL : midFingerR, thumb = k == 0 ? thumbL : thumbR;
             Vector3 inward = -right * side;
             Vector3 wrist, wantFinger, wantThumb;
+            if (shaped)
+            {
+                // Eşyanın gerçek şekline göre: avucun ortası yüzeyin üstüne (yüzey normali yönünde avuç kalınlığı kadar dışarıda)
+                Vector3 palmT, n;
+                if ((kind == 1 || shape.IsBox) && EdgeGrip(shape))
+                {
+                    // Tablo (insan gibi): avuçlar iki YAN KENARDA birbirine bakar, parmaklar kenarı dolanıp tablonun arkasına
+                    // (karşı yüzüne) kapanır, başparmak sana bakan yüzde
+                    Vector3 xA = irot * Vector3.right, yA = irot * Vector3.up;
+                    float sx = Mathf.Sign(Vector3.Dot(xA, right)) * side;
+                    Vector3 bc = shape.BoxCenter, bh = shape.BoxHalf;
+                    Vector3 loc = new Vector3(bc.x + sx * bh.x, bc.y + Mathf.Min(bh.y * 0.15f, 0.05f * ks), bc.z); // ortanın biraz üstünden: birinci şahısta eller ekranda
+                    n = xA * sx;
+                    palmT = center + irot * loc + n * (0.018f * ks);
+                    wantFinger = (fwd * 0.7f + yA * 0.25f - n * 0.1f).normalized;
+                    wantThumb = (yA * 0.8f - fwd * 0.25f).normalized;
+                }
+                else if (kind == 1 || shape.IsBox)
+                {
+                    // Çok geniş tablo (kollar kenarlara yetişmez): avuç arka yüzde, yan kenarın hemen içinde; parmaklar kenarı öne sarar
+                    Vector3 xA = irot * Vector3.right, yA = irot * Vector3.up, zA = irot * Vector3.forward;
+                    float sx = Mathf.Sign(Vector3.Dot(xA, right)) * side;
+                    float sz = -Mathf.Sign(Vector3.Dot(zA, fwd));
+                    Vector3 bc = shape.BoxCenter, bh = shape.BoxHalf;
+                    Vector3 loc = new Vector3(bc.x + sx * Mathf.Max(0.02f, bh.x - 0.035f * ks), bc.y - Mathf.Min(bh.y * 0.3f, 0.1f * ks), bc.z + sz * bh.z);
+                    n = zA * sz;
+                    palmT = center + irot * loc + n * (0.018f * ks);
+                    wantFinger = (xA * sx * 0.55f + yA * 0.6f - n * 0.15f).normalized;
+                    wantThumb = (-xA * sx * 0.8f + yA * 0.3f).normalized;
+                }
+                else
+                {
+                    // Vazo / büst / heykel: en uygun yükseklikte (TryGetCarryPoint seçti) iki yanından; avuç yüzeye yaslanır
+                    Vector3 dl = Quaternion.Inverse(irot) * (right * side); dl.y = 0f;
+                    if (dl.sqrMagnitude < 1e-6f) dl = Vector3.right * side;
+                    dl.Normalize();
+                    float a = Mathf.Atan2(dl.x, dl.z);
+                    float rr = shape.Radius(gripY, a);
+                    const float e = 0.02f;
+                    float slope = (shape.Radius(gripY + e, a) - shape.Radius(gripY - e, a)) / (2f * e);
+                    Vector3 surf = center + irot * (dl * rr + Vector3.up * gripY);
+                    n = (irot * dl - (irot * Vector3.up) * slope).normalized;
+                    palmT = surf + n * (0.03f * ks);
+                    wantFinger = (fwd * 0.75f + Vector3.up * 0.1f - n * 0.3f).normalized;
+                    wantThumb = (Vector3.up * 0.8f + fwd * 0.3f).normalized;
+                }
+                // İki geçiş: önce eli yönlendir, avuç ortasının bileğe göre yerini ölç, sonra bileği ona göre koy
+                ArmIK(up, lo, hand, palmT, side, w);
+                OrientHandTo(hand, mid, thumb, wantFinger, wantThumb, w);
+                Vector3 v = PalmPoint(hand, mid) - hand.t.position;
+                ArmIK(up, lo, hand, palmT - v, side, w);
+                OrientHandTo(hand, mid, thumb, wantFinger, wantThumb, w);
+                continue;
+            }
             if (kind == 1)
             {
-                // Tablo: bilek kenarın biraz dışında ve önünde, alt yarıda; parmaklar içe-arkaya (tablonun arkasına) uzanır
-                wrist = center + right * side * (half + 0.03f) + fwd * 0.03f - Vector3.up * (hh * 0.2f);
-                wantFinger = (inward * 0.75f - fwd * 0.55f - Vector3.up * 0.1f).normalized;
-                wantThumb = (fwd * 0.5f + Vector3.up * 0.85f).normalized;
+                // Tablo: eller tablonun ARKASINDA, yan kenarlara yakın (kollar tablonun içinden geçmez); avuçlar öne bakar,
+                // parmaklar yukarı-dışa uzanıp yan kenarı öne doğru sarar
+                wrist = center + right * side * (half * 0.82f) - fwd * (0.05f * ks) - Vector3.up * Mathf.Min(hh * 0.3f, 0.1f * ks);
+                wantFinger = (Vector3.up * 0.65f + right * side * 0.5f + fwd * 0.25f).normalized;
+                wantThumb = (inward * 0.8f + Vector3.up * 0.3f).normalized;
             }
             else
             {
-                wrist = center + right * side * half - Vector3.up * (hh * 0.1f);
-                wantFinger = (fwd * 0.8f + inward * 0.4f - Vector3.up * 0.1f).normalized;
-                wantThumb = Vector3.up;
+                // Vazo / büst: iki yandan alt yarısından kavrar (avuçlar içe, parmaklar öne-içe sarar)
+                wrist = center + right * side * half - Vector3.up * (hh * 0.45f);
+                wantFinger = (fwd * 0.6f + inward * 0.5f + Vector3.up * 0.15f).normalized;
+                wantThumb = (Vector3.up * 0.8f + fwd * 0.3f).normalized;
             }
             ArmIK(up, lo, hand, wrist, side, w);
-            if (mid != null)
-            {
-                Quaternion from = hand.t.rotation;
-                hand.t.rotation = Quaternion.FromToRotation((mid.position - hand.t.position).normalized, wantFinger) * hand.t.rotation;
-                if (thumb != null)
-                {
-                    Vector3 axis = (mid.position - hand.t.position).normalized;
-                    Vector3 ct = Vector3.ProjectOnPlane(thumb.position - hand.t.position, axis), wt = Vector3.ProjectOnPlane(wantThumb, axis);
-                    if (ct.sqrMagnitude > 1e-6f && wt.sqrMagnitude > 1e-6f)
-                        hand.t.rotation = Quaternion.AngleAxis(Vector3.SignedAngle(ct, wt, axis), axis) * hand.t.rotation;
-                }
-                hand.t.rotation = Quaternion.Slerp(from, hand.t.rotation, w);
-            }
+            OrientHandTo(hand, mid, thumb, wantFinger, wantThumb, w);
         }
         // Bilekler aşırı bükülmesin (kol ile el arasında boşluk / yırtık kalmasın)
-        ClampLocal(mHandL.t, animL, 70f);
-        ClampLocal(mHandR.t, animR, 70f);
-        Vector3 grip = kind == 1 ? center - fwd * 0.05f : center; // tablo: parmaklar arkadaki kenara kıvrılır
-        CurlFingers(fingersL, mHandL, grip, w);
-        CurlFingers(fingersR, mHandR, grip, w);
+        ClampLocal(mHandL.t, animL, shaped ? 85f : 70f);
+        ClampLocal(mHandR.t, animR, shaped ? 85f : 70f);
+        if (shaped)
+        {
+            // Parmaklar açıktan yumruğa doğru eklem eklem kapanır, eşyanın yüzeyine değince durur (şekle göre sarar)
+            float rad = 0.02f * ks; // parmak + dış çizgi kalınlığı: çizgi ince duvarın içinden görünmesin
+            AdaptFingers(fingersL, chainsL, handAvucL, handKapaliL, shape, center, irot, rad, w);
+            AdaptFingers(fingersR, chainsR, handAvucR, handKapaliR, shape, center, irot, rad, w);
+            return;
+        }
+        if (kind == 1)
+        {
+            // tablo: parmaklar kanca gibi yan kenarın önüne kıvrılır (Blender pozu "El_Tablo")
+            if (!HandPose(fingersL, handTabloL, w)) CurlFingers(fingersL, mHandL, center - right * (half + 0.02f) + fwd * 0.03f, w);
+            if (!HandPose(fingersR, handTabloR, w)) CurlFingers(fingersR, mHandR, center + right * (half + 0.02f) + fwd * 0.03f, w);
+        }
+        else
+        {
+            // vazo / büst: parmaklar gövdeyi sarar ("El_Kavra")
+            Vector3 grip = center - Vector3.up * (hh * 0.35f);
+            if (!HandPose(fingersL, handKavraL, w)) CurlFingers(fingersL, mHandL, grip, w);
+            if (!HandPose(fingersR, handKavraR, w)) CurlFingers(fingersR, mHandR, grip, w);
+        }
+    }
+
+    /// <summary>Eşyanın bu karedeki dönüşü — HeldItemView ile aynı hesap (tablo / büyük: eğim + yön; küçük: yön; para: düz).</summary>
+    private Quaternion ItemRotation(int kind)
+    {
+        float y = transform.eulerAngles.y, sy = heldView != null ? heldView.ShownYaw : 0f;
+        if (kind == 3) return heldView != null && heldView.IsCoin ? Quaternion.Euler(0f, y, 0f) : Quaternion.Euler(0f, y + sy, 0f);
+        return Quaternion.AngleAxis(carryTilt + (heldView != null ? heldView.ExtraTilt : 0f), transform.right) * Quaternion.Euler(0f, y + sy, 0f);
+    }
+
+    /// <summary>Tablo yan kenarlarından tutulabilir mi (kollar kenarlara yetişir).</summary>
+    private bool EdgeGrip(HoldShape shape) => shape != null && shape.IsBox && shape.BoxHalf.x + 0.03f <= armReach * 0.85f;
+
+    private static Vector3 PalmPoint(Bone hand, Transform mid)
+        => mid != null ? hand.t.position + (mid.position - hand.t.position) * 0.55f : hand.t.position;
+
+    /// <summary>Eli çevir: parmaklar (orta parmak kökü) wantFinger yönüne, başparmak wantThumb tarafına.</summary>
+    private void OrientHandTo(Bone hand, Transform mid, Transform thumb, Vector3 wantFinger, Vector3 wantThumb, float w)
+    {
+        if (hand == null || mid == null) return;
+        Quaternion from = hand.t.rotation;
+        hand.t.rotation = Quaternion.FromToRotation((mid.position - hand.t.position).normalized, wantFinger) * hand.t.rotation;
+        if (thumb != null)
+        {
+            Vector3 axis = (mid.position - hand.t.position).normalized;
+            Vector3 ct = Vector3.ProjectOnPlane(ThumbSide(hand, thumb), axis), wt = Vector3.ProjectOnPlane(wantThumb, axis);
+            if (ct.sqrMagnitude > 1e-6f && wt.sqrMagnitude > 1e-6f)
+                hand.t.rotation = Quaternion.AngleAxis(Vector3.SignedAngle(ct, wt, axis), axis) * hand.t.rotation;
+        }
+        hand.t.rotation = Quaternion.Slerp(from, hand.t.rotation, w);
+    }
+
+    // Parmak zincirleri (kök → orta → uç), fingersL / fingersR içindeki sıralar
+    private readonly List<int[]> chainsL = new List<int[]>(), chainsR = new List<int[]>();
+    private Quaternion[] fingerTmp;
+
+    private static void BuildChains(List<Transform> list, List<int[]> chains)
+    {
+        chains.Clear();
+        int i = 0;
+        while (i < list.Count)
+        {
+            string f = list[i] != null ? list[i].name.Split('_')[0] : "";
+            int j = i;
+            while (j < list.Count && list[j] != null && list[j].name.Split('_')[0] == f) j++;
+            if (j == i) j = i + 1;
+            var c = new int[j - i];
+            for (int q = 0; q < c.Length; q++) c[q] = i + q;
+            chains.Add(c);
+            i = j;
+        }
+    }
+
+    /// <summary>Şekle göre kavrama: her parmak zincirinde eklemler sırayla açık pozdan kapalı poza doğru (6 adım) kapanır;
+    /// bu eklemden sonraki eklemler / parmak ucu eşyanın yüzeyine değerse (işaretli uzaklık &lt; parmak kalınlığı) orada durur.</summary>
+    private void AdaptFingers(List<Transform> list, List<int[]> chains, Quaternion[] open, Quaternion[] closed, HoldShape shape,
+                              Vector3 origin, Quaternion irot, float rad, float w)
+    {
+        if (open == null || closed == null || open.Length != list.Count || closed.Length != list.Count) return;
+        if (fingerTmp == null || fingerTmp.Length < list.Count) fingerTmp = new Quaternion[list.Count];
+        for (int i = 0; i < list.Count; i++) fingerTmp[i] = list[i] != null ? list[i].localRotation : Quaternion.identity;
+        Quaternion inv = Quaternion.Inverse(irot);
+        foreach (int[] c in chains)
+        {
+            foreach (int j in c) if (list[j] != null) list[j].localRotation = open[j];
+            for (int jj = 0; jj < c.Length; jj++)
+            {
+                int j = c[jj];
+                Transform t = list[j];
+                if (t == null) continue;
+                float ok = 0f;
+                // açık pozda bile eşyanın içindeyse (ör. başparmak tablonun içine) önce dışarı aç
+                if (FingerHits(list, c, jj, shape, origin, inv, rad))
+                {
+                    for (int step = 1; step <= 4; step++)
+                    {
+                        t.localRotation = Quaternion.SlerpUnclamped(open[j], closed[j], -step * 0.25f);
+                        if (!FingerHits(list, c, jj, shape, origin, inv, rad)) break;
+                    }
+                    continue;
+                }
+                for (int step = 1; step <= 6; step++)
+                {
+                    float u = step / 6f;
+                    t.localRotation = Quaternion.Slerp(open[j], closed[j], u);
+                    if (FingerHits(list, c, jj, shape, origin, inv, rad)) { t.localRotation = Quaternion.Slerp(open[j], closed[j], ok); break; }
+                    ok = u;
+                }
+            }
+        }
+        if (w < 0.999f)
+            for (int i = 0; i < list.Count; i++) if (list[i] != null) list[i].localRotation = Quaternion.Slerp(fingerTmp[i], list[i].localRotation, w);
+    }
+
+    private static bool FingerHits(List<Transform> list, int[] c, int jj, HoldShape shape, Vector3 origin, Quaternion inv, float rad)
+    {
+        for (int kk = jj + 1; kk < c.Length; kk++)
+        {
+            Transform t = list[c[kk]];
+            if (t != null && shape.Sdf(inv * (t.position - origin)) < rad) return true;
+        }
+        // parmak ucu: son eklemden bir boğum ileride
+        Transform last = list[c[c.Length - 1]], prev = c.Length > 1 ? list[c[c.Length - 2]] : null;
+        if (last != null)
+        {
+            Vector3 tip = prev != null ? last.position + (last.position - prev.position) * 0.9f : last.position;
+            if (shape.Sdf(inv * (tip - origin)) < rad) return true;
+            if (prev != null && shape.Sdf(inv * ((tip + last.position) * 0.5f - origin)) < rad) return true;
+        }
+        return false;
     }
 
     private static void LegLayer(Bone thigh, Bone shin, Bone foot, Vector3 right, float thighFwd, float knee, float footFix)
@@ -403,6 +910,25 @@ public partial class PlayerAvatar
         float k = 1f - Mathf.Exp(-6f * dt);
         lookW = Mathf.Lerp(lookW, look ? nk : 0f, k);
         if (look) lookDir = Vector3.Slerp(lookDir, dir, k).normalized;
+        // Gövde: kafa döndükten SONRA, yavaşça ve az (hedef yandaysa bir miktar o yana döner)
+        bodyW = Mathf.Lerp(bodyW, look && lookW > 0.6f ? nk : 0f, 1f - Mathf.Exp(-1.8f * dt));
+        float wantYaw = 0f;
+        if (look)
+        {
+            Vector3 flat = Vector3.ProjectOnPlane(lookDir, up);
+            if (flat.sqrMagnitude > 1e-4f)
+            {
+                float a = Vector3.SignedAngle(fwd, flat, up);
+                wantYaw = Mathf.Sign(a) * Mathf.Clamp((Mathf.Abs(a) - 25f) * 0.35f, 0f, 22f);
+            }
+        }
+        bodyYaw = Mathf.Lerp(bodyYaw, wantYaw * bodyW, 1f - Mathf.Exp(-3f * dt));
+        if (Mathf.Abs(bodyYaw) > 0.05f)
+        {
+            if (mSpine != null) mSpine.t.rotation = Quaternion.AngleAxis(bodyYaw * 0.6f, up) * mSpine.t.rotation;
+            if (mChest != null) mChest.t.rotation = Quaternion.AngleAxis(bodyYaw * 0.4f, up) * mChest.t.rotation;
+            headFwd = head.rotation * headFwdLocal;
+        }
 
         // Kendi bakışı (yukarı / aşağı): kimseye bakmıyorken kafa oyuncunun baktığı yöne eğilir (diğerleri nereye baktığını görür)
         float pitch = netSetup != null && netSetup.IsSpawned ? Mathf.Clamp(netSetup.LookPitch, -40f, 40f) : 0f;
@@ -417,7 +943,8 @@ public partial class PlayerAvatar
         Quaternion full = Quaternion.FromToRotation(headFwd, lookDir);
         full.ToAngleAxis(out float ang, out Vector3 axis);
         if (ang > 180f) ang -= 360f;
-        float headAng = Mathf.Clamp(ang * 0.35f, -35f, 35f) * lookW;
+        // Kafa önce ve belirgin döner (kalan açının %60'ı, en çok 45°), gözler gerisini kapatır
+        float headAng = Mathf.Clamp(ang * 0.6f, -45f, 45f) * lookW;
         if (upperNeck != null) upperNeck.rotation = Quaternion.AngleAxis(headAng * 0.35f, axis) * upperNeck.rotation;
         head.rotation = Quaternion.AngleAxis(headAng * (upperNeck != null ? 0.65f : 1f), axis) * head.rotation;
 
@@ -444,17 +971,53 @@ public partial class PlayerAvatar
         float hh = heldView != null ? heldView.HalfHeight : 0.15f;
         float hw = heldView != null ? heldView.HalfWidth : 0.15f;
         handGap = Vector3.Distance(mHandL.t.position, mHandR.t.position);
-        if (kind == 3 && gripR != null) { point = gripR.position; return true; } // küçük eşya: sağ avuçta
-        Transform anchor = kind == 1 ? carryPainting : carryBig;
-        Vector3 fwd = transform.forward;
-        point = anchor != null ? anchor.position : (mHandL.t.position + mHandR.t.position) * 0.5f;
-        if (mNeck != null)
-        {
-            float top = mNeck.t.position.y - 0.02f;                 // çene hizası
-            if (point.y + hh * 0.85f > top) point.y = top - hh * 0.85f;
-        }
+        if (kind == 3) { point = smallPalmOk ? smallPalm : (gripR != null ? gripR.position : mHandR.t.position); return true; } // küçük eşya: avuçta
+        // Bu karede zaten hesaplandıysa aynısı (eller ve eşya aynı noktayı kullanır)
+        if (carryFrame == Time.frameCount && carryKindLast == kind) { point = transform.TransformPoint(carryLocal); return true; }
+        Vector3 fwd = body.forward, right = body.right;
+        float k = armReach / 0.44f;
+        // Üst kenar göz hizasının biraz altında (birinci şahısta düz bakınca ekranın altında görünür; dışarıdan çene / ağız hizası)
+        float top = EyeY() - (kind == 1 ? 0.14f : 0.17f) * k;
+        // Vazo / büst kalın: üst kenarı çenenin altında (iri kafanın / burnun önüne girmesin), kollar öne uzanmış
+        if (kind == 2 && mHead != null) top = Mathf.Min(top, mHead.t.position.y - 0.03f * k);
+        point = new Vector3(0f, top - hh * 0.85f, 0f);
         if (mHips != null) point.y = Mathf.Max(point.y, mHips.t.position.y + 0.05f);
-        point += fwd * (kind == 1 ? 0.03f : Mathf.Max(0f, hw - 0.1f) * 0.6f);
+        Vector3 shL = mUpArmL != null ? mUpArmL.t.position : transform.position, shR = mUpArmR != null ? mUpArmR.t.position : transform.position;
+        Vector3 sh = (shL + shR) * 0.5f;
+        // Ne kadar önde: bilekler (tabloda arka yüzün kenarlarına, büyük eşyada yanlarının alt yarısına) rahat yetişsin
+        float half = Mathf.Min(hw + 0.02f, armReach * 0.85f), shHalf = Vector3.Distance(shL, shR) * 0.5f;
+        float wristLat = kind == 1 ? half * 0.82f : half, wristDown = kind == 1 ? (EdgeGrip(heldView != null ? heldView.Shape : null) ? -Mathf.Min(hh * 0.15f, 0.05f * k) : Mathf.Min(hh * 0.3f, 0.1f * k)) : hh * 0.45f;
+        HoldShape shape = heldView != null ? heldView.Shape : null;
+        gripY = -hh * 0.45f;
+        bool edge = kind == 1 && EdgeGrip(shape);
+        if (edge) wristLat = shape.BoxHalf.x + 0.03f * k; // avuçlar yan kenarlarda
+        if (kind == 2 && shape != null && !shape.IsBox)
+        {
+            // Şekle göre: alt-orta bölgede iki yanın en geniş olduğu yükseklik (vazonun karnı, büstün omuz altı)
+            Quaternion yr = Quaternion.Inverse(Quaternion.Euler(0f, transform.eulerAngles.y + heldView.ShownYaw, 0f));
+            Vector3 dr = yr * right, dlft = yr * -right;
+            float aR = Mathf.Atan2(dr.x, dr.z), aL = Mathf.Atan2(dlft.x, dlft.z);
+            gripY = shape.BestGripY(aR, aL, 0.35f, 0.78f);
+            wristDown = -gripY;
+            wristLat = Mathf.Min((shape.Radius(gripY, aR) + shape.Radius(gripY, aL)) * 0.5f + 0.03f * k, armReach * 0.85f);
+        }
+        float dx = wristLat - shHalf, dy = point.y - wristDown - sh.y, reach = armReach * (kind == 2 ? 0.92f : 0.88f); // kollar tam gerilmez: eller kenardan kopmaz
+        float dz = Mathf.Sqrt(Mathf.Max(0.0025f, reach * reach - dx * dx - dy * dy));
+        float ahead = Mathf.Max(dz + (kind == 1 && !edge ? 0.05f * k : 0f), kind == 1 ? 0.34f * k : hw + 0.2f * k); // büyük eşya gövdeden uzakta (göbeğe girmesin, ekranda ortada)
+        point = new Vector3(sh.x, point.y, sh.z) + fwd * ahead;
+        // Bakışla birlikte omuzdan biraz aşağı / yukarı (aşağı bakınca biraz iner, yine ekranda kalır)
+        carryTilt = Mathf.Clamp(armPitch, 0f, 55f) * 0.12f * Mathf.Clamp01(holdSmooth); // yukarı bakınca eşya kalkmaz (yüzüne / kameraya girmesin)
+        if (Mathf.Abs(carryTilt) > 0.01f) point = sh + Quaternion.AngleAxis(carryTilt, right) * (point - sh);
+        // Üst kenar hiçbir zaman göz hizasına yaklaşmasın (kamera eşyanın / vazonun içine girmesin)
+        float topMax = EyeY() - 0.12f * k;
+        if (point.y + hh * 0.85f > topMax) point.y = topMax - hh * 0.85f;
+        // Sabit tut: nefes alma / adım sallanması eşyayı oynatmasın (oyuncuya göre yumuşatılır; kollar IK ile eşyayı izler)
+        Vector3 local = transform.InverseTransformPoint(point);
+        float dt = Mathf.Max(Time.deltaTime, 0.0001f);
+        if (carryKindLast != kind || (local - carryLocal).sqrMagnitude > 0.0625f) carryLocal = local;
+        else carryLocal = Vector3.Lerp(carryLocal, local, 1f - Mathf.Exp(-5f * dt));
+        carryFrame = Time.frameCount; carryKindLast = kind;
+        point = transform.TransformPoint(carryLocal);
         return true;
     }
 

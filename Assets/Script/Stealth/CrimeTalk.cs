@@ -31,6 +31,8 @@ public static class CrimeTalk
     /// doğrudan KONUŞANIN yanına gelir (oyuncu güvenliğin duyduğunu görsün).</summary>
     public const float ArtworkSearchRadius = 6f;
     public const float OverheardSeconds = 25f;
+    /// <summary>Konuşanın bu kadar yakınındaki oyuncular da "duyuldu" sayılır (yanında "çal" diyerek arkadaşını yakalatmak).</summary>
+    public const float NearbyRange = 4f;
     /// <summary>Aynı oyuncudan iki "duyuldu" arasında en az (sn): CrimeWordSettings.serverMinInterval (eskiden sabit 4 sn).</summary>
     public static float ServerCooldown => CrimeWordSettings.Active.serverMinInterval;
 
@@ -111,6 +113,15 @@ public static class CrimeTalk
         if (heard == 0) return;
 
         speaker.ServerMarkOverheard(OverheardSeconds);
+        // Yanındakiler de bulaşır (trolleme): konuşanın yakınındaki oyuncular da "duyuldu" sayılır; güvenlik onları görürse
+        // onlardan da şüphelenir. Saklanan / hapisteki oyuncu etkilenmez.
+        foreach (PlayerStealth other in PlayerStealth.All)
+        {
+            if (other == null || other == speaker || !other.IsSpawned || other.IsJailed || other.IsHidden) continue;
+            if ((other.transform.position - speaker.transform.position).sqrMagnitude > NearbyRange * NearbyRange) continue;
+            other.ServerMarkOverheard(OverheardSeconds);
+            if (log) Debug.Log($"[CrimeTalk] Yanındaki oyuncu da duyuldu sayıldı: {other.name}");
+        }
         // Ekrana "Bir güvenlik ne dediğini duydu!" yazısı artık gösterilmez: oyuncu güvenliğin tepkisinden anlar
         // (sesli sohbetin mikrofon kutusu algılanınca zaten kırmızı yanar).
     }

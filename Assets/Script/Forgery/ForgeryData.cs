@@ -221,6 +221,8 @@ public static class ForgeryRegistry
     private static readonly Dictionary<ushort, float> requested = new Dictionary<ushort, float>();
     private const float RetryAfterSeconds = 3f;
     private static ushort nextId = 1;
+    /// <summary>Her temizlemede artar: kimlikler yeniden 1'den başladığı için ikon önbelleği eski sahtenin resmini göstermesin.</summary>
+    public static int Generation { get; private set; }
 
     /// <summary>Bir sahtenin verisi bu bilgisayara ulaştı (görseller yenilensin).</summary>
     public static event Action<ushort> Arrived;
@@ -233,6 +235,7 @@ public static class ForgeryRegistry
         foreach (Texture2D t in icons.Values) if (t != null) UnityEngine.Object.Destroy(t);
         icons.Clear();
         nextId = 1;
+        Generation++;
     }
 
     /// <summary>Sunucu: yeni sahteyi kaydeder, kimliğini döner.</summary>
