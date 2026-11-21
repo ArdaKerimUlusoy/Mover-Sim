@@ -1612,3 +1612,12 @@ Yalnızca **Tek Oyunculu** (ana menü → Tek Oyunculu / Öğretici; `SessionMan
 - Kodda önceki geçici parmak düzeltmeleri kaldırıldı (`FingerReskin` artık çağrılmıyor, dosya silinebilir; El_Kapali'yi çalışma anında değiştirme kaldırıldı). Emote yumrukları tam bükülür (85/95/70).
 - Birinci şahıs kol modeline (SoygunArms.fbx) dokunulmadı.
 - Değişen: `Assets/Resources/Characters/SoygunChar.fbx`, `PlayerAvatarModel.cs`, `PlayerAvatarClips.cs`, `PlayerAvatarEmotes.cs`.
+
+## Ek 83: Elde tutma düzeltmeleri (para, tablo, vazo, yüzük, büst) ve [R] çevirme animasyonu
+- El pozu klipleri (`SoygunChar.blend` → `SoygunChar.fbx`): `El_Kapali`, `El_Yazitura`, `El_Fiske`, `El_Tablo`, `El_Cimdik` kliplerinde bazı parmak eklemleri ters yöne (elin sırtına) bükülüyordu (sağ ve sol, 36 eğri). İşaretleri düzeltildi; artık hepsi avuca doğru kapanıyor. Bozuk paradaki yamuk / bozuk parmaklar buradan geliyordu (para "El_Yazitura" yumruğunun üstünde duruyor).
+- Tablo, avuçtaki şişlik: parmaklar eşyaya açık pozda bile değince kod onları 60°'ye kadar geriye açıyordu; başparmak kökü ters bükülüp avuç içi şişiyordu. Bu geriye açma kaldırıldı (parmak açık pozda kalır).
+- Vazo, kol kıyafeti: dirsek aşağı-içe düşüyor, bilek tek başına dönüyordu. Artık dirsek taşıma klibinin kendi dirsek yönüne bükülüyor, bilek dönüşünün %60'ını önkol burulma kemiği (LowerArmTwist) alıyor. Blender'da oyundaki hesapla denendi: kol çizgileri kesintisiz, buruşma yok.
+- Kalın yüzük: halka parmak uçlarının içinden geçiyordu. Artık işaret parmağı ile başparmak bant kalınlığı kadar aralanıyor (`HeldItemView.RingTube`), halka bandın ortasından tutuluyor.
+- Büst: alttaki dikdörtgen kaidenin iki yan yüzünden tutuluyor (`HoldShape.HasBase / BaseCenter / BaseHalf`, büst görselindeki en alttaki küp). Kollar aynı klip dirsek yönünü kullanıyor.
+- [R] çevirme: eşya ~0,3 sn'de yumuşakça dönüyor, dönerken 4 cm kadar kalkıp iniyor. Tablo / vazo / büstte eller de birlikte kalkıyor (`HeldItemView.TurnLift`, `TryGetCarryPoint`'e eklenir). Yüzük yine dönmüyor, para yine yazı-tura atıyor.
+- Değişen dosyalar: `SoygunChar.fbx`, `PlayerAvatarClips.cs`, `PlayerAvatarModel.cs` (ArmIK'a isteğe bağlı dirsek yönü), `PlayerAvatarEmotes.cs` (sol önkol burulma kemiği), `HeldItemView.cs`.

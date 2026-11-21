@@ -168,6 +168,11 @@ public partial class PlayerAvatar
     }
 
     private void ArmIK(Bone upper, Bone lower, Bone hand, Vector3 target, float side, float w)
+        => ArmIK(upper, lower, hand, target, side, w, Vector3.zero);
+
+    /// <summary>poleOverride sıfır değilse dirsek o yöne bükülür (ör. klibin kendi dirsek yönü: kol / kol kıyafeti
+    /// klipteki gibi düzgün kalır).</summary>
+    private void ArmIK(Bone upper, Bone lower, Bone hand, Vector3 target, float side, float w, Vector3 poleOverride)
     {
         if (upper == null || lower == null || hand == null) return;
         Vector3 S = upper.t.position, E = lower.t.position, W = hand.t.position;
@@ -177,7 +182,7 @@ public partial class PlayerAvatar
         float d = Mathf.Clamp(toT.magnitude, Mathf.Abs(a - b) + 0.001f, a + b - 0.001f);
         Vector3 dir = toT.normalized;
         // Dirsek aşağı ve hafif dışa baksın
-        Vector3 pole = Vector3.down + body.right * (0.6f * side) - body.forward * 0.2f;
+        Vector3 pole = poleOverride.sqrMagnitude > 1e-8f ? poleOverride : Vector3.down + body.right * (0.6f * side) - body.forward * 0.2f;
         Vector3 bend = Vector3.ProjectOnPlane(pole, dir);
         if (bend.sqrMagnitude < 1e-6f) bend = Vector3.down;
         bend.Normalize();

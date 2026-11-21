@@ -849,12 +849,31 @@ public partial class PlayerAvatar
             else if (t.name.StartsWith("Thumb_Distal")) td = t; else if (t.name.StartsWith("Thumb_Intermediate")) ti = t;
         }
         if (id == null || ii == null || td == null || ti == null) return;
-        Vector3 pinch = (id.position + (id.position - ii.position) + td.position + (td.position - ti.position)) * 0.5f;
-        float rr = heldView != null ? heldView.RingRadius : 0.03f;   // parmaklar halkanın alt bandını tutar: ortası bir yarıçap yukarıda
+        // Kalın yüzük: işaret ile başparmak bant kalınlığı kadar aralanır (eskiden uçlar birbirine değecek kadar kapalıydı,
+        // kalın bant parmakların içinden geçip parmaklar kırık görünüyordu). Açıklık "El_Avuc"a doğru adım adım.
+        float tube = heldView != null ? heldView.RingTube : 0.004f;
+        if (handAvucR != null && handAvucR.Length == fingersR.Count)
+        {
+            for (int st = 1; st <= 10; st++)
+            {
+                Vector3 ta = id.position + (id.position - ii.position) * 0.6f, tb = td.position + (td.position - ti.position) * 0.6f;
+                if (Vector3.Distance(ta, tb) >= 2.2f * tube) break;
+                float u = st / 10f;
+                for (int i = 0; i < fingersR.Count; i++)
+                {
+                    Transform t = fingersR[i];
+                    if (t != null && (t.name.StartsWith("Index") || t.name.StartsWith("Thumb")))
+                        t.localRotation = Quaternion.Slerp(t.localRotation, Quaternion.Slerp(handCimdikR[i], handAvucR[i], u), w);
+                }
+            }
+        }
+        Vector3 pinch = (id.position + (id.position - ii.position) * 0.6f + td.position + (td.position - ti.position) * 0.6f) * 0.5f;
+        // parmaklar halkanın alt bandını (tüpün ortasından) tutar: halkanın ortası bandın orta yarıçapı kadar yukarıda
+        float rr = heldView != null ? heldView.RingRadius - tube : 0.026f;
         // Halka göze dönük (HeldItemView): "yukarı" halkanın kendi düzleminde ölçülür
         Vector3 ringUp = Vector3.ProjectOnPlane(up, (pinch - EyeWorldPoint()).normalized);
         if (ringUp.sqrMagnitude < 1e-4f) ringUp = up;
-        smallPalm = pinch + ringUp.normalized * (rr * 0.92f);
+        smallPalm = pinch + ringUp.normalized * rr;
         smallPalmOk = true;
     }
 
@@ -929,6 +948,9 @@ public partial class PlayerAvatar
         bool shaped = shape != null && handKapaliL != null && handAvucL != null;
         Quaternion irot = ItemRotation(kind);
         Quaternion animL = mHandL.t.localRotation, animR = mHandR.t.localRotation;
+        // Klibin (Tasima_*) kendi dirsek yönü: IK dirseği bu yöne büker → kol ve kol kıyafeti klipteki gibi düzgün kalır
+        Vector3 clipElbL = mLoArmL.t.position - mUpArmL.t.position, clipElbR = mLoArmR.t.position - mUpArmR.t.position;
+        bool bustBase = kind == 2 && shaped && heldView.IsBust && shape.HasBase;
         for (int k = 0; k < 2; k++)
         {
             float side = k == 0 ? -1f : 1f;
@@ -966,6 +988,20 @@ public partial class PlayerAvatar
                     wantFinger = (xA * sx * 0.55f + yA * 0.6f - n * 0.15f).normalized;
                     wantThumb = (-xA * sx * 0.8f + yA * 0.3f).normalized;
                 }
+                else if (bustBase)
+                {
+                    // Büst: alttaki dikdörtgen kaidenin iki yan yüzünden; avuçlar kaidenin yanlarına yaslanır, parmaklar
+                    // yan yüz boyunca öne-hafif aşağı, başparmak üstte
+                    Vector3 xA = irot * Vector3.right;
+                    float sx = Mathf.Sign(Vector3.Dot(xA, right)) * side;
+                    Vector3 bc = shape.BaseCenter, bh = shape.BaseHalf;
+                    n = xA * sx;
+                    palmT = center + irot * new Vector3(bc.x + sx * bh.x, bc.y, bc.z) + n * (0.018f * ks);
+                    Vector3 tang = Vector3.ProjectOnPlane(fwd, n);
+                    tang = tang.sqrMagnitude > 1e-6f ? tang.normalized : fwd;
+                    wantFinger = (tang * 0.8f - Vector3.up * 0.25f - n * 0.15f).normalized;
+                    wantThumb = (Vector3.up * 0.85f + tang * 0.2f).normalized;
+                }
                 else
                 {
                     // Vazo / büst / heykel: en uygun yükseklikte (TryGetCarryPoint seçti) iki yanından; avuç yüzeye yaslanır.
@@ -986,11 +1022,18 @@ public partial class PlayerAvatar
                     wantFinger = (tang * 0.85f + Vector3.up * 0.05f - n * 0.35f).normalized; // yüzey boyunca öne, hafif içe
                     wantThumb = (Vector3.up * 0.85f + tang * 0.3f).normalized;
                 }
-                // İki geçiş: önce eli yönlendir, avuç ortasının bileğe göre yerini ölç, sonra bileği ona göre koy
-                ArmIK(up, lo, hand, palmT, side, w);
+                // İki geçiş: önce eli yönlendir, avuç ortasının bileğe göre yerini ölç, sonra bileği ona göre koy.
+                // Vazo / büst: dirsek klibin yönüne (biraz aşağı) bükülür, bilek burulmasının çoğunu önkol burulma kemiği alır
+                // (eskiden dirsek aşağı-içe düşüyor, bilek tek başına dönüyordu: kol kıyafeti buruşup bozuluyordu)
+                bool big = kind == 2 && !shape.IsBox;
+                Vector3 pole = big ? (k == 0 ? clipElbL : clipElbR).normalized + Vector3.down * 0.8f : Vector3.zero;
+                Transform twist = big ? (k == 0 ? loTwistL : loTwistR) : null;
+                ArmIK(up, lo, hand, palmT, side, w, pole);
+                ForearmTwist(lo, hand, thumb, twist, wantFinger, wantThumb, mid, w);
                 OrientHandTo(hand, mid, thumb, wantFinger, wantThumb, w);
                 Vector3 v = PalmPoint(hand, mid) - hand.t.position;
-                ArmIK(up, lo, hand, palmT - v, side, w);
+                ArmIK(up, lo, hand, palmT - v, side, w, pole);
+                ForearmTwist(lo, hand, thumb, twist, wantFinger, wantThumb, mid, w);
                 OrientHandTo(hand, mid, thumb, wantFinger, wantThumb, w);
                 continue;
             }
@@ -1054,6 +1097,19 @@ public partial class PlayerAvatar
     private static Vector3 PalmPoint(Bone hand, Transform mid)
         => mid != null ? hand.t.position + (mid.position - hand.t.position) * 0.55f : hand.t.position;
 
+    /// <summary>Başparmak tarafını wantThumb'a çevirmek için gereken burulmanın %60'ı önkol burulma kemiğine (kalanı bilek).</summary>
+    private void ForearmTwist(Bone lo, Bone hand, Transform thumb, Transform twist, Vector3 wantFinger, Vector3 wantThumb, Transform mid, float w)
+    {
+        if (twist == null || thumb == null || mid == null) return;
+        Quaternion h0 = hand.t.rotation;
+        hand.t.rotation = Quaternion.FromToRotation((mid.position - hand.t.position).normalized, wantFinger) * hand.t.rotation;
+        Vector3 fa = (hand.t.position - lo.t.position).normalized;
+        Vector3 c = Vector3.ProjectOnPlane(ThumbSide(hand, thumb), fa), wt = Vector3.ProjectOnPlane(wantThumb, fa);
+        hand.t.rotation = h0;
+        if (c.sqrMagnitude > 1e-8f && wt.sqrMagnitude > 1e-8f)
+            twist.rotation = Quaternion.AngleAxis(Vector3.SignedAngle(c, wt, fa) * 0.6f * w, fa) * twist.rotation;
+    }
+
     /// <summary>Eli çevir: parmaklar (orta parmak kökü) wantFinger yönüne, başparmak wantThumb tarafına.</summary>
     private void OrientHandTo(Bone hand, Transform mid, Transform thumb, Vector3 wantFinger, Vector3 wantThumb, float w)
     {
@@ -1109,16 +1165,9 @@ public partial class PlayerAvatar
                 Transform t = list[j];
                 if (t == null) continue;
                 float ok = 0f;
-                // açık pozda bile eşyanın içindeyse (ör. başparmak tablonun içine) önce dışarı aç
-                if (FingerHits(list, c, jj, shape, origin, inv, rad))
-                {
-                    for (int step = 1; step <= 4; step++)
-                    {
-                        t.localRotation = Quaternion.SlerpUnclamped(open[j], closed[j], -step * 0.25f);
-                        if (!FingerHits(list, c, jj, shape, origin, inv, rad)) break;
-                    }
-                    continue;
-                }
+                // Açık pozda bile eşyaya değiyorsa açık pozda kalır. (Eskiden geriye doğru -60°'ye kadar açılıyordu: parmak /
+                // başparmak ters bükülüp avuç içi şişik, parmaklar kırık görünüyordu.)
+                if (FingerHits(list, c, jj, shape, origin, inv, rad)) continue;
                 for (int step = 1; step <= 6; step++)
                 {
                     float u = step / 6f;
@@ -1319,7 +1368,14 @@ public partial class PlayerAvatar
         gripY = -hh * 0.45f;
         bool edge = kind == 1 && EdgeGrip(shape);
         if (edge) wristLat = shape.BoxHalf.x + 0.03f * k; // avuçlar yan kenarlarda
-        if (kind == 2 && shape != null && !shape.IsBox)
+        if (kind == 2 && shape != null && shape.HasBase && heldView.IsBust)
+        {
+            // Büst: alttaki dikdörtgen kaideden tutulur (eller kaidenin iki yan yüzünde)
+            gripY = shape.BaseCenter.y;
+            wristDown = -gripY;
+            wristLat = Mathf.Min(shape.BaseHalf.x + 0.03f * k, armReach * 0.85f);
+        }
+        else if (kind == 2 && shape != null && !shape.IsBox)
         {
             // Şekle göre: alt-orta bölgede iki yanın en geniş olduğu yükseklik (vazonun karnı, büstün omuz altı)
             Quaternion yr = Quaternion.Inverse(Quaternion.Euler(0f, transform.eulerAngles.y + heldView.ShownYaw, 0f));
@@ -1346,6 +1402,7 @@ public partial class PlayerAvatar
         else carryLocal = Vector3.Lerp(carryLocal, local, 1f - Mathf.Exp(-5f * dt));
         carryFrame = Time.frameCount; carryKindLast = kind;
         point = transform.TransformPoint(carryLocal);
+        if (heldView != null) point += Vector3.up * heldView.TurnLift; // [R] ile çevirirken eşya ve eller hafifçe kalkıp iner
         return true;
     }
 

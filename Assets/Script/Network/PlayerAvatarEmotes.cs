@@ -47,13 +47,14 @@ public partial class PlayerAvatar
     // pürüzsüz kalıyor. Öne uzanan emote'lar bu duruştan başlar, üstüne yalnızca küçük IK / bilek / parmak ayarı yapılır.
     private Transform[] emoteArmBones;
     private Quaternion[] emoteArmRot;
-    private Transform upTwistR, loTwistR;
+    private Transform upTwistR, loTwistR, loTwistL;
 
     private void SetupEmotePose(Dictionary<string, Transform> bones)
     {
         emoteArmBones = null;
         bones.TryGetValue("UpperArmTwist.R", out upTwistR);
         bones.TryGetValue("LowerArmTwist.R", out loTwistR);
+        bones.TryGetValue("LowerArmTwist.L", out loTwistL);
         if (!clipMap.TryGetValue("Firca", out AnimationClip fc) || fc == null) return;
         var list = new List<Transform>();
         foreach (string n in new[] { "Shoulder.R", "UpperArm.R", "UpperArmTwist.R", "LowerArm.R", "LowerArmTwist.R", "Hand.R" })

@@ -60,6 +60,13 @@ public class HeldItemView : MonoBehaviour
     public bool IsRing { get; private set; }
     /// <summary>Yüzüğün yarıçapı (m): parmaklar bandından tutar, halka parmak uçlarının üstünde.</summary>
     public float RingRadius { get; private set; } = 0.03f;
+    /// <summary>Yüzük bandının kalınlığı (yarıçap, m): kalın yüzükte işaret ile başparmak bu kadar aralanır.</summary>
+    public float RingTube { get; private set; } = 0.004f;
+    /// <summary>Büst mü (alttaki dikdörtgen kaidesinden tutulur).</summary>
+    public bool IsBust { get; private set; }
+    /// <summary>[R] ile çevirirken eşyanın kalkma yüksekliği (m; eller de birlikte kalkar).</summary>
+    public float TurnLift { get; private set; }
+    private float yawVel, turnSpan, lastYawTarget;
     private Quaternion ringFix = Quaternion.identity;
     /// <summary>Ek öne-arkaya eğim (derece): vazo ağzı sana doğru hafif eğik tutulur (içi görünsün).</summary>
     /// <summary>Eşyanın ek öne-arkaya eğimi (derece). Tablo: yalnızca KENDİ ekranında belirgin eğik (aşağı bakınca resmi
@@ -163,7 +170,8 @@ public class HeldItemView : MonoBehaviour
             visual.transform.rotation = r0;
         }
         ItemVisuals.SetShadows(visual, true);
-        Shape = visual != null ? HoldShape.Build(visual, centerOff, CarryKind == 1) : null;
+        IsBust = CarryKind == 2 && def != null && ArtworkLook.KindOf(def) == ArtKind.Bust;
+        Shape = visual != null ? HoldShape.Build(visual, centerOff, CarryKind == 1, IsBust) : null;
         // Yüzük: halkanın deliği (en ince ekseni) sana baksın — modelin hangi eksende yattığından bağımsız; yarıçap
         ringFix = Quaternion.identity; RingRadius = visualHalfWidth;
         if (IsRing && Shape != null)
@@ -172,6 +180,8 @@ public class HeldItemView : MonoBehaviour
             Vector3 axis = bh.x <= bh.y && bh.x <= bh.z ? Vector3.right : bh.y <= bh.z ? Vector3.up : Vector3.forward;
             ringFix = Quaternion.FromToRotation(axis, Vector3.forward);
             RingRadius = axis == Vector3.right ? Mathf.Max(bh.y, bh.z) : axis == Vector3.up ? Mathf.Max(bh.x, bh.z) : Mathf.Max(bh.x, bh.y);
+            // Bandın kalınlığı: halkanın deliği yönündeki yarı kalınlık (torus tüp yarıçapı)
+            RingTube = Mathf.Clamp(axis == Vector3.right ? bh.x : axis == Vector3.up ? bh.y : bh.z, 0.0015f, RingRadius * 0.45f);
         }
         // Vazo ağzı hafif, tablo yüzü belirgin sana doğru eğik (resmi görürsün); fazla eğik vazo ağzı yakında oval görünüyordu
         baseTilt = CarryKind == 2 && def != null && ArtworkLook.KindOf(def) == ArtKind.Vase ? -6f : 0f; // tablo eğimi: ExtraTilt
@@ -283,12 +293,23 @@ public class HeldItemView : MonoBehaviour
         bool firstPerson = IsOwnerView && !PlayerAvatar.PreviewActive && !PlayerAvatar.LocalBodyVisible;
         // R: eşya sadece ön / arka çevrilir (karşındakine gösterir). Kısa animasyonla döner, dönerken hafifçe kalkar.
         float yawTarget = inventory != null ? inventory.HoldYaw : 0f;
-        shownYaw = Mathf.MoveTowardsAngle(shownYaw, yawTarget, 560f * dt);
-        float turning = Mathf.Abs(Mathf.DeltaAngle(shownYaw, yawTarget)) / 180f;     // 1 → 0
-        float flipLift = Mathf.Sin(Mathf.Clamp01(turning) * Mathf.PI) * 0.07f;
+        // Yumuşak (hızlanıp yavaşlayan) ~0,3 sn'lik dönüş; dönerken eşya kalkıp iner (eller de birlikte) → çevirdiğin belli olur
+        if (Mathf.Abs(Mathf.DeltaAngle(yawTarget, lastYawTarget)) > 0.01f)
+        {
+            lastYawTarget = yawTarget;
+            turnSpan = Mathf.Max(1f, Mathf.Abs(Mathf.DeltaAngle(shownYaw, yawTarget)));
+        }
+        shownYaw = Mathf.SmoothDampAngle(shownYaw, yawTarget, ref yawVel, 0.09f, 900f, dt);
+        float rem = Mathf.Abs(Mathf.DeltaAngle(shownYaw, yawTarget));
+        if (rem < 0.25f) { shownYaw = yawTarget; yawVel = 0f; rem = 0f; }
+        float turning = rem / 180f;     // >0: dönüyor
+        float turnPulse = rem > 0f ? Mathf.Sin(Mathf.Clamp01(1f - rem / turnSpan) * Mathf.PI) : 0f;
+        float flipLift = turnPulse * 0.06f;
         // Yüzük: [R] hiçbir şey yapmaz (dönmez, kalkmaz). Bozuk para: kendi yazı-tura atışı var, ayrıca kalkmaz.
-        if (IsRing) { shownYaw = yawTarget; turning = 0f; flipLift = 0f; }
+        if (IsRing) { shownYaw = yawTarget; yawVel = 0f; turning = 0f; flipLift = 0f; }
         else if (isCoin) flipLift = 0f;
+        // Tablo / büyük eşya: kalkma karakterin taşıma noktasına eklenir (eller eşyayla birlikte kalkar); küçük eşya avuçta döner
+        TurnLift = CarryKind == 1 || CarryKind == 2 ? flipLift * 0.7f : 0f;
         float yaw = shownYaw;
         Vector3 target;
         Quaternion targetRot;
@@ -352,7 +373,7 @@ public class HeldItemView : MonoBehaviour
         }
         if (avatar != null && avatar.TryGetHoldPoint(out Vector3 hp, out float gap))
         {
-            target = hp + Vector3.up * flipLift; // eller bu noktanın iki yanını kavrar (PlayerAvatarModel IK)
+            target = hp; // eller bu noktanın iki yanını kavrar (PlayerAvatarModel IK); [R] kalkması noktanın içinde
         }
         else
         {
@@ -488,9 +509,12 @@ public sealed class HoldShape
     public bool IsBox;
     public Vector3 BoxCenter, BoxHalf;
     public float Y0, Y1;
+    /// <summary>Büst kaidesi (alttaki dikdörtgen; çerçevede). HasBase değilse yok.</summary>
+    public bool HasBase;
+    public Vector3 BaseCenter, BaseHalf;
     private readonly float[] r = new float[NY * NA];
 
-    public static HoldShape Build(GameObject visual, Vector3 centerOff, bool box)
+    public static HoldShape Build(GameObject visual, Vector3 centerOff, bool box, bool findBase = false)
     {
         if (visual == null) return null;
         Transform root = visual.transform;
@@ -509,8 +533,25 @@ public sealed class HoldShape
             for (int i = 0; i < v.Length; i += step) pts.Add(l2w.MultiplyPoint3x4(v[i]) - origin);
         }
         Bounds wb = default; bool hasB = ItemVisuals.TryGetBounds(visual, out wb);
-        root.rotation = r0; root.position = p0;
         var hs = new HoldShape();
+        if (findBase)
+        {
+            // Kaide: en altta duran küp parça (büst: BuildBustVisual'daki ilk parça)
+            float lowest = float.MaxValue;
+            foreach (MeshFilter mf in visual.GetComponentsInChildren<MeshFilter>())
+            {
+                if (mf.sharedMesh == null || !mf.sharedMesh.name.StartsWith("Cube")) continue;
+                Renderer rd = mf.GetComponent<Renderer>();
+                if (rd == null) continue;
+                Bounds bb = rd.bounds;
+                if (bb.min.y < lowest && bb.extents.x > 0.02f && bb.extents.z > 0.02f)
+                {
+                    lowest = bb.min.y;
+                    hs.HasBase = true; hs.BaseCenter = bb.center - origin; hs.BaseHalf = bb.extents;
+                }
+            }
+        }
+        root.rotation = r0; root.position = p0;
         if (pts.Count < 8)
         {
             if (!hasB) return null;
