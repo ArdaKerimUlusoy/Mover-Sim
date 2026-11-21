@@ -150,27 +150,57 @@ public static class SettingsUI
         bool inv = Toggle(ref y, w, Loc.T("settings.inverty"), GameSettings.InvertY);
         if (inv != GameSettings.InvertY) GameSettings.InvertY = inv;
 
-        Group(ref y, w, Loc.T("settings.group.keys"));
-        string[,] keys =
+        // Oyuncunun kullandığı bütün tuşlar, gruplar halinde (geliştirici tuşları — F5 önizleme, F7/F8 para — yazılmaz).
+        // "@anahtar" = tuş yazısı da dile göre (Sol tık / LMB).
+        string[][,] groups =
         {
-            { "W A S D", "keys.move" }, { "Shift", "keys.run" }, { "Ctrl / C", "keys.crouch" }, { "Space", "keys.jump" },
-            { "E", "keys.interact" }, { "Tab", "keys.bag" }, { "1 2 3", "keys.quick" }, { "Q", "keys.coin" },
-            { "@brush.wall.key", "keys.push" }, { "H", "keys.record" }, { "B", "keys.brush" }, { "M", "keys.plan" },
-            { "K", "keys.truck" }, { "V", "keys.voice" }, { "@keys.mmb", "keys.ping" }, { "Enter", "keys.chat" },
-            { "F5", "keys.preview" }, { "Esc", "keys.menu" },
+            new string[,]
+            {
+                { "keys.group.move", "" },
+                { "W A S D", "keys.move" }, { "@keys.cap.mouse", "keys.look" }, { "Shift", "keys.run" },
+                { "Ctrl / C", "keys.crouch" }, { "Space", "keys.jump" },
+            },
+            new string[,]
+            {
+                { "keys.group.items", "" },
+                { "E", "keys.interact" }, { "@keys.cap.ehold", "keys.ehold" }, { "Tab", "keys.bag" },
+                { "1 2 3", "keys.quick" }, { "G", "keys.stow" }, { "Q", "keys.coin" }, { "R", "keys.rotate" },
+                { "@keys.cap.wheel", "keys.distance" }, { "@keys.cap.lmbhold", "keys.throw" },
+            },
+            new string[,]
+            {
+                { "keys.group.heist", "" },
+                { "@keys.cap.lmb", "keys.push" }, { "F", "keys.pushalt" }, { "B", "keys.brush" },
+                { "@keys.cap.lmb", "keys.brushdraw" }, { "@keys.cap.rmb", "keys.brushrmb" }, { "H", "keys.record" },
+                { "M", "keys.plan" }, { "K", "keys.truck" }, { "F3", "keys.ready" },
+            },
+            new string[,]
+            {
+                { "keys.group.team", "" },
+                { "V", "keys.voice" }, { "@keys.mmb", "keys.ping" }, { "Enter", "keys.chat" }, { "@keys.cap.thold", "keys.emote" },
+            },
+            new string[,]
+            {
+                { "keys.group.other", "" },
+                { "Esc", "keys.menu" }, { "F", "keys.tutnext" }, { "@keys.cap.eschold", "keys.tutskip" }, { "H", "keys.benchguide" },
+            },
         };
         float sc = UITheme.Scale;
         float rh = Mathf.Round(30f * sc);
-        for (int i = 0; i < keys.GetLength(0); i++)
+        foreach (string[,] keys in groups)
         {
-            Rect row = new Rect(0f, y, w, rh);
-            if (i % 2 == 0) UIUtil.Round(row, new Color(1f, 1f, 1f, 0.03f), 4f);
-            UIUtil.Text(new Rect(row.x + 10f, row.y, w * 0.6f, rh), Loc.T(keys[i, 1]), TextRole.Body, UITheme.Ivory);
-            string k = keys[i, 0];
-            if (k.StartsWith("@")) k = Loc.T(k.Substring(1)); // fare tuşları dile göre (Sol tık / LMB)
-            float kw = UIUtil.KeyCapWidth(k, 13);
-            UIUtil.KeyCap(new Rect(row.xMax - kw - 10f, row.y + 5f, kw, rh - 10f), k, 13);
-            y += rh;
+            Group(ref y, w, Loc.T(keys[0, 0]));
+            for (int i = 1; i < keys.GetLength(0); i++)
+            {
+                Rect row = new Rect(0f, y, w, rh);
+                if (i % 2 == 1) UIUtil.Round(row, new Color(1f, 1f, 1f, 0.03f), 4f);
+                string k = keys[i, 0];
+                if (k.StartsWith("@")) k = Loc.T(k.Substring(1)); // fare tuşları dile göre (Sol tık / LMB)
+                float kw = UIUtil.KeyCapWidth(k, 13);
+                UIUtil.Text(new Rect(row.x + 10f, row.y, w - kw - 30f, rh), Loc.T(keys[i, 1]), TextRole.Body, UITheme.Ivory);
+                UIUtil.KeyCap(new Rect(row.xMax - kw - 10f, row.y + 5f, kw, rh - 10f), k, 13);
+                y += rh;
+            }
         }
         return y + 6f;
     }
@@ -182,18 +212,7 @@ public static class SettingsUI
         int lang = Choice(ref y, w, Loc.T("settings.language"), Loc.LanguageNames, (int)Loc.Current);
         if (lang != (int)Loc.Current) Loc.Current = (Language)lang;
 
-        // Renk (ekipte kim kim belli olsun): oyundaysan herkese uygulanır
         float sc = UITheme.Scale;
-        Rect row = new Rect(0f, y, w, RowH);
-        UIUtil.Text(new Rect(0f, row.y, w * 0.4f, RowH), Loc.T("settings.color"), TextRole.Body, UITheme.Ivory);
-        int current = inGame && localPlayer != null ? localPlayer.ColorIndex : PlayerNetworkSetup.SavedColorIndex;
-        int picked = ColorRow(new Rect(w * 0.42f, row.y + (RowH - 26f * sc) * 0.5f, w * 0.58f, 26f * sc), current);
-        if (picked != current)
-        {
-            if (inGame && localPlayer != null) localPlayer.SetColor(picked);
-            else PlayerNetworkSetup.SavedColorIndex = picked;
-        }
-        y += RowH + 6f;
 
         Group(ref y, w, Loc.T("settings.group.tutorial"));
         Note(ref y, w, Loc.T(TutorialUI.Active ? "settings.tutorial.running" : TutorialUI.Completed ? "menu.tutorial.done" : "menu.tutorial.pending"));

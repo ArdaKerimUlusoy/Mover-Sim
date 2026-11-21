@@ -31,6 +31,7 @@ public partial class PlayerAvatar : MonoBehaviour
     private float phase, speedSmooth, crouchSmooth, holdSmooth, landSquash;
     private bool wasGroundedGuess = true;
     private float lastY;
+    private float vySmooth; // dikey hız (zıplamada kollar: çıkarken kalkar, düşerken açılır)
     private bool ownerApplied;
 
     /// <summary>Kafa (kayıt kamerasının ışığı buraya takılır).</summary>
@@ -319,6 +320,7 @@ public partial class PlayerAvatar : MonoBehaviour
         // İniş: dikey hız aniden durduysa kısa bir "yaylanma"
         float vy = (transform.position.y - lastY) / dt;
         lastY = transform.position.y;
+        if (Mathf.Abs(vy) < 30f) vySmooth = Mathf.Lerp(vySmooth, vy, 1f - Mathf.Exp(-14f * dt));
         bool grounded = Mathf.Abs(vy) < 0.4f;
         if (grounded && !wasGroundedGuess) landSquash = 1f;
         wasGroundedGuess = grounded;

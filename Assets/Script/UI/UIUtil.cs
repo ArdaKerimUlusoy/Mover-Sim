@@ -363,7 +363,7 @@ public static class UIUtil
         // Alt orta (aşağıdan yukarı)
         public const int Voice = 0, Hotbar = 10, Brush = 20, KeywordStatus = 30, Tutorial = 40;
         // Sağ alt (aşağıdan yukarı)
-        public const int Weight = 0, BagHints = 10;
+        public const int Weight = 0, BagFeed = 5, BagHints = 10;
     }
 
     public const float HudMargin = 12f, HudGap = 8f;

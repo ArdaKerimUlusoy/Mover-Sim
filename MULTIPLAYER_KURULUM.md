@@ -1552,3 +1552,63 @@ Yalnızca **Tek Oyunculu** (ana menü → Tek Oyunculu / Öğretici; `SessionMan
 - **F3 = herkes hazır olunca birlikte kamyona:** garajdaki herkes F3'e basınca sunucu 3 sn ortak geri sayım başlatır, herkes aynı anda ışınlanır. Biri F3'e tekrar basarsa / yeni oyuncu gelirse iptal. Garajda tek kişi kaldıysa (ör. sonradan gelen) kendi F3'ü yeter. Hazır olunca neden gidemeyeceği (elde eşya, hapis…) hemen söylenir. Tek oyunculu değişmedi. (`HeistLobbyUI`, `GarageTravel.LocalBlockReason`, `GarageSceneLink`, `ObjectiveHUD`, Loc)
 - Pozlar Blender'da (SoygunChar.fbx) aynı IK hesabıyla birinci / üçüncü şahıstan çizilip kontrol edildi; kod Unity'nin kendi DLL'leriyle derlendi. Unity'de oynanarak denenmedi.
 - Değişen: `PlayerAvatarClips.cs`, `PlayerAvatarModel.cs`, `HeldItemView.cs`, `PlayerController.cs`, `BodyCam.cs`, `GarageMirror.cs`, `GuardLook.cs`, `HeistLobbyUI.cs`, `GarageTravel.cs`, `GarageSceneLink.cs`, `ObjectiveHUD.cs`, `Loc.cs`; yeni: `SilhouetteOutline.cs`, iki shader.
+
+## Ek 78: Çanta, ayna çizgisi, fırça parmakları (3. ve 4. tur)
+
+- Çanta: klipteki yatıklık düzeltildi (dik asılır, kalçanın yanında). Boştayken çanta tarafındaki el kapağın üstüne dayanır (dururken / yürürken; koşarken, iki elle eşya taşırken ve kayıtta bırakır).
+- Fırça: dışarıdan bakınca (diğer oyuncular, F5, ayna) parmaklar sapı sarar; kendi birinci şahıs görüntün değişmedi. Aynanın önündeyken kendi karakterin de dışarıdan görünen pozu kullanır.
+- Aynada siyah dış çizgi: çizgi maskesi her karede sıfırlanır, ayna çizmeden önce kendi dokusunu temizler (`SilhouetteMaskClear.shader`).
+- Değişen: `PlayerAvatarClips.cs`, `PlayerAvatarModel.cs`, `SilhouetteOutline.cs`, `GarageMirror.cs`, `Resources/Shaders/SilhouetteMaskClear.shader`.
+
+## Ek 79: Kontroller listesi, küçük ganimet doğrudan çantaya, zıplama kolları, emote çarkı (T)
+
+**Kontroller (Ayarlar → Kontroller):** oyuncunun kullandığı bütün tuşlar gruplu (Hareket / Eşyalar / Soygun / Ekip / Diğer). F5, F7/F8 gibi geliştirici tuşları yazılmaz. Yanlış açıklamalar düzeltildi (Q önce eldekini bırakır; H tek kişide fotoğraf makinesi; B fırçayı çıkarır).
+
+**Ayarlar → Oyun:** renk seçimi kaldırıldı (renk garajdaki dolaptan ve ana menüden seçilir).
+
+**Küçük ganimet:** masalardaki küçük eşyalar (`loot_` ile başlayanlar) 1-2-3 hızlı yuvalarında görünmez; hızlı yuvalar küçük ganimeti atlayıp sıradaki eşyaları gösterir. Bir eşya aldığında (ya da birinden çaldığında) sağ altta, kilo kartının üstünde resmiyle "Çantaya eklendi" kartı çıkar (3 sn; aynı eşya art arda gelirse sayısı artar).
+
+**Zıplama:** havadayken kollar yanlara kalkar (çıkarken biraz öne, düşerken denge için daha açık), inince iner. Fırça tutan kol etkilenmez.
+
+**Yana yürüme:** çanta kalçayla birlikte dönmez, gövdeyle kalır (sağa giderken karnın önüne kaymıyor, onu tutan el de kolu ters bükmüyor).
+
+**Emote çarkı (T):**
+- T'yi basılı tut → ekranın ortasında 8 dilimli çark. Fareyi kaydır (imleç görünmez, kamera dönmez) → dilim büyür ve kırmızılaşır. T'yi bırak → emote oynar. Ortada bırakırsan ya da Esc'ye basarsan hiçbir şey olmaz.
+- Şimdilik 6 el hareketi: El salla, Başparmak yukarı, OK, Gösterip gül, Orta parmak, Başparmak aşağı. Boş 2 dilim "Yakında" (troll / komik hareketler sonra).
+- Herkes görür. Ağda emote başına iki küçük mesaj gider (`SS_EmoteReq` istemci → sunucu, `SS_Emote` sunucu → diğerleri); poz her ekranda zamandan hesaplanır. Sunucu bekleme süresini denetler (spam yok).
+- Emote oynarken yenisi başlamaz; eller doluyken (tablo, vazo, fırça, küçük eşya, taşınan nesne) "Ellerin dolu" der.
+- Animator kullanılmadı: karakter klip + kod katmanlarıyla oynatılıyor, emote'lar da bu katmanların en üstünde kodla kurulan pozlar (kol IK + parmak bükme). Blender'da her poz önden / yandan / üstten denendi. Bir şey kurmak gerekmez, sahneye bir şey eklemen de gerekmez.
+- **İsteğe bağlı ayarlar:** `Assets/Resources` içinde sağ tık → Create → Sahte Şaheser → Emote Settings (adı `EmoteSettings` kalsın). Alanlar: tuş, çark açıkken kamera dursun mu / yürünsün mü, emote sırasında yürünsün mü, bekleme süresi (varsayılan 1,5 sn), çarkın ekrandaki yeri ve boyu, sesler.
+- **Ses eklemek:** `Assets/Resources/Emotes/` klasörüne şu adlarla ses koy: `ok`, `middle`, `thumbsup`, `thumbsdown`, `wave`, `pointlaugh` (ya da Emote Settings'teki listeye sürükle). Ses yoksa sessiz oynar.
+- **Yeni emote eklemek:** `EmoteCatalog.cs` (kimlik + süre), `Loc.cs` (`emote.<key>`), `PlayerAvatarEmotes.cs` (poz), `EmoteIcons.cs` (ikon). 8'den fazla olunca çarkta fare tekerleği sayfa değiştirir. Kilit açma (`EmoteCatalog.IsUnlocked`) ve oyuncuya özel sıra (`EmoteCatalog.SaveWheelOrder`) için yer hazır.
+- Yeni dosyalar: `Social/EmoteCatalog.cs`, `Social/EmoteSettings.cs`, `Social/EmoteIcons.cs`, `Social/EmoteWheel.cs`, `Network/PlayerAvatarEmotes.cs`. Değişen: `PlayerAvatarClips.cs`, `PlayerAvatar.cs`, `PlayerController.cs` (iki satır), `SessionMenuUI.cs` (bir satır), `PlayerInventory.cs`, `SettingsUI.cs`, `UIUtil.cs`, `Loc.cs`.
+
+## Ek 80: Emote'lar yeniden — kıyafet bozulmadan
+
+- Sorun: kol açıları kodla (IK) baştan hesaplanınca gömleğin kolu omuzda sivri / koyu katlanıyor, bilek 180° dönünce kol burgu gibi kıvrılıyordu.
+- Çözüm: öne uzanan emote'lar (başparmak yukarı / aşağı, gösterip gül, orta parmak) Blender'daki `Firca` klibinin sağ kol duruşundan başlar (omuz ve burulma kemikleri dahil; bu duruşta kumaş pürüzsüz). Üstüne yalnızca küçük el kaydırması, bilek ve parmak ayarı yapılır. Kolun kendi ekseninde dönmesi `UpperArmTwist` / `LowerArmTwist` kemiklerine paylaştırılır.
+- El başın yanında olanlar (el salla, OK): üst kol 55° dışa döner, koltuk altının önündeki koyu kırışık kalkar (Blender'da 0 / ±35 / 55° denendi).
+- "Nah" yerine "Orta parmak" (kimlik aynı: 1).
+- Her emote Blender'da önden / yandan / üstten yakın çekimle kontrol edildi; çanta eli ve zıplama kolları da.
+- Değişen: `PlayerAvatarEmotes.cs`, `PlayerAvatarClips.cs`, `EmoteCatalog.cs`, `EmoteIcons.cs`, `EmoteSettings.cs`, `Loc.cs`.
+
+## Ek 81: Parmaklar düzgün bükülür (parmak iskeleti / ağırlık düzeltmesi)
+
+- Blender'da ölçülen sorunlar (SoygunChar):
+  1. Parmak ağırlık boyaması: işaret / serçe parmağının kök boğumu çoğunlukla avuç kemiğine bağlı, orta / yüzük parmağının orta boğumu neredeyse tamamen uç kemiğine bağlı (Ring_Intermediate'e hiç nokta yok), yüzük parmağının kökü %16 serçe parmağına bağlı → parmaklar kırık / ezik bükülüyor, biri bükülünce yanındaki çekiliyor.
+  2. `El_Kapali` klibinde orta boğum ters yöne (+80°) bükülüyor → yumruk yerine pençe.
+- Düzeltme (FBX'e dokunmadan, oyun açılırken): `FingerReskin.cs` parmak noktalarını en yakın parmağın ekseni boyunca konumuna göre avuç / kök / orta / uç kemiğine bağlar (eklemde yumuşak geçiş; dış çizgi kabuğu da aynı). El pozlarında ters bükülen büyük açılar avuca doğru çevrilir; emote parmakları her kemiğin kendi menteşe ekseninde (El_Kavra'dan okunur) bükülür.
+- Eşya tutuşlarındaki (vazo, yüzük, el kamerası) parmaklar da bundan düzelir. Birinci şahıs kol modeline (SoygunArms) dokunulmadı.
+- Öne uzanan el hareketleri gövdenin 16 cm dışında tutulur (karşıdan silüette okunur).
+- Arkadaşın Blender'da düzeltmek isterse: parmak boğumlarının ağırlıklarını yeniden boya, `El_Kapali`'da orta boğumları avuca doğru çevir. O zaman bu kod zaten düzgün olan ağırlıkları neredeyse aynı bırakır.
+- Değişen: `FingerReskin.cs` (yeni), `PlayerAvatarModel.cs` (bir satır), `PlayerAvatarClips.cs`, `PlayerAvatarEmotes.cs`.
+
+## Ek 82: Karakterin eli tam çözünürlüklü (parmaklar gerçekten bükülür)
+
+- Asıl sebep: SoygunChar oluşturulurken model 93.105 noktadan 23.223 noktaya indirilmişti; elde 4.148 nokta 2.076'ya düşmüş, parmakların orta boğum halkaları silinmişti (noktalar yalnızca parmağın dibinde ve ucunda kalmıştı). Parmak bükülünce ezik / yassı uçlar buradan geliyordu. Kemikler zaten doğru yerdeydi.
+- Düzeltme (`SoygunChar.blend` → `SoygunChar.fbx`): eski tam sürümdeki (soygun_karakter_procreate.blend, aynı uzayda, aynı kemik konumları) el modeli doku eşlemesi ve ağırlıklarıyla yeni modele kondu; ağırlıklar yeni kemik adlarına çevrildi (DEF-f_index.01 → Index_Proximal, DEF-forearm.001 → LowerArmTwist vb.). Azaltılmış el ve onun dış çizgi kabuğu silindi, kabuk yeni elden aynı kalınlıkta (0,05) yeniden üretildi.
+- Dışa aktarılan FBX eskisiyle karşılaştırıldı: 78 kemik ve dinlenme pozu aynı, 18 klip aynı ad ve uzunlukta, nesneler / malzeme sırası aynı, örnek karelerde kemik konum farkı en çok ~2 mm. Değişen yalnızca gövde modelinin nokta sayısı (23.223 → 28.245).
+- Arkadaşın `El_*` el pozları ve `Firca` klibi tam elde pürüzsüz; klipler değiştirilmedi.
+- Kodda önceki geçici parmak düzeltmeleri kaldırıldı (`FingerReskin` artık çağrılmıyor, dosya silinebilir; El_Kapali'yi çalışma anında değiştirme kaldırıldı). Emote yumrukları tam bükülür (85/95/70).
+- Birinci şahıs kol modeline (SoygunArms.fbx) dokunulmadı.
+- Değişen: `Assets/Resources/Characters/SoygunChar.fbx`, `PlayerAvatarModel.cs`, `PlayerAvatarClips.cs`, `PlayerAvatarEmotes.cs`.

@@ -216,7 +216,7 @@ public class PlayerController : MonoBehaviour
         if (Keyboard.current.dKey.isPressed || Keyboard.current.rightArrowKey.isPressed) horizontal += 1f;
 
         // Sohbete yazarken tuşlar karakteri hareket ettirmesin.
-        bool inputBlocked = ChatUI.IsTyping;
+        bool inputBlocked = ChatUI.IsTyping || EmoteWheel.BlocksMove; // emote çarkı / emote: ayara göre (EmoteSettings)
         if (inputBlocked)
         {
             horizontal = 0f;
@@ -360,6 +360,7 @@ public class PlayerController : MonoBehaviour
         if (playerCamera == null || Mouse.current == null) return;
         if (Cursor.lockState != CursorLockMode.Locked || ChatUI.IsTyping) return; // Menü/sohbet açıkken kamera dönmesin
         if (LookFrozen) return; // F5 önizleme: orta tuşla karakterin etrafında dönülüyor
+        if (EmoteWheel.BlocksLook) return; // emote çarkı açık: fare seçim yapıyor
 
         float turnFactor = carrier != null ? carrier.TurnSensitivityMultiplier : 1f;
         Vector2 mouseDelta = Mouse.current.delta.ReadValue() * (lookSensitivity * turnFactor * GameSettings.MouseSensitivity);

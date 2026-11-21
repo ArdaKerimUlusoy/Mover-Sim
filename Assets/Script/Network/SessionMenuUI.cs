@@ -112,6 +112,7 @@ public class SessionMenuUI : MonoBehaviour
         if (!localPlayerSpawned || Keyboard.current == null) return;
         if (ChatUI.IsTyping || ChatUI.ClosedRecently) return; // Esc sohbeti kapatıyor, menüyü açmasın
         if (WorkbenchUI.IsOpen || BriefingUI.IsOpen) return;  // Esc atölyeyi / brifingi kapatıyor
+        if (EmoteWheel.EatsEsc) return;                      // Esc emote çarkını kapatıyor
 
         // Öğretici açıkken Esc'yi BASILI TUTMAK öğreticiyi atlar: menü basınca değil, kısa basıp BIRAKINCA açılır
         // (basılı tutarken ayarlar açılmasın). Menü zaten açıksa Esc her zamanki gibi basınca çalışır.

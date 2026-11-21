@@ -293,6 +293,7 @@ public partial class PlayerAvatar
         string L = swapArms ? ".R" : ".L", R = swapArms ? ".L" : ".R";
         mHips = MakeBone(B("Hips")); mSpine = MakeBone(B("Spine")); mChest = MakeBone(B("Chest"));
         mNeck = MakeBone(B("Neck")); mHead = MakeBone(B("Head"));
+        bagBone = B("Bag");
         mUpArmL = MakeBone(B("UpperArm" + L)); mLoArmL = MakeBone(B("LowerArm" + L)); mHandL = MakeBone(B("Hand" + L));
         mUpArmR = MakeBone(B("UpperArm" + R)); mLoArmR = MakeBone(B("LowerArm" + R)); mHandR = MakeBone(B("Hand" + R));
         CollectFingers(bones, L, fingersL, out midFingerL, out thumbL);

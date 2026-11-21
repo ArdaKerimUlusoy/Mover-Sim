@@ -9,6 +9,12 @@ Shader "Soygun/SilhouetteOutline"
         _Color ("Renk", Color) = (0.02, 0.015, 0.015, 1)
         [Enum(UnityEngine.Rendering.CullMode)] _Cull ("Cull", Float) = 2
         [IntRange] _StencilRef ("Stencil Ref (karakter numarası)", Range(1, 15)) = 8
+        // Uzakta (ve aynada) çizgi incelip kaybolmasın: kabuk, ekranda en az _MinPixels piksel kalacak kadar dışa itilir.
+        // Mesh'in kabuk köşelerinin normali "dışa doğru" yönle değiştirilmiş olmalı (SilhouetteOutline.cs) → _Widen = 1.
+        _MinPixels ("En ince çizgi (piksel)", Float) = 2.2
+        _BaseHull ("Kabuğun kendi kalınlığı (m)", Float) = 0.014
+        _MaxExtra ("En çok ek kalınlık (m)", Float) = 0.06
+        _Widen ("Kalınlaştır (0/1)", Float) = 0
     }
 
     SubShader
@@ -44,11 +50,16 @@ Shader "Soygun/SilhouetteOutline"
 
             CBUFFER_START(UnityPerMaterial)
                 half4 _Color;
+                float _MinPixels;
+                float _BaseHull;
+                float _MaxExtra;
+                float _Widen;
             CBUFFER_END
 
             struct Attributes
             {
                 float4 positionOS : POSITION;
+                float3 normalOS : NORMAL;
                 UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
@@ -66,9 +77,19 @@ Shader "Soygun/SilhouetteOutline"
                 UNITY_SETUP_INSTANCE_ID(input);
                 UNITY_TRANSFER_INSTANCE_ID(input, output);
                 UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output);
-                VertexPositionInputs pos = GetVertexPositionInputs(input.positionOS.xyz);
-                output.positionCS = pos.positionCS;
-                output.fogFactor = ComputeFogFactor(pos.positionCS.z);
+                float3 posWS = TransformObjectToWorld(input.positionOS.xyz);
+                if (_Widen > 0.5)
+                {
+                    // Bu derinlikte bir pikselin dünya boyu: 2 * z / (P11 * hedef yüksekliği). Kabuk zaten _BaseHull kalın;
+                    // eksik kalan kadar dışa (normal = dışa yön) itilir. Yakında ek yok (görünüm eskisi gibi).
+                    float zView = max(0.01, -TransformWorldToView(posWS).z);
+                    float pixWorld = 2.0 * zView / (abs(UNITY_MATRIX_P[1][1]) * max(1.0, _ScreenParams.y));
+                    float extra = clamp(_MinPixels * pixWorld - _BaseHull, 0.0, _MaxExtra);
+                    float3 nWS = TransformObjectToWorldNormal(input.normalOS);
+                    posWS += nWS * extra;
+                }
+                output.positionCS = TransformWorldToHClip(posWS);
+                output.fogFactor = ComputeFogFactor(output.positionCS.z);
                 return output;
             }
 

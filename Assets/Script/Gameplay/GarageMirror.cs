@@ -26,6 +26,11 @@ public class GarageMirror : MonoBehaviour
     private const int RtHeight = 768; // genişlik aynanın en / boy oranına göre
     private static readonly Plane[] Planes = new Plane[6];
 
+    /// <summary>Bir ayna şu sıralar kendi görüntünü çiziyor mu (son birkaç karede)? Karakter o sırada kendi
+    /// pozunu da "dışarıdan görünüş"e çevirir (ör. fırça tutuşu) — aynada başkalarının gördüğü hal görünsün.</summary>
+    public static bool ReflectingLocal => Time.frameCount - lastActiveFrame <= 3;
+    private static int lastActiveFrame = -100;
+
     private RenderTexture rt;
     private Camera mirrorCam;
     private Material glassMat, frameMat;
@@ -120,7 +125,14 @@ public class GarageMirror : MonoBehaviour
     {
         if (mirrorCam != null) return;
         int rtw = Mathf.Clamp(Mathf.RoundToInt(RtHeight * width / Mathf.Max(0.1f, height)), 256, 1536);
-        rt = new RenderTexture(rtw, RtHeight, 24) { name = "GarageMirrorRT", wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear };
+        // Derinlik + STENCIL açıkça istenir (karakterin dış çizgisi stencil maskesiyle çizilir — SilhouetteOutline)
+        var desc = new RenderTextureDescriptor(rtw, RtHeight, RenderTextureFormat.ARGB32, 24);
+        var ds = UnityEngine.Experimental.Rendering.GraphicsFormat.D24_UNorm_S8_UInt;
+        if (!SystemInfo.IsFormatSupported(ds, UnityEngine.Experimental.Rendering.GraphicsFormatUsage.Render))
+            ds = UnityEngine.Experimental.Rendering.GraphicsFormat.D32_SFloat_S8_UInt;
+        desc.depthStencilFormat = ds;
+        desc.msaaSamples = 1;
+        rt = new RenderTexture(desc) { name = "GarageMirrorRT", wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Bilinear };
         rt.Create();
         GameObject go = new GameObject("GarageMirrorCamera");
         go.transform.SetParent(transform, false);
@@ -175,6 +187,7 @@ public class GarageMirror : MonoBehaviour
         PlaceCamera(main);
         float dist = Vector3.Distance(main.transform.position, transform.position);
         mirrorCam.enabled = dist <= NearRange || (Time.frameCount & 1) == 0;
+        lastActiveFrame = Time.frameCount;
     }
 
     private bool ShouldRender(Camera main)
@@ -249,6 +262,15 @@ public class GarageMirror : MonoBehaviour
     private void OnBeginCamera(ScriptableRenderContext ctx, Camera cam)
     {
         if (cam != mirrorCam || mirrorCam == null) return;
+        // Kalıcı dokunun derinlik + stencil'i her çizimden önce temizlensin (dış çizginin stencil maskesi birikmesin)
+        if (rt != null)
+        {
+            CommandBuffer cmd = CommandBufferPool.Get("GarageMirrorClearDS");
+            cmd.SetRenderTarget(rt);
+            cmd.ClearRenderTarget(RTClearFlags.All, mirrorCam.backgroundColor, 1f, 0u);
+            ctx.ExecuteCommandBuffer(cmd);
+            CommandBufferPool.Release(cmd);
+        }
         CollectRenderers();
         changedBody.Clear();
         changedFp.Clear();

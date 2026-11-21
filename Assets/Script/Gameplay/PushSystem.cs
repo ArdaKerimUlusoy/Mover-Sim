@@ -119,6 +119,7 @@ public class PushSystem : MonoBehaviour
         bool clickBusy = ClickBusy();
         bool pressed = clickBusy ? kb != null && kb.fKey.wasPressedThisFrame
                                  : mouse != null && mouse.leftButton.wasPressedThisFrame;
+        if (EmoteWheel.IsOpen) pressed = false; // emote çarkı açıkken tıklama seçim sanılıp birini itmesin
         if (!HasTargetInFront || !pressed || Time.unscaledTime < nextPush) return;
         nextPush = Time.unscaledTime + Cooldown;
 

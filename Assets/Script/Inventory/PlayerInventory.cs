@@ -529,6 +529,7 @@ public partial class PlayerInventory : NetworkBehaviour
         }
 
         ServerPlaySound(SoundId.Pickup, no.transform.position);
+        ServerBagAdded(wi.Item, wi.Similarity, wi.ForgeryId, wi.LookKey);
         // Müzedeki küçük ganimeti (masadaki eşya) almak da hırsızlık: gören ziyaretçi / güvenlik şüphelenir
         if (wi.Item.IsSmallLoot && GameFlow.PhaseAt(transform.position) == GamePhase.Museum)
         {
@@ -726,6 +727,7 @@ public partial class PlayerInventory : NetworkBehaviour
             ServerNotify("inv.full");
             return;
         }
+        ServerBagAdded(def, s.Similarity, s.ForgeryId, s.LookKey);
 
         target.ServerRemoveAt(slotIndex, 1);
         serverStealUntil = -1f; // tek seferlik
@@ -793,6 +795,34 @@ public partial class PlayerInventory : NetworkBehaviour
         }
     }
 #endif
+
+    /// <summary>Sunucu: sahibine "çantaya eklendi" kartı (eşyanın resmiyle, sağ altta).</summary>
+    private void ServerBagAdded(ItemDefinition def, byte similarity, ushort forgeryId, int lookKey)
+    {
+        if (!IsServer || def == null || ItemDatabase.Instance == null) return;
+        int idx = ItemDatabase.Instance.IndexOf(def);
+        if (idx >= 0) BagAddedRpc(idx, similarity, forgeryId, lookKey);
+    }
+
+    [Rpc(SendTo.Owner)]
+    private void BagAddedRpc(int itemIndex, byte similarity, ushort forgeryId, int lookKey)
+    {
+        InventorySlot s = new InventorySlot { ItemIndex = (ushort)itemIndex, Count = 1, Similarity = similarity, ForgeryId = forgeryId, LookKey = lookKey };
+        // Aynı eşya art arda gelirse yeni kart açma, sayıyı artır
+        if (bagFeed.Count > 0)
+        {
+            BagFeedEntry last = bagFeed[bagFeed.Count - 1];
+            if (last.Slot.ItemIndex == s.ItemIndex && last.Slot.LookKey == lookKey && last.Slot.ForgeryId == forgeryId && Time.unscaledTime - last.Start < BagFeedHold)
+            {
+                last.Count++;
+                last.Start = Time.unscaledTime - 0.25f; // giriş animasyonunu tekrar oynatma
+                bagFeed[bagFeed.Count - 1] = last;
+                return;
+            }
+        }
+        bagFeed.Add(new BagFeedEntry { Slot = s, Count = 1, Start = Time.unscaledTime });
+        if (bagFeed.Count > BagFeedMax) bagFeed.RemoveAt(0);
+    }
 
     [Rpc(SendTo.Owner)]
     private void NotifyRpc(string key, string arg, int itemIndex)
@@ -1197,6 +1227,7 @@ public partial class PlayerInventory : NetworkBehaviour
         if (!WorkbenchUI.IsOpen) // atölyede sol üst / sağ üst / sağ alt kutular atölye arayüzüyle çakışmasın
         {
             DrawWeightHud();
+            DrawBagFeed();
             DrawMoneyHud();
             DrawHotbar();
         }
@@ -1206,6 +1237,58 @@ public partial class PlayerInventory : NetworkBehaviour
             if (externalPanel != null) externalPanel.DrawPanel(this);
             else DrawPanel(stealTarget != null ? stealTarget : this, stealTarget != null);
         }
+    }
+
+    // ---------------- "Çantaya eklendi" kartları (sağ alt, kilo kartının üstünde) ----------------
+
+    private struct BagFeedEntry { public InventorySlot Slot; public int Count; public float Start; }
+    private readonly List<BagFeedEntry> bagFeed = new List<BagFeedEntry>();
+    private const float BagFeedHold = 3.2f, BagFeedFade = 0.4f;
+    private const int BagFeedMax = 4;
+
+    /// <summary>Alınan her eşya için kısa kart: solda eşyanın resmi, sağda "Çantaya eklendi" + adı. Kayarak girer, solarak çıkar.</summary>
+    private void DrawBagFeed()
+    {
+        float now = Time.unscaledTime;
+        for (int i = bagFeed.Count - 1; i >= 0; i--)
+            if (now - bagFeed[i].Start > BagFeedHold + BagFeedFade) bagFeed.RemoveAt(i);
+        if (bagFeed.Count == 0 || !HotbarVisible) return;
+
+        float sc = UITheme.Scale;
+        float cardH = Mathf.Round(54f * sc), gap = Mathf.Round(6f * sc), w = Mathf.Round(236f * sc);
+        float h = bagFeed.Count * cardH + (bagFeed.Count - 1) * gap;
+        Rect area = UIUtil.HudRect(UIUtil.HudCorner.BottomRight, UIUtil.HudOrder.BagFeed, w, h);
+        if (Event.current.type != EventType.Repaint) return;
+
+        ItemDatabase db = ItemDatabase.Instance;
+        Color oldColor = GUI.color;
+        for (int i = 0; i < bagFeed.Count; i++) // en yenisi en altta (kilo kartına yakın)
+        {
+            BagFeedEntry f = bagFeed[i];
+            ItemDefinition def = db != null ? db.Get(f.Slot.ItemIndex) : null;
+            if (def == null) continue;
+            float t = now - f.Start;
+            float a = Mathf.Clamp01(t / 0.15f) * (1f - Mathf.Clamp01((t - BagFeedHold) / BagFeedFade));
+            float slide = (1f - Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(t / 0.22f))) * 48f * sc;
+            Rect r = new Rect(area.x + slide, area.y + i * (cardH + gap), w, cardH);
+
+            GUI.color = oldColor;
+            UIUtil.HudCard(r, a);
+            // İlk anda ince yeşil şerit: yeni geldiği belli olsun
+            UIUtil.Round(new Rect(r.x, r.y + 6f * sc, 3f * sc, r.height - 12f * sc), UITheme.WithAlpha(UITheme.Sage, a), 1.5f * sc);
+
+            GUI.color = new Color(oldColor.r, oldColor.g, oldColor.b, oldColor.a * a);
+            float pad = 5f * sc;
+            Rect icon = new Rect(r.x + pad + 4f * sc, r.y + pad, cardH - pad * 2f, cardH - pad * 2f);
+            UIUtil.Slot(icon, SlotState.Filled, 0.9f * a);
+            EconomyPanelUI.DrawItemIcon(icon, def, f.Slot);
+
+            float tx = icon.xMax + 9f * sc, tw = r.xMax - tx - 8f * sc;
+            UIUtil.Text(new Rect(tx, r.y + 6f * sc, tw, 18f * sc), Loc.T("bag.added"), TextRole.Caption, UITheme.Sage);
+            string nm = def.DisplayName + (f.Count > 1 ? "  x" + f.Count : "");
+            UIUtil.Text(new Rect(tx, r.y + 24f * sc, tw, 22f * sc), EconomyPanelUI.Fit(nm, TextRole.BodyStrong, tw), TextRole.BodyStrong, UITheme.Ivory);
+        }
+        GUI.color = oldColor;
     }
 
     /// <summary>Sağ alt: çanta doluluğu (küçük kart: kilo + ince çubuk). Tuş ipucu yazılmaz.</summary>
@@ -1249,13 +1332,42 @@ public partial class PlayerInventory : NetworkBehaviour
 
     public const int HotbarSlots = 3;
 
-    /// <summary>1 / 2 / 3: çantanın ilk üç satırındaki eşyayı doğrudan ele al / elden kaldır.</summary>
+    /// <summary>Küçük ganimet (masadaki ufak eşyalar) hızlı yuvalarda görünmez; doğrudan çantada durur.</summary>
+    private static bool BagOnly(InventorySlot s)
+    {
+        ItemDefinition d = Def(s);
+        return d != null && d.IsSmallLoot;
+    }
+
+    /// <summary>Hızlı yuva numarasının (0..2) çantadaki satırı: küçük ganimet atlanarak sıradaki eşya. Yoksa -1.</summary>
+    public int HotbarSlotIndex(int hotbar)
+    {
+        if (slots == null) return -1;
+        int n = 0;
+        for (int i = 0; i < slots.Count; i++)
+        {
+            if (BagOnly(slots[i])) continue;
+            if (n == hotbar) return i;
+            n++;
+        }
+        return -1;
+    }
+
+    /// <summary>Çanta satırının hızlı yuva numarası (0..2); hızlı yuvada değilse -1.</summary>
+    public int HotbarNumberOf(int slotIndex)
+    {
+        for (int h = 0; h < HotbarSlots; h++) if (HotbarSlotIndex(h) == slotIndex) return h;
+        return -1;
+    }
+
+    /// <summary>1 / 2 / 3: hızlı yuvadaki eşyayı (küçük ganimet hariç ilk üç eşya) doğrudan ele al / elden kaldır.</summary>
     private void TickHotbarKeys(Keyboard kb)
     {
         for (int i = 0; i < HotbarSlots; i++)
         {
             if (!kb[Key.Digit1 + i].wasPressedThisFrame && !kb[Key.Numpad1 + i].wasPressedThisFrame) continue;
-            if (i < slots.Count) ToggleHeld(i);
+            int si = HotbarSlotIndex(i);
+            if (si >= 0) ToggleHeld(si);
             else if (heldSlot.Value != NoHeld) { SetHeld(NoHeld); GameAudio.Play2D(SoundId.BagClose, 0.5f); } // boş yuva = boş el
             return;
         }
@@ -1290,15 +1402,16 @@ public partial class PlayerInventory : NetworkBehaviour
         for (int i = 0; i < HotbarSlots; i++)
         {
             Rect r = new Rect(area.x + i * (size + gap), area.y, size, size);
-            bool has = i < slots.Count;
-            ItemDefinition def = has ? Def(slots[i]) : null;
-            bool isHeld = has && held == i;
+            int si = HotbarSlotIndex(i);
+            bool has = si >= 0;
+            ItemDefinition def = has ? Def(slots[si]) : null;
+            bool isHeld = has && held == si;
 
             // Panel açıkken (imleç serbest) yuvaya tıklayarak da ele alınır; boş yuva = boş el
             bool hover = cursorFree && r.Contains(e.mousePosition);
             if (e.type == EventType.MouseDown && e.button == 0 && hover)
             {
-                if (has) ToggleHeld(i);
+                if (has) ToggleHeld(si);
                 else if (held != NoHeld) SetHeld(NoHeld);
                 e.Use();
             }
@@ -1308,7 +1421,7 @@ public partial class PlayerInventory : NetworkBehaviour
             UIUtil.Slot(r, st);
             if (def != null)
             {
-                InventorySlot s = slots[i];
+                InventorySlot s = slots[si];
                 EconomyPanelUI.DrawItemIcon(r, def, s);
                 if (s.Count > 1) EconomyPanelUI.Count(r, "x" + s.Count, UITheme.Ivory);
             }
@@ -1326,7 +1439,7 @@ public partial class PlayerInventory : NetworkBehaviour
         }
 
         // Elde tutulan eşyanın adı yuvaların hemen üstünde (gölgeli yazı, kutusuz)
-        if (e.type == EventType.Repaint && held >= 0 && held < HotbarSlots && held < slots.Count)
+        if (e.type == EventType.Repaint && held >= 0 && held < slots.Count)
         {
             ItemDefinition hd = Def(slots[held]);
             if (hd != null)
@@ -1458,7 +1571,8 @@ public partial class PlayerInventory : NetworkBehaviour
                 if (def == null) continue;
                 EconomyPanelUI.DrawItemIcon(cr, def, s);
                 if (s.Count > 1) EconomyPanelUI.Count(cr, "x" + s.Count, UITheme.Ivory);
-                if (!stealing && i < HotbarSlots) UIUtil.Text(new Rect(cr.x + 5f, cr.y + 2f, 18f, 16f), (i + 1).ToString(), TextRole.Caption, UITheme.WithAlpha(UITheme.IvoryDim, 0.7f));
+                int hb = stealing ? -1 : HotbarNumberOf(i);
+                if (hb >= 0) UIUtil.Text(new Rect(cr.x + 5f, cr.y + 2f, 18f, 16f), (hb + 1).ToString(), TextRole.Caption, UITheme.WithAlpha(UITheme.IvoryDim, 0.7f));
                 if (isHeld) UIUtil.Round(new Rect(cr.xMax - 12f, cr.y + 6f, 6f, 6f), UITheme.Sage, 3f); // elde: küçük yeşil nokta
             }
             GUI.EndScrollView();
